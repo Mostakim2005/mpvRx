@@ -4,6 +4,13 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.0.3 — Quick Bookmarks, Split Panel, Seekbar Pins & LRC Export
+
+- **One-tap quick bookmarks & custom name editor:** Single-tap `Add Bookmark` (`+`) to immediately capture a private frame thumbnail and save a bookmark with a `"Bookmark created"` OSD notice, or long-press it to enter a custom name. Both `Add Bookmark` and `Bookmarks List` can be repositioned or hidden in the player button layout editor.
+- **Toggleable 75% / 25% split bookmark panel & overlay option:** Open a vertically scrollable bookmark list beside/below the resized video viewport (25% panel in both portrait and landscape) or switch in one tap to the overlay sheet. Single-tap jumps immediately; long-press opens Jump, Rename, and Delete actions. Thumbnails stay in app-private storage with `.nomedia`.
+- **Seekbar bookmark pins & tap snapping:** Draws distinct amber pins above all seekbar styles and snaps non-drag taps near a bookmark.
+- **Timed `.lrc` lyrics export:** Exports synced `.lrc` lyrics via the system file picker with current playback timing offset baked into the timestamps.
+- **Personal `arm64-v8a` Standard CI/release builds:** Builds and signs only Standard `arm64-v8a` APKs.
 - **Recent-playback markers in Tree mode:** The latest played video now receives the same italic, highlighted title as in other browser views, including Tree list, grid, and search results.
 - **Clearer Liquid Glass player controls:** Removed the extra dark overlay and reduced the edge vignette so subtitles remain easier to read. Text labels match their icons, and hidden regular and custom button backgrounds retain readable content.
 - **Custom OpenAI-compatible AI provider:** Added an API base URL, a separate optional key, manual model IDs, and optional model discovery for Chat Completions. Endpoint errors remain visible without exposing the configured key.

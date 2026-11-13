@@ -127,7 +127,7 @@ jobs:
             name: Standard
             gradle: Standard
             dir: standard
-            abis: universal arm64-v8a armeabi-v7a x86 x86_64
+            abis: arm64-v8a
             asset: ''
     env:
       MEASURE_API_KEY: ${{ secrets.MEASURE_API_KEY }}
@@ -158,7 +158,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew "assemble${GRADLE_FLAVOR}Preview" --stacktrace --no-daemon --max-workers=2
+          ./gradlew "assemble${GRADLE_FLAVOR}Preview" -PtargetAbi=arm64-v8a --stacktrace --no-daemon --max-workers=2
 
       - name: Sign and stage preview APKs
         shell: bash
@@ -317,11 +317,7 @@ jobs:
           publication_mode = os.environ["PUBLICATION_MODE"]
 
           public_names = [
-              "universal",
               "arm64-v8a",
-              "armeabi-v7a",
-              "x86",
-              "x86_64",
           ]
           assets = []
 

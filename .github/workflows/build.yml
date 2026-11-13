@@ -27,7 +27,7 @@ jobs:
             name: Standard
             gradle: Standard
             dir: standard
-            abis: universal arm64-v8a armeabi-v7a x86 x86_64
+            abis: arm64-v8a
             package: apk
     env:
       MEASURE_API_KEY: ${{ secrets.MEASURE_API_KEY }}
@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew "assemble${GRADLE_FLAVOR}Release" -PexperimentalBuild=true --stacktrace --no-daemon --max-workers=2
+          ./gradlew "assemble${GRADLE_FLAVOR}Release" -PexperimentalBuild=true -PtargetAbi=arm64-v8a --stacktrace --no-daemon --max-workers=2
 
       - name: Sign APKs when signing secrets are available
         if: ${{ matrix.distribution.package == 'apk' }}
@@ -146,55 +146,16 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="app/build/outputs/apk/standard/release"
-          architectures=(universal arm64-v8a armeabi-v7a x86 x86_64)
-          for abi in "${architectures[@]}"; do
-            if ! compgen -G "$release_dir/app-standard-${abi}-release*.apk" >/dev/null; then
-              echo "No standard release APK found for $abi"
-              exit 1
-            fi
-          done
+          if ! compgen -G "$release_dir/app-standard-arm64-v8a-release*.apk" >/dev/null; then
+            echo "No standard release APK found for arm64-v8a"
+            exit 1
+          fi
 
       - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v7
         with:
           name: app-standard-arm64-v8a-release-${{ steps.metadata.outputs.short_sha }}
           path: app/build/outputs/apk/standard/release/app-standard-arm64-v8a-release*.apk
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload armeabi-v7a APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-standard-armeabi-v7a-release-${{ steps.metadata.outputs.short_sha }}
-          path: app/build/outputs/apk/standard/release/app-standard-armeabi-v7a-release*.apk
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload universal APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-standard-universal-release-${{ steps.metadata.outputs.short_sha }}
-          path: app/build/outputs/apk/standard/release/app-standard-universal-release*.apk
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload x86 APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-standard-x86-release-${{ steps.metadata.outputs.short_sha }}
-          path: app/build/outputs/apk/standard/release/app-standard-x86-release*.apk
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload x86_64 APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-standard-x86_64-release-${{ steps.metadata.outputs.short_sha }}
-          path: app/build/outputs/apk/standard/release/app-standard-x86_64-release*.apk
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -294,11 +255,7 @@ jobs:
           touch site/.nojekyll
 
           declare -A sources=(
-            [universal]=app-standard-universal-release.apk
             [arm64-v8a]=app-standard-arm64-v8a-release.apk
-            [armeabi-v7a]=app-standard-armeabi-v7a-release.apk
-            [x86]=app-standard-x86-release.apk
-            [x86_64]=app-standard-x86_64-release.apk
           )
           release_tag="experimental-r${build}-${GITHUB_SHA:0:12}"
           release_base="https://github.com/${GH_REPO}/releases/download/${release_tag}"

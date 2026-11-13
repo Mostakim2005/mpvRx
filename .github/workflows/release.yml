@@ -3,7 +3,7 @@ name: Make release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -75,6 +75,7 @@ jobs:
           VERSION_TAG="$version_tag" python3 - <<'PY'
           import os
           import re
+          import textwrap
           from pathlib import Path
 
           version = os.environ['VERSION_TAG'].removeprefix('v')
@@ -102,7 +103,7 @@ jobs:
             name: Standard
             gradle: Standard
             dir: standard
-            abis: universal arm64-v8a armeabi-v7a x86 x86_64
+            abis: arm64-v8a
             asset: ''
             package: apk
     env:
@@ -134,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew "assemble${GRADLE_FLAVOR}Release" --stacktrace --no-daemon --max-workers=2
+          ./gradlew "assemble${GRADLE_FLAVOR}Release" -PtargetAbi=arm64-v8a --stacktrace --no-daemon --max-workers=2
 
       - name: Sign and stage release APKs
         shell: bash
@@ -235,7 +236,7 @@ jobs:
         run: |
           set -euo pipefail
           : > checksums.txt
-          variants=(universal arm64-v8a armeabi-v7a x86 x86_64)
+          variants=(arm64-v8a)
           for variant in "${variants[@]}"; do
             asset="release-assets/mpvRx-${variant}-${VERSION_TAG}.apk"
             if [[ ! -f "$asset" ]]; then
@@ -253,6 +254,7 @@ jobs:
           python3 - <<'PY'
           import os
           import re
+          import textwrap
           from pathlib import Path
 
           version = os.environ['VERSION_TAG'].removeprefix('v')
@@ -270,13 +272,10 @@ jobs:
           latest = '\n'.join(section).strip()
           if not latest:
               raise SystemExit(f'Could not find changelog section for {version}')
-          variant_guide = """
-          ### APK variants
-
-          All packages contain the Standard Vulkan-capable mpvRx release build:
-
-          - **Standard** (`mpvRx-<architecture>-<version>.apk`): Universal and architecture-specific APKs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`).
-          """.strip()
+          variant_guide = (
+              "### APK variant\n\n"
+              "- **Standard (`arm64-v8a`)** (`mpvRx-arm64-v8a-<version>.apk`): Signed 64-bit ARM Standard build."
+          )
           Path('release-notes.md').write_text(
               latest + '\n\n---\n' + variant_guide + '\n\n### SHA-256 checksums\n\n```text\n',
               encoding='utf-8',
