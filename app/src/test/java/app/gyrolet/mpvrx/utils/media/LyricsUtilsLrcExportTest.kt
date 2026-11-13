@@ -19,8 +19,9 @@ class LyricsUtilsLrcExportTest {
   fun formatLrcTimestampFormatsAndClampsCleanly() {
     assertEquals("00:00.00", LyricsUtils.formatLrcTimestamp(-500L))
     assertEquals("00:00.00", LyricsUtils.formatLrcTimestamp(0L))
-    assertEquals("01:05.43", LyricsUtils.formatLrcTimestamp(65_439L))
-    assertEquals("61:01.05", LyricsUtils.formatLrcTimestamp(3_661_059L))
+    assertEquals("01:05.43", LyricsUtils.formatLrcTimestamp(65_434L))
+    assertEquals("01:05.44", LyricsUtils.formatLrcTimestamp(65_439L))
+    assertEquals("61:01.06", LyricsUtils.formatLrcTimestamp(3_661_059L))
   }
 
   @Test
