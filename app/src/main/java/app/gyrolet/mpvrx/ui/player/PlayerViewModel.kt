@@ -1098,7 +1098,7 @@ class PlayerViewModel(
    * chapters for audiobooks. Saved bookmarks are deliberately excluded, so anything deriving a
    * chapter name from this can't feed a bookmark's own title back into the next one.
    */
-  private val sourceChapters: StateFlow<List<dev.vivvvek.seeker.Segment>> =
+  val sourceChapters: StateFlow<List<dev.vivvvek.seeker.Segment>> =
     combine(chapters, AudiobookPlayback.book, AudiobookPlayback.chapters, PlaybackSession.state) { native, book, bookChapters, state ->
       val item = state.currentItem
       if (item?.audiobook == null) native
@@ -1819,6 +1819,30 @@ class PlayerViewModel(
     offsetMs = offsetMs,
   )
 
+  fun buildExportLrcContent(): String? {
+    val state = lyricsUiState.value
+    val targetLyrics = state.originalLyrics ?: state.lyrics ?: return null
+    val sessionItem = PlaybackSession.state.value.currentItem
+    val title = currentLyricsTitle().takeIf { it.isNotBlank() }
+    val artist =
+      sessionItem?.artist?.takeIf { it.isNotBlank() }
+        ?: PlaybackSession.getPropertyString("metadata/by-key/Artist")?.takeIf { it.isNotBlank() }
+        ?: PlaybackSession.getPropertyString("metadata/by-key/artist")?.takeIf { it.isNotBlank() }
+    return app.gyrolet.mpvrx.utils.media.LyricsUtils.formatToLrc(
+      lyrics = targetLyrics,
+      title = title,
+      artist = artist,
+      offsetMs = state.syncOffsetMs,
+    )
+  }
+
+  fun suggestedLrcFilename(): String {
+    val rawTitle = currentLyricsTitle().ifBlank { "lyrics" }
+    val sanitized = rawTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifBlank { "lyrics" }
+    val base = if (sanitized.lowercase(java.util.Locale.ROOT).endsWith(".lrc")) sanitized.dropLast(4) else sanitized
+    return "$base.lrc"
+  }
+
   fun adjustLyricsSyncOffset(deltaMs: Int) {
     val newOffset = lyricsUiState.value.syncOffsetMs + deltaMs
     lyricsUiState.value = lyricsUiState.value.copy(syncOffsetMs = newOffset)
@@ -2192,25 +2216,85 @@ fun restartFromBeginning() {
    * picker was opened from the in-place lyrics, where there is nothing to go back to.
    */
   var lyricsProviderSheetOrigin = Sheets.None
+  var bookmarkEditorReturnSheet = Sheets.None
+  private val _isBookmarkPanelOpen = MutableStateFlow(false)
+  val isBookmarkPanelOpen = _isBookmarkPanelOpen.asStateFlow()
+
   private val _bookmarkDraft = MutableStateFlow<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity?>(null)
   val bookmarkDraft = _bookmarkDraft.asStateFlow()
 
-  fun preparePlaybackBookmark(existing: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? = null): Boolean {
+  fun toggleBookmarkPanel() {
+    _isBookmarkPanelOpen.update { !it }
+  }
+
+  fun setBookmarkPanelOpen(open: Boolean) {
+    _isBookmarkPanelOpen.value = open
+  }
+
+  fun switchBookmarkPresentation(useSplitPanel: Boolean) {
+    playerPreferences.bookmarkListSplitPanel.set(useSplitPanel)
+    if (useSplitPanel) {
+      sheetShown.update { Sheets.None }
+      _isBookmarkPanelOpen.value = true
+    } else {
+      _isBookmarkPanelOpen.value = false
+      sheetShown.update { Sheets.Chapters }
+      hideControls()
+    }
+  }
+
+  private fun buildPlaybackBookmarkDraft(): app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? {
+    val mediaId = bookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return null
+    val (item, positionMs) = PlaybackSession.bookmarkSnapshot() ?: return null
+    if (bookmarkMediaId(item) != mediaId) return null
+    val timelinePosition = item.audiobook?.let { info ->
+      AudiobookPlayback.book.value?.takeIf { it.book.id == info.bookId }?.positionInBook(info.trackId, positionMs)
+    } ?: positionMs
+    val chapter = sourceChapters.value.lastOrNull { it.start * 1000 <= timelinePosition }?.name
+    val time = android.text.format.DateUtils.formatElapsedTime(timelinePosition / 1000)
+    val defaultTitle = if (!chapter.isNullOrBlank()) "$chapter • $time" else "Bookmark $time"
+    return app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
+      mediaId = mediaId,
+      bookTrackId = item.audiobook?.trackId,
+      positionMs = positionMs,
+      title = defaultTitle,
+    )
+  }
+
+  private fun captureAndAttachBookmarkThumbnail(bookmarkId: Long) {
+    if (isAudioOnly.value) return
+    viewModelScope.launch(Dispatchers.IO) {
+      val path = app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(appContext)
+        ?: return@launch
+      val updatedRows = playbackBookmarkDao.updateThumbnail(bookmarkId, path)
+      if (updatedRows == 0) {
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(appContext, path)
+      }
+    }
+  }
+
+  fun quickAddBookmark(): Boolean {
+    val draft = buildPlaybackBookmarkDraft() ?: return false
+    playerUpdate.value = PlayerUpdates.BookmarkCreated()
+    viewModelScope.launch(Dispatchers.IO) {
+      val insertedId = playbackBookmarkDao.add(draft)
+      captureAndAttachBookmarkThumbnail(insertedId)
+    }
+    return true
+  }
+
+  fun preparePlaybackBookmark(
+    existing: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? = null,
+    returnSheet: Sheets = Sheets.None,
+  ): Boolean {
     val mediaId = bookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return false
+    bookmarkEditorReturnSheet = returnSheet
     if (existing != null) {
       if (existing.mediaId != mediaId) return false
       _bookmarkDraft.value = existing
     } else {
-      val (item, positionMs) = PlaybackSession.bookmarkSnapshot() ?: return false
-      if (bookmarkMediaId(item) != mediaId) return false
-      val timelinePosition = item.audiobook?.let { info ->
-        AudiobookPlayback.book.value?.takeIf { it.book.id == info.bookId }?.positionInBook(info.trackId, positionMs)
-      } ?: positionMs
-      val chapter = sourceChapters.value.lastOrNull { it.start * 1000 <= timelinePosition }?.name ?: currentMediaTitle
-      val time = android.text.format.DateUtils.formatElapsedTime(timelinePosition / 1000)
-      _bookmarkDraft.value = app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
-        mediaId = mediaId, bookTrackId = item.audiobook?.trackId, positionMs = positionMs, title = "$chapter $time".trim(),
-      )
+      val draft = buildPlaybackBookmarkDraft() ?: return false
+      _bookmarkDraft.value = draft
     }
     return true
   }
@@ -2222,11 +2306,20 @@ fun restartFromBeginning() {
 
   suspend fun savePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity, title: String) {
     require(title.isNotBlank())
-    if (bookmark.id == 0L) playbackBookmarkDao.add(bookmark.copy(title = title.trim())) else playbackBookmarkDao.rename(bookmark.id, title.trim())
+    if (bookmark.id == 0L) {
+      val insertedId = playbackBookmarkDao.add(bookmark.copy(title = title.trim()))
+      if (bookmark.thumbnailPath == null) {
+        captureAndAttachBookmarkThumbnail(insertedId)
+      }
+    } else {
+      playbackBookmarkDao.rename(bookmark.id, title.trim())
+    }
   }
 
   suspend fun deletePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
     playbackBookmarkDao.delete(bookmark.id)
+    if (_bookmarkDraft.value?.id == bookmark.id) _bookmarkDraft.value = null
+    app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(appContext, bookmark.thumbnailPath)
   }
 
   fun seekToBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {

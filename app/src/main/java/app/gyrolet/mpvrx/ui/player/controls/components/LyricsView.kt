@@ -702,11 +702,12 @@ fun LyricsView(
       }
 
       val hasTimedLyricsForActions = state.lyrics?.synced?.isNotEmpty() == true
+      val showExportAction = (state.originalLyrics ?: state.lyrics)?.isValid() == true
       val showTranslateAction = hasTimedLyricsForActions && !app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD
-      val leftActionCount = (if (isAudiobook) 0 else 1) + (if (showTranslateAction) 1 else 0)
+      val leftActionCount = (if (isAudiobook) 0 else 1) + (if (showExportAction) 1 else 0) + (if (showTranslateAction) 1 else 0)
       val reduceFooterMotion = AppMotion.playerReducedMotion()
       AnimatedVisibility(
-        visible = hasTimedLyricsForActions || !isAudiobook,
+        visible = hasTimedLyricsForActions || showExportAction || !isAudiobook,
         enter = fadeIn(if (reduceFooterMotion) AppMotion.ReducedAlpha else AppMotion.Effect.Alpha),
         exit = fadeOut(if (reduceFooterMotion) AppMotion.ReducedAlpha else AppMotion.Effect.Alpha),
       ) {
@@ -725,6 +726,14 @@ fun LyricsView(
                   viewModel = viewModel,
                   modifier = Modifier.size(40.dp),
                   connectedIndex = 0,
+                  connectedCount = leftActionCount,
+                )
+              }
+              if (showExportAction) {
+                app.gyrolet.mpvrx.ui.player.controls.components.sheets.LyricsExportAction(
+                  viewModel = viewModel,
+                  modifier = Modifier.size(40.dp),
+                  connectedIndex = if (isAudiobook) 0 else 1,
                   connectedCount = leftActionCount,
                 )
               }

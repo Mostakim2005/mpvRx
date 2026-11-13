@@ -17,6 +17,7 @@ data class PlaybackBookmarkEntity(
   val title: String,
   val createdAt: Long = System.currentTimeMillis(),
   val bookTrackId: Long? = null,
+  val thumbnailPath: String? = null,
 ) {
   companion object {
     fun audiobookMediaId(bookId: Long): String = "audiobook:$bookId"

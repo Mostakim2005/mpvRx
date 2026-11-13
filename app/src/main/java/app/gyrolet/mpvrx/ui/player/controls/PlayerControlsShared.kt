@@ -139,9 +139,27 @@ fun RenderPlayerButton(
     val clickEvent = LocalPlayerButtonsClickEvent.current
     val bookmarkHaptics = app.gyrolet.mpvrx.ui.utils.rememberAppHaptics()
     val addPlaybackBookmark = {
-      if (viewModel.preparePlaybackBookmark()) {
+      val returnSheet =
+        if (viewModel.sheetShown.value == Sheets.Chapters) Sheets.Chapters else Sheets.None
+      if (viewModel.preparePlaybackBookmark(returnSheet = returnSheet)) {
         bookmarkHaptics.confirm()
         onOpenSheet(Sheets.BookmarkEditor)
+      }
+    }
+    val quickAddPlaybackBookmark = {
+      if (viewModel.quickAddBookmark()) {
+        bookmarkHaptics.confirm()
+      }
+    }
+    val playerPreferencesForBookmarks = org.koin.compose.koinInject<app.gyrolet.mpvrx.preferences.PlayerPreferences>()
+    val bookmarkSplitEnabled by playerPreferencesForBookmarks.bookmarkListSplitPanel.collectAsState()
+    val isAudioOnly by viewModel.isAudioOnly.collectAsState()
+    val isTelevision = app.gyrolet.mpvrx.ui.tv.isTelevision()
+    val toggleBookmarksList = {
+      if (bookmarkSplitEnabled && !isAudioOnly && !isTelevision) {
+        viewModel.toggleBookmarkPanel()
+      } else {
+        onOpenSheet(if (viewModel.sheetShown.value == Sheets.Chapters) Sheets.None else Sheets.Chapters)
       }
     }
     val advancedPreferences = koinInject<AdvancedPreferences>()
@@ -271,12 +289,31 @@ fun RenderPlayerButton(
     }
 
     PlayerButton.BOOKMARKS_CHAPTERS -> {
+      val isBookmarkPanelOpen by viewModel.isBookmarkPanelOpen.collectAsState()
+      val isListOpen = isBookmarkPanelOpen || viewModel.sheetShown.collectAsState().value == Sheets.Chapters
       ControlsButton(
         Icons.RoundedFilled.Bookmarks,
-        onClick = { onOpenSheet(Sheets.Chapters) },
+        onClick = toggleBookmarksList,
         onLongClick = addPlaybackBookmark,
         onLongClickLabel = stringResource(R.string.audiobook_add_bookmark),
         title = stringResource(R.string.btn_label_bookmarks),
+        color =
+          when {
+            isListOpen -> MaterialTheme.colorScheme.primary
+            borderless -> controlColor
+            else -> buttonContentColor
+          },
+        modifier = Modifier.size(buttonSize),
+      )
+    }
+
+    PlayerButton.ADD_BOOKMARK -> {
+      ControlsButton(
+        Icons.RoundedFilled.Bookmark,
+        onClick = quickAddPlaybackBookmark,
+        onLongClick = addPlaybackBookmark,
+        onLongClickLabel = stringResource(R.string.audiobook_bookmark_name),
+        title = stringResource(R.string.btn_label_add_bookmark),
         color = if (borderless) controlColor else buttonContentColor,
         modifier = Modifier.size(buttonSize),
       )
@@ -1067,14 +1104,14 @@ fun RenderPlayerButton(
       if (!isPortrait && !compact && chapter != null) {
         CurrentChapter(
           chapter = chapter,
-          onClick = { onOpenSheet(Sheets.Chapters) },
+          onClick = toggleBookmarksList,
           onLongClick = addPlaybackBookmark,
         )
       } else if (chapters.isNotEmpty() || isPortrait || compact) {
         // Small button: always show in portrait/compact, or when chapters exist in landscape
         ControlsButton(
           icon = Icons.RoundedFilled.Bookmarks,
-          onClick = { onOpenSheet(Sheets.Chapters) },
+          onClick = toggleBookmarksList,
           onLongClick = addPlaybackBookmark,
           onLongClickLabel = stringResource(R.string.audiobook_add_bookmark),
           title = stringResource(R.string.btn_label_bookmarks),

@@ -14,6 +14,11 @@ import android.net.Uri
 import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,8 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.domain.download.AppDownloadManager
 import app.gyrolet.mpvrx.domain.download.DownloadLocations
 import app.gyrolet.mpvrx.domain.download.DownloadMetadata
@@ -39,6 +49,7 @@ import app.gyrolet.mpvrx.ui.player.Panels
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.TrackNode
+import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkActionMenuDialog
 import app.gyrolet.mpvrx.ui.player.controls.components.MpvConfigOwnedSheet
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.AmbientSheet
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.PostProcessingSheet
@@ -61,8 +72,10 @@ import app.gyrolet.mpvrx.ui.player.controls.components.sheets.VideoQualitySheet
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.VisualizerStyleSheet
 import app.gyrolet.mpvrx.ui.player.setTrackSelectionId
 import app.gyrolet.mpvrx.ui.tv.launchOrInApp
+import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
 import dev.vivvvek.seeker.Segment
+import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.koinInject
@@ -128,7 +141,7 @@ fun PlayerSheets(
 
   when (sheetShown) {
     Sheets.None -> {}
-    Sheets.BookmarkEditor -> PlaybackBookmarkEditor(viewModel, { onShowSheet(Sheets.Chapters) }, onDismissRequest)
+    Sheets.BookmarkEditor -> PlaybackBookmarkEditor(viewModel, { onShowSheet(viewModel.bookmarkEditorReturnSheet) }, onDismissRequest)
     Sheets.AudiobookRewind,
     Sheets.AudiobookSleepTimer,
     -> app.gyrolet.mpvrx.ui.player.controls.components.sheets.AudiobookSheet(
@@ -796,6 +809,7 @@ private fun rememberQualityDownloadAction(viewModel: PlayerViewModel): ((TrackNo
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChaptersSheetWithBookmarks(
   viewModel: app.gyrolet.mpvrx.ui.player.PlayerViewModel,
@@ -806,41 +820,119 @@ private fun ChaptersSheetWithBookmarks(
   onDismissRequest: () -> Unit,
 ) {
   val bookmarks by viewModel.playbackBookmarks.composeCollectAsState()
-  val mediaId by viewModel.bookmarkMediaId.composeCollectAsState()
+  val sourceChapters by viewModel.sourceChapters.composeCollectAsState()
+  val isAudioOnly by viewModel.isAudioOnly.composeCollectAsState()
+  val currentPositionSec by viewModel.precisePosition.composeCollectAsState()
+  val playbackState by app.gyrolet.mpvrx.ui.player.PlaybackSession.state.composeCollectAsState()
+  val isAudiobook = playbackState.currentItem?.audiobook != null
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
-  var deleting by remember(mediaId) { mutableStateOf(false) }
+  val haptics = rememberAppHaptics()
+  var menuBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
+
+  val nearestBookmarkId =
+    remember(bookmarks, currentPositionSec) {
+      bookmarks.minByOrNull { bookmark ->
+        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec)
+      }?.takeIf { bookmark ->
+        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec) <= 2f
+      }?.id
+    }
+
+  val displayChapters =
+    remember(sourceChapters, chapters, bookmarks) {
+      (if (sourceChapters.isNotEmpty() || bookmarks.isNotEmpty()) sourceChapters else chapters).toImmutableList()
+    }
+  val displayChapter =
+    remember(displayChapters, chapter, currentPositionSec) {
+      chapter?.takeIf { it in displayChapters } ?: displayChapters.lastOrNull { it.start <= currentPositionSec }
+    }
+
   ChaptersSheet(
-    chapters = chapters,
-    currentChapter = chapter,
-    onClick = { onSeekToChapter(chapters.indexOf(it)) },
+    chapters = displayChapters,
+    currentChapter = displayChapter,
+    bookmarks = bookmarks,
+    bookmarkPositionSec = { (viewModel.bookmarkPositionMs(it) / 1000L).toInt().coerceAtLeast(0) },
+    selectedBookmarkId = nearestBookmarkId,
+    onBookmarkClick = { bookmark ->
+      viewModel.seekToBookmark(bookmark)
+      onDismissRequest()
+    },
+    onBookmarkLongClick = { bookmark -> menuBookmark = bookmark },
+    onClick = { segment ->
+      val index = chapters.indexOf(segment)
+      if (index >= 0) {
+        onSeekToChapter(index)
+      } else {
+        viewModel.seekToPlaybackChapter(segment)
+      }
+      onDismissRequest()
+    },
     onDismissRequest = onDismissRequest,
-    itemActions = { segment ->
-      bookmarks.firstOrNull { it.mediaId == mediaId && it.title == segment.name && viewModel.bookmarkPositionMs(it) / 1000f == segment.start }?.let { bookmark ->
-        androidx.compose.material3.IconButton(enabled = !deleting, onClick = {
-          if (viewModel.preparePlaybackBookmark(bookmark)) onShowSheet(Sheets.BookmarkEditor)
-        }) {
-          app.gyrolet.mpvrx.ui.icons.Icon(app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Edit,
-            androidx.compose.ui.res.stringResource(R.string.audiobook_bookmark_name))
-        }
-        androidx.compose.material3.IconButton(enabled = !deleting, onClick = {
-          deleting = true
-          scope.launch {
-            try {
-              viewModel.deletePlaybackBookmark(bookmark)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-              throw cancelled
-            } catch (_: Exception) {
-              Toast.makeText(context, R.string.playback_bookmark_update_failed, Toast.LENGTH_SHORT).show()
-            } finally {
-              deleting = false
-            }
-          }
-        }) {
-          app.gyrolet.mpvrx.ui.icons.Icon(app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Delete,
-            androidx.compose.ui.res.stringResource(R.string.audiobook_delete_bookmark))
+    actions = {
+      Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+          Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .combinedClickable(
+              onClick = {
+                if (viewModel.quickAddBookmark()) haptics.confirm()
+              },
+              onLongClick = {
+                if (viewModel.preparePlaybackBookmark(returnSheet = Sheets.Chapters)) {
+                  haptics.confirm()
+                  onShowSheet(Sheets.BookmarkEditor)
+                }
+              },
+              onLongClickLabel = androidx.compose.ui.res.stringResource(R.string.audiobook_bookmark_name),
+            ),
+      ) {
+        app.gyrolet.mpvrx.ui.icons.Icon(
+          imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Add,
+          contentDescription = androidx.compose.ui.res.stringResource(R.string.audiobook_add_bookmark),
+        )
+      }
+      if (!isAudioOnly && !isAudiobook) {
+        androidx.compose.material3.IconButton(
+          onClick = { viewModel.switchBookmarkPresentation(useSplitPanel = true) },
+        ) {
+          app.gyrolet.mpvrx.ui.icons.Icon(
+            imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.ViewAgenda,
+            contentDescription = androidx.compose.ui.res.stringResource(R.string.bookmark_switch_to_split),
+          )
         }
       }
     },
   )
+
+  menuBookmark?.let { target ->
+    val targetPosSec = (viewModel.bookmarkPositionMs(target) / 1000L).toInt().coerceAtLeast(0)
+    BookmarkActionMenuDialog(
+      bookmark = target,
+      formattedTimestamp = Utils.prettyTime(targetPosSec),
+      onJump = {
+        viewModel.seekToBookmark(target)
+        onDismissRequest()
+      },
+      onRename = {
+        if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.Chapters)) {
+          onShowSheet(Sheets.BookmarkEditor)
+        }
+      },
+      onDelete = {
+        scope.launch {
+          try {
+            viewModel.deletePlaybackBookmark(target)
+          } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+          } catch (_: Exception) {
+            Toast.makeText(context, R.string.playback_bookmark_update_failed, Toast.LENGTH_SHORT).show()
+          }
+        }
+      },
+      onDismiss = { menuBookmark = null },
+    )
+  }
 }

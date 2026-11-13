@@ -2357,6 +2357,15 @@ fun AudioPlayerControls(
           else (remaining ?: 0f).takeIf { it > 0f }
             ?: (currentDurSec - currentPosSec).coerceAtLeast(0f)
 
+        val playbackBookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
+        val seekbarBookmarks =
+          remember(playbackBookmarks, audiobook) {
+            playbackBookmarks.mapNotNull { bookmark ->
+              val posSec = viewModel.bookmarkPositionMs(bookmark) / 1000f
+              if (posSec.isFinite() && posSec >= 0f) dev.vivvvek.seeker.Segment(bookmark.title, posSec) else null
+            }.toImmutableList()
+          }
+
         androidx.compose.runtime.key(audiobook?.book?.id ?: currentItem?.stableId) {
         SeekbarWithTimers(
           position = timelinePosition,
@@ -2370,6 +2379,7 @@ fun AudioPlayerControls(
           positionTimerOnClick = {},
           chapters = seekbarChapters,
           skipSegments = persistentListOf(),
+          bookmarks = seekbarBookmarks,
           paused = isPaused,
           seekbarStyle = seekbarStyle,
           showWavyVisualizer = audioWavySeekbar,

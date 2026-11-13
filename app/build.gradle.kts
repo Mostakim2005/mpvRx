@@ -405,6 +405,7 @@ dependencies {
   implementation("sh.measure:measure-android:0.22.0")
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
+  testImplementation(libs.kotlin.test.junit)
   implementation(libs.androidx.activity.compose)
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.ui)

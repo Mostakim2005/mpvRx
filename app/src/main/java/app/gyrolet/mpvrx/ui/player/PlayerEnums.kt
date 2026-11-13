@@ -247,6 +247,10 @@ sealed class PlayerUpdates {
     val currentFrame: Int,
     val totalFrames: Int,
   ) : PlayerUpdates()
+
+  data class BookmarkCreated(
+    val timestampId: Long = System.nanoTime(),
+  ) : PlayerUpdates()
 }
 
 /**

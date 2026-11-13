@@ -182,6 +182,43 @@ object LyricsUtils {
     }
   }
 
+  fun formatLrcTimestamp(timeMs: Long): String {
+    val clamped = timeMs.coerceAtLeast(0L)
+    val totalCentis = (clamped + 5L) / 10L
+    val minutes = totalCentis / 6000L
+    val seconds = (totalCentis % 6000L) / 100L
+    val centis = totalCentis % 100L
+    return String.format(java.util.Locale.ROOT, "%02d:%02d.%02d", minutes, seconds, centis)
+  }
+
+  fun formatToLrc(
+    lyrics: Lyrics,
+    title: String? = null,
+    artist: String? = null,
+    offsetMs: Int = 0,
+  ): String {
+    val lines = mutableListOf<String>()
+    val cleanTitle = title?.replace(Regex("[\\r\\n]+"), " ")?.trim().orEmpty()
+    val cleanArtist = artist?.replace(Regex("[\\r\\n]+"), " ")?.trim().orEmpty()
+    if (cleanTitle.isNotEmpty()) lines += "[ti:$cleanTitle]"
+    if (cleanArtist.isNotEmpty()) lines += "[ar:$cleanArtist]"
+    if (lines.isNotEmpty()) lines += ""
+
+    val synced = lyrics.synced
+    if (!synced.isNullOrEmpty()) {
+      for (entry in synced) {
+        val shiftedMs = (entry.time.toLong() - offsetMs.toLong()).coerceAtLeast(0L)
+        val cleanText = entry.line.replace(Regex("[\\r\\n]+"), " ").trim()
+        lines += "[${formatLrcTimestamp(shiftedMs)}]$cleanText"
+      }
+    } else {
+      for (plainLine in lyrics.plain.orEmpty()) {
+        lines += plainLine.trimEnd()
+      }
+    }
+    return lines.joinToString("\n")
+  }
+
   fun getActiveLineIndex(
     syncedLines: List<SyncedLine>?,
     positionMs: Long,

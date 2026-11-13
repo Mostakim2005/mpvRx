@@ -17,6 +17,9 @@ interface PlaybackBookmarkDao {
   @Query("UPDATE playback_bookmarks SET title = :title WHERE id = :id")
   suspend fun rename(id: Long, title: String)
 
+  @Query("UPDATE playback_bookmarks SET thumbnailPath = :thumbnailPath WHERE id = :id")
+  suspend fun updateThumbnail(id: Long, thumbnailPath: String?): Int
+
   @Query("DELETE FROM playback_bookmarks WHERE id = :id")
   suspend fun delete(id: Long)
 }

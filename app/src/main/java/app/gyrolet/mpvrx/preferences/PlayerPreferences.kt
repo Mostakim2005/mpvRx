@@ -64,6 +64,7 @@ class PlayerPreferences(
 
   val showBufferedRange = preferenceStore.getBoolean("show_buffered_range", true)
   val showChapterIndicators = preferenceStore.getBoolean("show_chapter_indicators", true)
+  val bookmarkListSplitPanel = preferenceStore.getBoolean("bookmark_list_split_panel", true)
 
   val brightnessGesture = preferenceStore.getBoolean("gestures_brightness", true)
   val volumeGesture = preferenceStore.getBoolean("volume_brightness", true)

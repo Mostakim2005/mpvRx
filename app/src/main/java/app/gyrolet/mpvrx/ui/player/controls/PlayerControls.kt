@@ -18,6 +18,7 @@ import app.gyrolet.mpvrx.ui.player.declaredMediaKind
 import app.gyrolet.mpvrx.domain.torrent.TorrentStreamingState
 import app.gyrolet.mpvrx.domain.torrent.formatTorrentBytes
 import app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed
+import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkSplitPanel
 import android.content.res.Configuration.ORIENTATION_PORTRAIT
 import android.database.ContentObserver
 import android.media.AudioManager
@@ -58,6 +59,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -486,10 +488,36 @@ fun PlayerControls(
       openingNetworkStream = openingNetworkStream,
     )
   val isMpvBuffering = bufferingState.isCacheStall
+  val configuration = LocalConfiguration.current
+  val isBookmarkPanelOpen by viewModel.isBookmarkPanelOpen.collectAsState()
+  val bookmarkListSplitPanel by playerPreferences.bookmarkListSplitPanel.collectAsState()
+  val isAudioOnly by viewModel.isAudioOnly.collectAsState()
+  var containerBounds by remember { mutableStateOf(IntSize.Zero) }
+  var playerBounds by remember { mutableStateOf(IntSize.Zero) }
+  val isPortrait =
+    remember(configuration.orientation, containerBounds) {
+      if (containerBounds != IntSize.Zero) {
+        containerBounds.width < containerBounds.height
+      } else {
+        configuration.orientation == ORIENTATION_PORTRAIT
+      }
+    }
+  val showSplitBookmarkPanel =
+    !isTelevision &&
+      !isAudioOnly &&
+      playbackSessionState.currentItem?.audiobook == null &&
+      isBookmarkPanelOpen &&
+      bookmarkListSplitPanel
+  val splitHorizontalSides =
+    if (showSplitBookmarkPanel && !isPortrait) {
+      WindowInsetsSides.Left
+    } else {
+      WindowInsetsSides.Horizontal
+    }
   val safeAreaWindow by playerPreferences.safeAreaWindow.collectAsState()
   val safeAreaInsetModifier =
     if (safeAreaWindow) {
-      Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+      Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + splitHorizontalSides))
     } else {
       Modifier
     }
@@ -500,10 +528,10 @@ fun PlayerControls(
       .windowInsetsPadding(
         WindowInsets.displayCutout
           .union(WindowInsets.navigationBarsIgnoringVisibility)
-          .only(WindowInsetsSides.Horizontal),
+          .only(splitHorizontalSides),
       ).then(safeAreaInsetModifier)
   val navigationBarBottomInsetModifier =
-    if (showSystemNavigationBar) {
+    if (showSystemNavigationBar && !(showSplitBookmarkPanel && isPortrait)) {
       Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
     } else {
       Modifier
@@ -597,16 +625,6 @@ fun PlayerControls(
   }
 
   val playerActivity = LocalActivity.current as PlayerActivity
-  val configuration = LocalConfiguration.current
-  var playerBounds by remember { mutableStateOf(IntSize.Zero) }
-  val isPortrait =
-    remember(configuration.orientation, playerBounds) {
-      if (playerBounds != IntSize.Zero) {
-        playerBounds.width < playerBounds.height
-      } else {
-        configuration.orientation == ORIENTATION_PORTRAIT
-      }
-    }
   val aspect by viewModel.videoAspect.collectAsState()
   val currentZoom by viewModel.videoZoom.collectAsState()
   val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsStateWithLifecycle()
@@ -837,7 +855,10 @@ fun PlayerControls(
             modifier
               .fillMaxSize()
               .clipToBounds()
-              .onSizeChanged { playerBounds = it },
+              .onSizeChanged {
+                containerBounds = it
+                playerBounds = it
+              },
         ) {
           VideoOpenAnimationOverlay(
             style = videoOpenAnim,
@@ -1010,6 +1031,19 @@ fun PlayerControls(
       glassSource.scene != null
   }
 
+  val sheetShown by viewModel.sheetShown.collectAsState()
+  val panel by viewModel.panelShown.collectAsState()
+  val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
+  val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
+  val speedPresets by playerPreferences.speedPresets.collectAsState()
+  val sortedSpeedPresets =
+    remember(
+      speedPresets,
+    ) { speedPresets.map { it.toFloat() }.sorted() }
+  LaunchedEffect(sheetShown, panel) {
+    if (sheetShown != Sheets.None || panel != Panels.None) isPlayerDrawerShown = false
+  }
+
   CompositionLocalProvider(
     LocalKyantPlayerBackdrop provides playerKyantBackdrop,
     LocalPlayerHdrOutputEnabled provides isHdrOutputEnabled,
@@ -1018,21 +1052,29 @@ fun PlayerControls(
     LocalPlayerButtonsOpacity provides playerButtonsBackgroundOpacity.coerceIn(0f, 1f),
   ) {
     PlayerControlsContentTheme {
-      GestureHandler(
-        viewModel = viewModel,
-        externalPanelShown = isPlayerDrawerShown,
-        onDismissExternalPanel = { setPlayerDrawerShown(false) },
-        onLockedTouchSideChanged = { isLeft ->
-          showUnlockOnLeft = isLeft
-          resetControlsTimestamp = System.currentTimeMillis()
-        },
-        onSeekRipple = { seekRippleRequest = it },
+      val currentLayoutDirection = LocalLayoutDirection.current
+      Box(
         modifier =
           modifier
             .fillMaxSize()
-            .clipToBounds()
-            .onSizeChanged { playerBounds = it },
+            .onSizeChanged { containerBounds = it },
       ) {
+        val videoOverlayPane: @Composable (Modifier) -> Unit = { paneModifier ->
+          GestureHandler(
+            viewModel = viewModel,
+            externalPanelShown = isPlayerDrawerShown,
+            onDismissExternalPanel = { setPlayerDrawerShown(false) },
+            onLockedTouchSideChanged = { isLeft ->
+              showUnlockOnLeft = isLeft
+              resetControlsTimestamp = System.currentTimeMillis()
+            },
+            onSeekRipple = { seekRippleRequest = it },
+            modifier =
+              paneModifier
+                .fillMaxSize()
+                .clipToBounds()
+                .onSizeChanged { playerBounds = it },
+          ) {
     key(playbackSessionState.generation) {
       DoubleTapToSeekOvals(
         amount = doubleTapSeekAmount,
@@ -1410,6 +1452,7 @@ fun PlayerControls(
               is PlayerUpdates.RepeatMode -> showActionFeedbackOverlay
               is PlayerUpdates.Shuffle -> showRepeatShuffleOverlay
               is PlayerUpdates.ShowText -> showActionFeedbackOverlay
+              is PlayerUpdates.BookmarkCreated -> true
               is PlayerUpdates.ProviderStatusText -> showProviderStatusOverlay
               is PlayerUpdates.ResumedFrom -> showResumeIndicatorOverlay
               is PlayerUpdates.ResumeAvailable -> true
@@ -1570,6 +1613,9 @@ fun PlayerControls(
                   }
                   is PlayerUpdates.ShowText ->
                     TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ShowText).value)
+
+                  is PlayerUpdates.BookmarkCreated ->
+                    TextPlayerUpdate(stringResource(R.string.bookmark_created))
 
                   is PlayerUpdates.ProviderStatusText ->
                     TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ProviderStatusText).value)
@@ -2198,6 +2244,14 @@ fun PlayerControls(
               remember(chapters, showChapterIndicators) {
                 if (showChapterIndicators) chapters.toImmutableList() else persistentListOf()
               }
+            val playbackBookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
+            val seekbarBookmarks =
+              remember(playbackBookmarks) {
+                playbackBookmarks.mapNotNull { bookmark ->
+                  val posSec = viewModel.bookmarkPositionMs(bookmark) / 1000f
+                  if (posSec.isFinite() && posSec >= 0f) dev.vivvvek.seeker.Segment(bookmark.title, posSec) else null
+                }.toImmutableList()
+              }
             val skipSegmentsImmutable = remember(skipSegments) { skipSegments.toImmutableList() }
 
             // mpv republishes the cache endpoint several times per second during playback. Reading
@@ -2248,6 +2302,7 @@ fun PlayerControls(
               positionTimerOnClick = {},
               chapters = seekbarChapters,
               skipSegments = skipSegmentsImmutable,
+              bookmarks = seekbarBookmarks,
               paused = paused ?: false,
               seekbarStyle = seekbarStyle,
               useWavySeekbar = useWavySeekbar,
@@ -2410,61 +2465,6 @@ fun PlayerControls(
       }
     }
 
-    val sheetShown by viewModel.sheetShown.collectAsState()
-    val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
-    val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
-    val speedPresets by playerPreferences.speedPresets.collectAsState()
-    val sortedSpeedPresets =
-      androidx.compose.runtime.remember(
-        speedPresets,
-      ) { speedPresets.map { it.toFloat() }.sorted() }
-
-    PlayerSheets(
-      viewModel = viewModel,
-      sheetShown = sheetShown,
-      subtitles = subtitles.toImmutableList(),
-      onAddSubtitle = viewModel::addSubtitle,
-      onToggleSubtitle = viewModel::toggleSubtitle,
-      isSubtitleSelected = viewModel::isSubtitleSelected,
-      subtitleSelectionIndicator = viewModel::subtitleSelectionIndicator,
-      onRemoveSubtitle = viewModel::removeSubtitle,
-      audioTracks = audioTracks.toImmutableList(),
-      onAddAudio = viewModel::addAudio,
-      onSelectAudio = viewModel::selectAudioTrack,
-      chapter = currentChapter?.let(chapters::getOrNull),
-      chapters = chapters.toImmutableList(),
-      onSeekToChapter = {
-        chapters.getOrNull(it)?.let(viewModel::seekToPlaybackChapter)
-      },
-      decoder = decoder,
-      onUpdateDecoder = { PlaybackSession.setPropertyString("hwdec", it.value) },
-      speed = playbackSpeed ?: playerPreferences.defaultSpeed.get(),
-      onSpeedChange = { PlaybackSession.setPropertyFloat("speed", it.toFixed(2)) },
-      onMakeDefaultSpeed = { playerPreferences.defaultSpeed.set(it.toFixed(2)) },
-      onAddSpeedPreset = { playerPreferences.speedPresets += it.toFixed(2).toString() },
-      onRemoveSpeedPreset = { playerPreferences.speedPresets -= it.toFixed(2).toString() },
-      onResetSpeedPresets = playerPreferences.speedPresets::delete,
-      speedPresets = sortedSpeedPresets,
-      onResetDefaultSpeed = {
-        PlaybackSession.setPropertyFloat("speed", playerPreferences.defaultSpeed.deleteAndGet().toFixed(2))
-      },
-      onStartSleepTimer = viewModel::startTimer,
-      onOpenPanel = onOpenPanel,
-      onShowSheet = onOpenSheet,
-      onDismissRequest = { onOpenSheet(Sheets.None) },
-    )
-
-    val panel by viewModel.panelShown.collectAsState()
-    LaunchedEffect(sheetShown, panel) {
-      if (sheetShown != Sheets.None || panel != Panels.None) isPlayerDrawerShown = false
-    }
-    PlayerPanels(
-      panelShown = panel,
-      viewModel = viewModel,
-      onDismissRequest = { onOpenPanel(Panels.None) },
-    )
-
-
     val activePlayerDrawerButtons =
       remember(
         isSpeedNonOne,
@@ -2481,6 +2481,7 @@ fun PlayerControls(
         backgroundPlaybackEnabled,
         statisticsPage,
         mediaScopesState.overlayVisible,
+        isBookmarkPanelOpen,
       ) {
         buildSet {
           if (isSpeedNonOne) add(PlayerButton.PLAYBACK_SPEED)
@@ -2497,6 +2498,7 @@ fun PlayerControls(
           if (backgroundPlaybackEnabled) add(PlayerButton.BACKGROUND_PLAYBACK)
           if (statisticsPage == 6) add(PlayerButton.TIME_NETWORK)
           if (mediaScopesState.overlayVisible) add(PlayerButton.SCOPES)
+          if (isBookmarkPanelOpen) add(PlayerButton.BOOKMARKS_CHAPTERS)
         }
       }
 
@@ -2539,6 +2541,94 @@ fun PlayerControls(
         )
       }
     }
+          }
+        }
+
+        if (showSplitBookmarkPanel) {
+          CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            if (isPortrait) {
+              Column(modifier = Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
+                  Box(modifier = Modifier.fillMaxWidth().weight(0.75f)) {
+                    videoOverlayPane(Modifier.fillMaxSize())
+                  }
+                  BookmarkSplitPanel(
+                    viewModel = viewModel,
+                    chapters = chapters.toImmutableList(),
+                    currentPositionSeconds = chapterPositionState.value,
+                    isPortrait = true,
+                    onOpenSheet = onOpenSheet,
+                    onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
+                    onClose = { viewModel.setBookmarkPanelOpen(false) },
+                    modifier = Modifier.fillMaxWidth().weight(0.25f),
+                  )
+                }
+              }
+            } else {
+              Row(modifier = Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
+                  Box(modifier = Modifier.fillMaxHeight().weight(0.75f)) {
+                    videoOverlayPane(Modifier.fillMaxSize())
+                  }
+                  BookmarkSplitPanel(
+                    viewModel = viewModel,
+                    chapters = chapters.toImmutableList(),
+                    currentPositionSeconds = chapterPositionState.value,
+                    isPortrait = false,
+                    onOpenSheet = onOpenSheet,
+                    onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
+                    onClose = { viewModel.setBookmarkPanelOpen(false) },
+                    modifier = Modifier.fillMaxHeight().weight(0.25f),
+                  )
+                }
+              }
+            }
+          }
+        } else {
+          videoOverlayPane(Modifier.fillMaxSize())
+        }
+
+        PlayerSheets(
+          viewModel = viewModel,
+          sheetShown = sheetShown,
+          subtitles = subtitles.toImmutableList(),
+          onAddSubtitle = viewModel::addSubtitle,
+          onToggleSubtitle = viewModel::toggleSubtitle,
+          isSubtitleSelected = viewModel::isSubtitleSelected,
+          subtitleSelectionIndicator = viewModel::subtitleSelectionIndicator,
+          onRemoveSubtitle = viewModel::removeSubtitle,
+          audioTracks = audioTracks.toImmutableList(),
+          onAddAudio = viewModel::addAudio,
+          onSelectAudio = viewModel::selectAudioTrack,
+          chapter = currentChapter?.let(chapters::getOrNull),
+          chapters = chapters.toImmutableList(),
+          onSeekToChapter = {
+            chapters.getOrNull(it)?.let(viewModel::seekToPlaybackChapter)
+          },
+          decoder = decoder,
+          onUpdateDecoder = { PlaybackSession.setPropertyString("hwdec", it.value) },
+          speed = playbackSpeed ?: playerPreferences.defaultSpeed.get(),
+          onSpeedChange = { PlaybackSession.setPropertyFloat("speed", it.toFixed(2)) },
+          onMakeDefaultSpeed = { playerPreferences.defaultSpeed.set(it.toFixed(2)) },
+          onAddSpeedPreset = { playerPreferences.speedPresets += it.toFixed(2).toString() },
+          onRemoveSpeedPreset = { playerPreferences.speedPresets -= it.toFixed(2).toString() },
+          onResetSpeedPresets = playerPreferences.speedPresets::delete,
+          speedPresets = sortedSpeedPresets,
+          onResetDefaultSpeed = {
+            PlaybackSession.setPropertyFloat("speed", playerPreferences.defaultSpeed.deleteAndGet().toFixed(2))
+          },
+          onStartSleepTimer = viewModel::startTimer,
+          onOpenPanel = onOpenPanel,
+          onShowSheet = onOpenSheet,
+          onDismissRequest = { onOpenSheet(Sheets.None) },
+        )
+
+        PlayerPanels(
+          panelShown = panel,
+          viewModel = viewModel,
+          onDismissRequest = { onOpenPanel(Panels.None) },
+        )
+      }
       }
     }
   }

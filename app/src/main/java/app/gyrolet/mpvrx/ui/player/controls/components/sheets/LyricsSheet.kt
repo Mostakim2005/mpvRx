@@ -129,6 +129,7 @@ fun LyricsSheet(
         }
 
         LyricsEditAction(viewModel, origin = Sheets.Lyrics)
+        LyricsExportAction(viewModel)
         IconButton(onClick = onDismiss) {
           Icon(
             imageVector = Icons.RoundedFilled.Close,

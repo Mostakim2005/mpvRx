@@ -4,6 +4,8 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.sheets
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.text.BasicTextField
@@ -41,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,7 +86,11 @@ import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.theme.animatedConnectedContainerColor
 import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import app.gyrolet.mpvrx.utils.media.LyricsUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToLong
 
 @Composable
@@ -127,6 +134,111 @@ fun LyricsEditAction(
         Icon(
           Icons.RoundedFilled.Edit,
           contentDescription = stringResource(R.string.lyrics_editor_title),
+          modifier = Modifier.size(22.dp),
+        )
+      }
+    }
+  }
+}
+
+@Composable
+fun LyricsExportAction(
+  viewModel: PlayerViewModel,
+  modifier: Modifier = Modifier,
+  connectedIndex: Int? = null,
+  connectedCount: Int = 1,
+) {
+  val state by viewModel.lyricsUiState.collectAsState()
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  var pendingLrcContent by remember { mutableStateOf<String?>(null) }
+
+  val createDocumentLauncher =
+    rememberLauncherForActivityResult(
+      contract = ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+      val contentToWrite = pendingLrcContent
+      pendingLrcContent = null
+      if (uri == null || contentToWrite == null) return@rememberLauncherForActivityResult
+      scope.launch {
+        val saved =
+          try {
+            withContext(Dispatchers.IO) {
+              context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(contentToWrite.toByteArray(Charsets.UTF_8))
+                out.flush()
+              } != null
+            }
+          } catch (cancelled: CancellationException) {
+            throw cancelled
+          } catch (_: Exception) {
+            false
+          }
+        val messageRes = if (saved) R.string.lyrics_export_success else R.string.lyrics_export_failed
+        Toast.makeText(context, messageRes, Toast.LENGTH_SHORT).show()
+      }
+    }
+
+  val hasExportableLyrics =
+    !state.isLoading && (state.originalLyrics ?: state.lyrics)?.isValid() == true
+
+  val onExportClick = {
+    val content = viewModel.buildExportLrcContent()
+    if (content.isNullOrBlank()) {
+      Toast.makeText(context, R.string.lyrics_export_empty, Toast.LENGTH_SHORT).show()
+    } else {
+      pendingLrcContent = content
+      try {
+        createDocumentLauncher.launch(viewModel.suggestedLrcFilename())
+      } catch (_: Exception) {
+        pendingLrcContent = null
+        Toast.makeText(context, R.string.lyrics_export_failed, Toast.LENGTH_SHORT).show()
+      }
+    }
+  }
+
+  if (connectedIndex == null) {
+    IconButton(onClick = onExportClick, enabled = hasExportableLyrics, modifier = modifier) {
+      Icon(
+        imageVector = Icons.RoundedFilled.Download,
+        contentDescription = stringResource(R.string.lyrics_export_lrc),
+      )
+    }
+  } else {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val shape =
+      rememberConnectedShape(
+        connectedIndex,
+        connectedCount,
+        ConnectedLayout.Vertical,
+        tokens = AppConnectedControlShapeTokens,
+        pressed = pressed,
+      )
+    Surface(
+      onClick = onExportClick,
+      enabled = hasExportableLyrics,
+      shape = shape,
+      interactionSource = interactionSource,
+      color =
+        animatedConnectedContainerColor(
+          selected = false,
+          pressed = pressed,
+          enabled = hasExportableLyrics,
+          containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+      contentColor =
+        if (hasExportableLyrics) {
+          MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+          MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        },
+      modifier = modifier.appPressFeedback(interactionSource, hasExportableLyrics, pressedScale = 0.95f),
+    ) {
+      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Icon(
+          imageVector = Icons.RoundedFilled.Download,
+          contentDescription = stringResource(R.string.lyrics_export_lrc),
           modifier = Modifier.size(22.dp),
         )
       }

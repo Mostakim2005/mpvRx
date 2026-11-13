@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -45,8 +47,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.presentation.components.PlayerSheet
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
+import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkListRow
 import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
@@ -66,14 +70,26 @@ fun ChaptersSheet(
   onClick: (Segment) -> Unit,
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
+  actions: @Composable RowScope.() -> Unit = {},
+  bookmarks: List<PlaybackBookmarkEntity> = emptyList(),
+  bookmarkPositionSec: (PlaybackBookmarkEntity) -> Int = { (it.positionMs / 1000L).toInt().coerceAtLeast(0) },
+  selectedBookmarkId: Long? = null,
+  onBookmarkClick: (PlaybackBookmarkEntity) -> Unit = {},
+  onBookmarkLongClick: (PlaybackBookmarkEntity) -> Unit = {},
   itemActions: @Composable (Segment) -> Unit = {},
 ) {
   val listState = rememberLazyListState()
 
-  LaunchedEffect(currentChapter, chapters) {
+  LaunchedEffect(currentChapter, chapters, bookmarks.size, selectedBookmarkId) {
+    val bookmarkIndex = if (selectedBookmarkId != null) bookmarks.indexOfFirst { it.id == selectedBookmarkId } else -1
+    if (bookmarkIndex >= 0) {
+      listState.scrollToItem(bookmarkIndex)
+      return@LaunchedEffect
+    }
+    val chapterOffset = bookmarks.size + if (bookmarks.isNotEmpty() && chapters.isNotEmpty()) 1 else 0
     val index = if (currentChapter != null) chapters.indexOf(currentChapter) else -1
     if (index >= 0) {
-      listState.scrollToItem(index)
+      listState.scrollToItem(chapterOffset + index)
     }
   }
 
@@ -81,6 +97,7 @@ fun ChaptersSheet(
   PlayerSheet(
     onDismissRequest,
     title = stringResource(if (isAudiobook) R.string.audiobook_chapters else R.string.btn_label_bookmarks),
+    actions = actions,
   ) {
     LazyColumn(
       modifier = modifier.fillMaxWidth(),
@@ -88,13 +105,38 @@ fun ChaptersSheet(
       contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
       verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
     ) {
-      if (chapters.isEmpty()) {
+      if (bookmarks.isEmpty() && chapters.isEmpty()) {
         item {
           Text(
             stringResource(R.string.playback_bookmarks_empty),
             Modifier.padding(MaterialTheme.spacing.medium),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      if (bookmarks.isNotEmpty()) {
+        items(
+          items = bookmarks,
+          key = { "sheet_bm_${it.id}" },
+        ) { bookmark ->
+          BookmarkListRow(
+            bookmark = bookmark,
+            positionSeconds = bookmarkPositionSec(bookmark),
+            selected = bookmark.id == selectedBookmarkId,
+            compact = false,
+            onClick = { onBookmarkClick(bookmark) },
+            onLongClick = { onBookmarkLongClick(bookmark) },
+          )
+        }
+      }
+      if (chapters.isNotEmpty() && bookmarks.isNotEmpty()) {
+        item(key = "sheet_chapters_header") {
+          Text(
+            text = stringResource(R.string.bookmark_list_section_chapters),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
           )
         }
       }

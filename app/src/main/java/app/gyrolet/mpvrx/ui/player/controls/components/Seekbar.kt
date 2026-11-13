@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
@@ -72,8 +73,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
@@ -332,6 +337,7 @@ internal fun SeekbarWithTimers(
   durationTimerOnCLick: () -> Unit,
   chapters: ImmutableList<Segment>,
   skipSegments: ImmutableList<SkipSegment>,
+  bookmarks: ImmutableList<Segment> = persistentListOf(),
   paused: Boolean,
   seekbarStyle: SeekbarStyle = SeekbarStyle.Wavy,
   useWavySeekbar: Boolean = true,
@@ -394,6 +400,7 @@ internal fun SeekbarWithTimers(
         duration = duration,
         chapters = chapters,
         skipSegments = skipSegments,
+        bookmarks = bookmarks,
         paused = paused,
         isPortrait = isPortrait,
         isUserInteracting = isUserInteracting,
@@ -468,6 +475,7 @@ internal fun SeekbarWithTimers(
         duration = duration,
         chapters = chapters,
         skipSegments = skipSegments,
+        bookmarks = bookmarks,
         paused = paused,
         isPortrait = isPortrait,
         isUserInteracting = isUserInteracting,
@@ -510,6 +518,7 @@ private fun SeekbarContent(
   duration: Float,
   chapters: ImmutableList<Segment>,
   skipSegments: ImmutableList<SkipSegment>,
+  bookmarks: ImmutableList<Segment> = persistentListOf(),
   paused: Boolean,
   isPortrait: Boolean,
   isUserInteracting: Boolean,
@@ -540,6 +549,10 @@ private fun SeekbarContent(
   val isVisuallyInteracting = isUserInteracting || isSeekerPressed || isSeekerDragged
   val clipRange by ClipEditorUiState.state.collectAsState()
   val safeDuration = duration.takeIf { it.isFinite() && it > 0f } ?: 0f
+  var trackWidthPx by remember { mutableFloatStateOf(0f) }
+  var didDragSinceDown by remember { mutableStateOf(false) }
+  val touchSlopPx = LocalViewConfiguration.current.touchSlop
+  val snapTolerancePx = with(LocalDensity.current) { 8.dp.toPx() }
   val seekerRange = 0f..safeDuration.coerceAtLeast(0.1f)
   val safeCommittedPosition =
     committedPosition
@@ -662,7 +675,27 @@ private fun SeekbarContent(
     }
 
   Box(
-    modifier = modifier.then(seekKeyModifier),
+    modifier =
+      modifier
+        .onSizeChanged { trackWidthPx = it.width.toFloat() }
+        .pointerInput(touchSlopPx) {
+          awaitPointerEventScope {
+            while (true) {
+              val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              didDragSinceDown = false
+              val startX = down.position.x
+              val pointerId = down.id
+              while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                if (kotlin.math.abs(change.position.x - startX) > touchSlopPx) {
+                  didDragSinceDown = true
+                }
+                if (!change.pressed) break
+              }
+            }
+          }
+        }.then(seekKeyModifier),
     contentAlignment = Alignment.Center,
   ) {
     val waveSeekbarActive = showWavyVisualizer && waveFeatures != null && wavePalette != null
@@ -814,6 +847,61 @@ private fun SeekbarContent(
 
     }
 
+    if (bookmarks.isNotEmpty() && safeDuration > 0f) {
+      val pinFillColor = Color(0xFFFFC107)
+      val pinBorderColor = Color(0xFF1A1A1A).copy(alpha = 0.78f)
+      Canvas(
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .height(touchAreaHeight)
+            .align(Alignment.Center),
+      ) {
+        val trackHeightPx = overlayTrackHeight.toPx()
+        val centerY = size.height / 2f
+        val halfTrack = trackHeightPx / 2f
+        val stemWidth = 2.dp.toPx()
+        val headRadius = 3.2.dp.toPx()
+        val strokeWidth = 1.dp.toPx()
+        val headY = (centerY - halfTrack - headRadius - 1.5.dp.toPx()).coerceAtLeast(headRadius + strokeWidth)
+        val stemTop = headY + headRadius * 0.55f
+        val stemBottom = (centerY + halfTrack + 2.dp.toPx()).coerceAtMost(size.height - strokeWidth)
+        val isLtr = layoutDirection == LayoutDirection.Ltr
+
+        bookmarks.forEach { bookmark ->
+          val start = bookmark.start
+          if (!start.isFinite() || start < 0f) return@forEach
+          val fraction = (start / safeDuration).coerceIn(0f, 1f)
+          val x = (if (isLtr) fraction else 1f - fraction) * size.width
+          drawLine(
+            color = pinBorderColor,
+            start = Offset(x, stemTop),
+            end = Offset(x, stemBottom),
+            strokeWidth = stemWidth + strokeWidth * 1.4f,
+            cap = StrokeCap.Round,
+          )
+          drawLine(
+            color = pinFillColor,
+            start = Offset(x, stemTop),
+            end = Offset(x, stemBottom),
+            strokeWidth = stemWidth,
+            cap = StrokeCap.Round,
+          )
+          drawCircle(
+            color = pinFillColor,
+            radius = headRadius,
+            center = Offset(x, headY),
+          )
+          drawCircle(
+            color = pinBorderColor,
+            radius = headRadius,
+            center = Offset(x, headY),
+            style = Stroke(width = strokeWidth),
+          )
+        }
+      }
+    }
+
     val activeClip = clipRange.takeIf { showClipRange }
     val clipEnd = activeClip?.endSeconds
     if (activeClip != null && clipEnd != null && safeDuration > 0f && clipEnd > activeClip.startSeconds) {
@@ -864,14 +952,35 @@ private fun SeekbarContent(
           gap = 0.dp,
         ),
       onValueChange = { newPosition ->
-        val targetPosition = newPosition.coerceIn(0f, safeDuration)
+        val rawTarget = newPosition.coerceIn(0f, safeDuration)
+        val targetPosition =
+          if (!isUserInteracting) {
+            snapPositionToNearbyBookmark(
+              positionSeconds = rawTarget,
+              durationSeconds = safeDuration,
+              bookmarks = bookmarks,
+              trackWidthPx = trackWidthPx,
+              tolerancePx = snapTolerancePx,
+              wasDragged = didDragSinceDown || isSeekerDragged,
+            )
+          } else {
+            rawTarget
+          }
         onUserInteractionChange(true)
         latestInteractionPosition = targetPosition
         onUserPositionChange(targetPosition)
         onValueChange(targetPosition)
       },
       onValueChangeFinished = {
-        val targetPosition = latestInteractionPosition.coerceIn(0f, safeDuration)
+        val targetPosition =
+          snapPositionToNearbyBookmark(
+            positionSeconds = latestInteractionPosition.coerceIn(0f, safeDuration),
+            durationSeconds = safeDuration,
+            bookmarks = bookmarks,
+            trackWidthPx = trackWidthPx,
+            tolerancePx = snapTolerancePx,
+            wasDragged = didDragSinceDown || isSeekerDragged,
+          )
         scope.launch {
           animatedPosition.snapTo(targetPosition)
           onUserPositionChange(targetPosition)

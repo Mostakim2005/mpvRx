@@ -405,6 +405,20 @@ object PlayerControlsPreferencesScreen : Screen {
                 summary = { Text(clockFormat.displayName) },
               )
               }
+
+              if (!television) {
+                val bookmarkSplitPanel by playerPrefs.bookmarkListSplitPanel.collectAsState()
+                PreferenceDivider()
+                SwitchPreference(
+                  groupIndex = 0,
+                  groupSize = 1,
+                  modifier = Modifier.settingsSearchTarget(R.string.pref_bookmark_split_panel_title),
+                  value = bookmarkSplitPanel,
+                  onValueChange = { playerPrefs.bookmarkListSplitPanel.set(it) },
+                  title = { Text(stringResource(R.string.pref_bookmark_split_panel_title)) },
+                  summary = { Text(stringResource(R.string.pref_bookmark_split_panel_summary)) },
+                )
+              }
             }
 
             if (showCustomTimeDialog) {

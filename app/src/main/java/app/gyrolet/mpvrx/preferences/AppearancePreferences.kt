@@ -172,7 +172,7 @@ class AppearancePreferences(
   val topRightControls =
     preferenceStore.getString(
       "top_right_controls",
-      "AUDIO_TRACK,SUBTITLES,MORE_OPTIONS",
+      "AUDIO_TRACK,SUBTITLES,BOOKMARKS_CHAPTERS,ADD_BOOKMARK,MORE_OPTIONS",
     )
 
   val bottomRightControls =
@@ -190,13 +190,15 @@ class AppearancePreferences(
   val portraitBottomControls =
     preferenceStore.getString(
       "portrait_bottom_controls",
-      "SCREEN_ROTATION,AUDIO_TRACK,SUBTITLES,PLAYBACK_SPEED,BACKGROUND_PLAYBACK,LOCK_CONTROLS,MORE_OPTIONS",
+      "SCREEN_ROTATION,AUDIO_TRACK,SUBTITLES,BOOKMARKS_CHAPTERS,ADD_BOOKMARK,PLAYBACK_SPEED,BACKGROUND_PLAYBACK,LOCK_CONTROLS,MORE_OPTIONS",
     )
 
   private val castButtonMigrationComplete =
     preferenceStore.getBoolean("cast_button_migration_complete", false)
   private val clipButtonMigrationComplete =
     preferenceStore.getBoolean("clip_button_migration_complete", false)
+  private val bookmarkButtonsMigrationComplete =
+    preferenceStore.getBoolean("bookmark_buttons_migration_complete", false)
 
   init {
     // The advanced Liquid Glass optics rely on modern Android rendering primitives. A restored
@@ -253,6 +255,48 @@ class AppearancePreferences(
       }
       clipButtonMigrationComplete.set(true)
     }
+
+    if (!bookmarkButtonsMigrationComplete.get()) {
+      val landscapeButtons =
+        listOf(
+          topLeftControls.get(),
+          topRightControls.get(),
+          bottomRightControls.get(),
+          bottomLeftControls.get(),
+        ).flatMap { it.split(',') }
+          .map { it.trim().uppercase() }
+          .toSet()
+      if (landscapeLayoutStored) {
+        var updated = topRightControls.get()
+        if ("BOOKMARKS_CHAPTERS" !in landscapeButtons) {
+          updated = insertBeforeMoreOrAppend(updated, "BOOKMARKS_CHAPTERS")
+        }
+        if ("ADD_BOOKMARK" !in landscapeButtons) {
+          updated = insertBeforeMoreOrAppend(updated, "ADD_BOOKMARK")
+        }
+        if (updated != topRightControls.get()) topRightControls.set(updated)
+      }
+      if (portraitLayoutStored) {
+        val portraitButtons = portraitBottomControls.get().split(',').map { it.trim().uppercase() }.toSet()
+        var updated = portraitBottomControls.get()
+        if ("BOOKMARKS_CHAPTERS" !in portraitButtons) {
+          updated = insertBeforeMoreOrAppend(updated, "BOOKMARKS_CHAPTERS")
+        }
+        if ("ADD_BOOKMARK" !in portraitButtons) {
+          updated = insertBeforeMoreOrAppend(updated, "ADD_BOOKMARK")
+        }
+        if (updated != portraitBottomControls.get()) portraitBottomControls.set(updated)
+      }
+      bookmarkButtonsMigrationComplete.set(true)
+    }
+  }
+
+  private fun insertBeforeMoreOrAppend(csv: String, buttonName: String): String {
+    val tokens = csv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+    if (tokens.any { it.equals(buttonName, ignoreCase = true) }) return csv
+    val moreIdx = tokens.indexOfFirst { it.equals("MORE_OPTIONS", ignoreCase = true) }
+    if (moreIdx >= 0) tokens.add(moreIdx, buttonName) else tokens.add(buttonName)
+    return tokens.joinToString(",")
   }
 
   fun parseButtons(

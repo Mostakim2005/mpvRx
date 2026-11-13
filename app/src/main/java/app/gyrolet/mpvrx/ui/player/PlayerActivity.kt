@@ -914,6 +914,7 @@ class PlayerActivity :
     setupVideoAmbientBackground()
     setupPlayerControls()
     setupAudioPlayerViewObserver()
+    setupBookmarkSplitPanelObserver()
     setupMotionInterpolationObserver()
     setupMediaSession()
     lifecycleScope.launch {
@@ -1191,6 +1192,13 @@ class PlayerActivity :
     if (viewModel.panelShown.value != Panels.None) {
       lastExitBackPressAtMs = null
       viewModel.panelShown.update { Panels.None }
+      viewModel.showControls()
+      return
+    }
+
+    if (viewModel.isBookmarkPanelOpen.value) {
+      lastExitBackPressAtMs = null
+      viewModel.setBookmarkPanelOpen(false)
       viewModel.showControls()
       return
     }
@@ -1473,15 +1481,96 @@ class PlayerActivity :
   private fun setVideoAmbientPresentationActive(active: Boolean) {
     isVideoAmbientPresentationActive = active
     binding.ambientBackground.visibility = if (active) View.VISIBLE else View.GONE
-    if (active) {
+    syncPlayerBounds()
+  }
+
+  private fun isSplitBookmarkPanelActive(): Boolean {
+    if (isTelevision || isInPictureInPictureMode || viewModel.isAudioOnly.value) return false
+    if (PlaybackSession.state.value.currentItem?.audiobook != null) return false
+    return viewModel.isBookmarkPanelOpen.value && playerPreferences.bookmarkListSplitPanel.get()
+  }
+
+  private fun syncPlayerBounds() {
+    if (viewModel.isAudioOnly.value || binding.player.visibility != View.VISIBLE) return
+    if (isSplitBookmarkPanelActive()) {
+      applySplitBookmarkPlayerBounds()
+    } else if (isVideoAmbientPresentationActive) {
       updateVideoAmbientPlayerBounds()
     } else {
       restoreFullSizePlayerBounds()
     }
   }
 
+  private fun applySplitBookmarkPlayerBounds() {
+    val containerWidth = binding.root.width
+    val containerHeight = binding.root.height
+    if (containerWidth <= 0 || containerHeight <= 0) return
+
+    val isPortrait = containerWidth < containerHeight
+    val regionWidth = if (isPortrait) containerWidth else (containerWidth * 0.75f).roundToInt().coerceIn(1, containerWidth)
+    val regionHeight = if (isPortrait) (containerHeight * 0.75f).roundToInt().coerceIn(1, containerHeight) else containerHeight
+    val isRtl = binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL
+
+    var targetWidth = regionWidth
+    var targetHeight = regionHeight
+    var physicalHorizontalBias = 0f
+    var verticalBias = 0f
+
+    if (isVideoAmbientPresentationActive) {
+      val videoAspect = VideoAspectGeometry.currentEffectiveDisplayAspect()
+      if (videoAspect != null && videoAspect > 0.0) {
+        val geometry = AmbientGeometry.calculate(
+          regionWidth,
+          regionHeight,
+          videoAspect,
+          panscan = PlaybackSession.getPropertyDouble("panscan") ?: 0.0,
+        )
+        if (geometry != null && geometry.hasBars) {
+          val regionAspect = regionWidth.toDouble() / regionHeight.toDouble()
+          if (regionAspect > videoAspect) {
+            targetHeight = regionHeight
+            targetWidth = centeredFittedDimension((targetHeight * videoAspect).roundToInt(), regionWidth)
+          } else {
+            targetWidth = regionWidth
+            targetHeight = centeredFittedDimension((targetWidth / videoAspect).roundToInt(), regionHeight)
+          }
+          val targetLeft = (regionWidth - targetWidth) / 2f
+          val targetTop = (regionHeight - targetHeight) / 2f
+          val availX = (containerWidth - targetWidth).toFloat()
+          val availY = (containerHeight - targetHeight).toFloat()
+          physicalHorizontalBias = if (availX > 0f) (targetLeft / availX).coerceIn(0f, 1f) else 0f
+          verticalBias = if (availY > 0f) (targetTop / availY).coerceIn(0f, 1f) else 0f
+        }
+      }
+    }
+
+    val targetBiasX = if (isRtl) 1f - physicalHorizontalBias else physicalHorizontalBias
+    val params = binding.player.layoutParams as ConstraintLayout.LayoutParams
+    if (
+      params.width == targetWidth &&
+      params.height == targetHeight &&
+      params.horizontalBias == targetBiasX &&
+      params.verticalBias == verticalBias
+    ) {
+      return
+    }
+    params.width = targetWidth
+    params.height = targetHeight
+    params.startToStart = ConstraintLayout.LayoutParams.PARENT_ID
+    params.endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
+    params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+    params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+    params.horizontalBias = targetBiasX
+    params.verticalBias = verticalBias
+    binding.player.layoutParams = params
+  }
+
   private fun updateVideoAmbientPlayerBounds() {
     if (!isVideoAmbientPresentationActive || binding.player.visibility != View.VISIBLE) return
+    if (isSplitBookmarkPanelActive()) {
+      applySplitBookmarkPlayerBounds()
+      return
+    }
     val containerWidth = binding.root.width
     val containerHeight = binding.root.height
     val videoAspect = VideoAspectGeometry.currentEffectiveDisplayAspect()
@@ -1507,13 +1596,22 @@ class PlayerActivity :
     }
 
     val params = binding.player.layoutParams as ConstraintLayout.LayoutParams
-    if (params.width == videoWidth && params.height == videoHeight) return
+    if (
+      params.width == videoWidth &&
+      params.height == videoHeight &&
+      params.horizontalBias == 0.5f &&
+      params.verticalBias == 0.5f
+    ) {
+      return
+    }
     params.width = videoWidth
     params.height = videoHeight
     params.startToStart = ConstraintLayout.LayoutParams.PARENT_ID
     params.endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
     params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
     params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+    params.horizontalBias = 0.5f
+    params.verticalBias = 0.5f
     binding.player.layoutParams = params
   }
 
@@ -1528,15 +1626,53 @@ class PlayerActivity :
   }
 
   private fun restoreFullSizePlayerBounds() {
+    if (isSplitBookmarkPanelActive()) {
+      applySplitBookmarkPlayerBounds()
+      return
+    }
     val params = binding.player.layoutParams as ConstraintLayout.LayoutParams
     if (params.width == ViewGroup.LayoutParams.MATCH_PARENT &&
-      params.height == ViewGroup.LayoutParams.MATCH_PARENT
+      params.height == ViewGroup.LayoutParams.MATCH_PARENT &&
+      params.horizontalBias == 0.5f &&
+      params.verticalBias == 0.5f
     ) {
       return
     }
     params.width = ViewGroup.LayoutParams.MATCH_PARENT
     params.height = ViewGroup.LayoutParams.MATCH_PARENT
+    params.horizontalBias = 0.5f
+    params.verticalBias = 0.5f
     binding.player.layoutParams = params
+  }
+
+  private fun setupBookmarkSplitPanelObserver() {
+    binding.root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+      if ((right - left) != (oldRight - oldLeft) || (bottom - top) != (oldBottom - oldTop)) {
+        if (isSplitBookmarkPanelActive()) {
+          binding.root.post(::syncPlayerBounds)
+        }
+      }
+    }
+    lifecycleScope.launch {
+      repeatOnLifecycle(Lifecycle.State.STARTED) {
+        combine(
+          viewModel.isBookmarkPanelOpen,
+          viewModel.isAudioOnly,
+          PlaybackSession.state,
+        ) { panelOpen, isAudio, sessionState ->
+          panelOpen && !isAudio && sessionState.currentItem?.audiobook == null
+        }.distinctUntilChanged().collect { shouldSplit ->
+          if (
+            !shouldSplit &&
+            viewModel.isBookmarkPanelOpen.value &&
+            (viewModel.isAudioOnly.value || PlaybackSession.state.value.currentItem?.audiobook != null)
+          ) {
+            viewModel.setBookmarkPanelOpen(false)
+          }
+          binding.root.post(::syncPlayerBounds)
+        }
+      }
+    }
   }
 
   private fun setupVideoTransformObserver() {
@@ -1614,11 +1750,7 @@ class PlayerActivity :
           } else {
             binding.player.clipToOutline = false
             binding.player.visibility = View.VISIBLE
-            if (isVideoAmbientPresentationActive) {
-              binding.root.post(::updateVideoAmbientPlayerBounds)
-            } else {
-              restoreFullSizePlayerBounds()
-            }
+            binding.root.post(::syncPlayerBounds)
           }
           updateStatusBarProtection()
         }
@@ -4590,7 +4722,7 @@ class PlayerActivity :
     updateOrientationForWindow()
     viewModel.onOrientationChanged()
     applySubtitleWindowing(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
-    binding.root.post(::updateVideoAmbientPlayerBounds)
+    binding.root.post(::syncPlayerBounds)
     if (isReady) {
       handleConfigurationChange()
     }
@@ -5142,7 +5274,7 @@ class PlayerActivity :
     applySubtitlePreferences()
     applyVideoFilterPreferences()
     viewModel.restoreSavedVideoAspect(showUpdate = false)
-    binding.root.post(::updateVideoAmbientPlayerBounds)
+    binding.root.post(::syncPlayerBounds)
 
     if (shouldForceCurrentMediaTitle()) {
       val preferredTitle = getPreferredCurrentTitle()
@@ -6776,6 +6908,7 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
     isAmbientPipMode = isInPictureInPictureMode
     viewModel.setAmbientPipActive(isInPictureInPictureMode)
     if (isInPictureInPictureMode) setVideoAmbientPresentationActive(false)
+    binding.root.post(::syncPlayerBounds)
     pipHelper.onPictureInPictureModeChanged(isInPictureInPictureMode)
     if (isInPictureInPictureMode) {
       pendingPipExitResolution = false

@@ -26,6 +26,7 @@ enum class PlayerButton(
   BACK_ARROW(Icons.RoundedFilled.ArrowBack),
   VIDEO_TITLE(Icons.RoundedFilled.Title),
   BOOKMARKS_CHAPTERS(Icons.RoundedFilled.Bookmarks),
+  ADD_BOOKMARK(Icons.RoundedFilled.Bookmark),
   PLAYBACK_SPEED(Icons.RoundedFilled.Speed),
   DECODER(Icons.RoundedFilled.DeveloperBoard),
   HDR_MODE(Icons.RoundedFilled.HdrOff),
@@ -81,6 +82,7 @@ fun getPlayerButtonLabel(button: PlayerButton): String =
     PlayerButton.BACK_ARROW -> stringResource(R.string.btn_label_back)
     PlayerButton.VIDEO_TITLE -> stringResource(R.string.btn_label_title)
     PlayerButton.BOOKMARKS_CHAPTERS -> stringResource(R.string.btn_label_bookmarks)
+    PlayerButton.ADD_BOOKMARK -> stringResource(R.string.btn_label_add_bookmark)
     PlayerButton.PLAYBACK_SPEED -> stringResource(R.string.btn_label_speed)
     PlayerButton.DECODER -> stringResource(R.string.btn_label_decoder)
     PlayerButton.HDR_MODE -> stringResource(R.string.btn_label_hdr)
