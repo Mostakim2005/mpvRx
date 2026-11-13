@@ -41,8 +41,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -224,7 +228,25 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
     LaunchedEffect(draft, mediaId) { onDismiss() }
     return
   }
-  var name by rememberSaveable(bookmark.mediaId, bookmark.id, bookmark.positionMs) { mutableStateOf(bookmark.title) }
+  val isNewDraft = bookmark.id == 0L
+  var nameValue by rememberSaveable(
+    bookmark.mediaId,
+    bookmark.id,
+    bookmark.positionMs,
+    stateSaver = TextFieldValue.Saver,
+  ) {
+    mutableStateOf(
+      if (isNewDraft) {
+        TextFieldValue("")
+      } else {
+        TextFieldValue(text = bookmark.title, selection = TextRange(0, bookmark.title.length))
+      },
+    )
+  }
+  val focusRequester = remember { FocusRequester() }
+  LaunchedEffect(bookmark.mediaId, bookmark.id, bookmark.positionMs) {
+    runCatching { focusRequester.requestFocus() }
+  }
   var saving by remember(bookmark) { mutableStateOf(false) }
   var failed by remember(bookmark) { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
@@ -233,28 +255,43 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
       Text(Utils.prettyTime((viewModel.bookmarkPositionMs(bookmark) / 1000).toInt()),
         style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      OutlinedTextField(name, { name = it }, modifier = Modifier.fillMaxWidth(), enabled = !saving, maxLines = 3,
-        label = { Text(stringResource(R.string.audiobook_bookmark_name)) })
+      OutlinedTextField(
+        value = nameValue,
+        onValueChange = { nameValue = it },
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+        enabled = !saving,
+        maxLines = 3,
+        label = { Text(stringResource(R.string.audiobook_bookmark_name)) },
+        placeholder = if (isNewDraft) {
+          { Text(bookmark.title) }
+        } else {
+          null
+        },
+      )
       if (failed) Text(stringResource(R.string.playback_bookmark_update_failed), color = MaterialTheme.colorScheme.error)
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.generic_cancel)) }
-        TextButton(enabled = name.isNotBlank() && !saving, onClick = {
-          saving = true
-          failed = false
-          scope.launch {
-            try {
-              viewModel.savePlaybackBookmark(bookmark, name)
-              haptics.confirm()
-              onSaved()
-            } catch (cancelled: CancellationException) {
-              throw cancelled
-            } catch (_: Exception) {
-              failed = true
-            } finally {
-              saving = false
+        TextButton(
+          enabled = !saving && (isNewDraft || nameValue.text.isNotBlank()),
+          onClick = {
+            val resolvedTitle = nameValue.text.trim().ifBlank { bookmark.title }
+            saving = true
+            failed = false
+            scope.launch {
+              try {
+                viewModel.savePlaybackBookmark(bookmark, resolvedTitle)
+                haptics.confirm()
+                onSaved()
+              } catch (cancelled: CancellationException) {
+                throw cancelled
+              } catch (_: Exception) {
+                failed = true
+              } finally {
+                saving = false
+              }
             }
-          }
-        }) { Text(stringResource(R.string.audiobook_save)) }
+          },
+        ) { Text(stringResource(R.string.audiobook_save)) }
       }
     }
   }

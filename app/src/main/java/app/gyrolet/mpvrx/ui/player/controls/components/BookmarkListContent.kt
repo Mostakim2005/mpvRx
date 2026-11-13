@@ -10,41 +10,40 @@
 package app.gyrolet.mpvrx.ui.player.controls.components
 
 import android.graphics.Bitmap
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,31 +54,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore
-import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
-import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton
+import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
 import dev.vivvvek.seeker.Segment
-import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.util.Locale
+import kotlin.math.abs
+
+private fun formatBookmarkTimecode(positionSeconds: Int): String {
+  val total = positionSeconds.coerceAtLeast(0)
+  val hours = total / 3600
+  val minutes = (total % 3600) / 60
+  val secs = total % 60
+  return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, secs)
+}
 
 @Composable
 internal fun BookmarkThumbnailImage(
@@ -87,6 +96,8 @@ internal fun BookmarkThumbnailImage(
   modifier: Modifier = Modifier,
   cornerRadius: Dp = 8.dp,
   placeholderTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+  contentScale: ContentScale = ContentScale.Crop,
+  containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
 ) {
   val context = LocalContext.current
   var bitmap by remember(thumbnailPath) { mutableStateOf<Bitmap?>(null) }
@@ -95,32 +106,25 @@ internal fun BookmarkThumbnailImage(
     bitmap = BookmarkThumbnailStore.loadBitmap(context, thumbnailPath)
   }
 
-  val imageBitmap = remember(bitmap) { bitmap?.takeIf { !it.isRecycled }?.asImageBitmap() }
-  Surface(
-    modifier = modifier.clip(RoundedCornerShape(cornerRadius)),
-    shape = RoundedCornerShape(cornerRadius),
-    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+  Box(
+    modifier = modifier.clip(RoundedCornerShape(cornerRadius)).background(containerColor),
+    contentAlignment = Alignment.Center,
   ) {
-    if (imageBitmap != null) {
+    val loadedBitmap = bitmap
+    if (loadedBitmap != null) {
       Image(
-        bitmap = imageBitmap,
+        bitmap = loadedBitmap.asImageBitmap(),
         contentDescription = null,
-        contentScale = ContentScale.Crop,
+        contentScale = contentScale,
         modifier = Modifier.fillMaxSize(),
       )
     } else {
-      Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.fillMaxSize(),
-      ) {
-        Icon(
-          imageVector = Icons.RoundedFilled.Bookmark,
-          contentDescription = null,
-          tint = placeholderTint.copy(alpha = 0.65f),
-          modifier = Modifier.size(18.dp),
-        )
-      }
+      Icon(
+        imageVector = Icons.RoundedFilled.Bookmark,
+        contentDescription = null,
+        tint = placeholderTint.copy(alpha = 0.65f),
+        modifier = Modifier.size(20.dp),
+      )
     }
   }
 }
@@ -134,73 +138,67 @@ internal fun BookmarkActionMenuDialog(
   onDelete: () -> Unit,
   onDismiss: () -> Unit,
 ) {
-  AppAlertDialog(
+  app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
     onDismissRequest = onDismiss,
     title = {
-      Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-          text = bookmark.title,
-          maxLines = 2,
-          overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-          text = formattedTimestamp,
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.primary,
-        )
-      }
-    },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
         if (!bookmark.thumbnailPath.isNullOrBlank()) {
           BookmarkThumbnailImage(
             thumbnailPath = bookmark.thumbnailPath,
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .padding(bottom = 8.dp),
-            cornerRadius = 12.dp,
+            cornerRadius = 8.dp,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.width(88.dp).aspectRatio(16f / 9f),
           )
         }
+        Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+          Text(
+            text = bookmark.title,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+          )
+          Text(
+            text = formattedTimestamp,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    },
+    text = {
+      Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
         BookmarkMenuActionRow(
-          icon = {
-            Icon(
-              imageVector = Icons.RoundedFilled.PlayArrow,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-            )
-          },
+          icon = Icons.RoundedFilled.PlayArrow,
           label = stringResource(R.string.bookmark_edit_menu_jump),
+          tint = MaterialTheme.colorScheme.onSurface,
           onClick = {
             onJump()
             onDismiss()
           },
         )
         BookmarkMenuActionRow(
-          icon = {
-            Icon(
-              imageVector = Icons.RoundedFilled.Edit,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onSurface,
-            )
-          },
+          icon = Icons.RoundedFilled.Edit,
           label = stringResource(R.string.bookmark_edit_menu_rename),
+          tint = MaterialTheme.colorScheme.onSurface,
           onClick = {
-            onRename()
             onDismiss()
+            onRename()
           },
         )
         BookmarkMenuActionRow(
-          icon = {
-            Icon(
-              imageVector = Icons.RoundedFilled.Delete,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.error,
-            )
-          },
+          icon = Icons.RoundedFilled.Delete,
           label = stringResource(R.string.audiobook_delete_bookmark),
-          labelColor = MaterialTheme.colorScheme.error,
+          tint = MaterialTheme.colorScheme.error,
           onClick = {
             onDelete()
             onDismiss()
@@ -209,7 +207,7 @@ internal fun BookmarkActionMenuDialog(
       }
     },
     confirmButton = {
-      AppDialogTextButton(onClick = onDismiss) {
+      TextButton(onClick = onDismiss) {
         Text(stringResource(R.string.generic_cancel))
       }
     },
@@ -218,28 +216,23 @@ internal fun BookmarkActionMenuDialog(
 
 @Composable
 private fun BookmarkMenuActionRow(
-  icon: @Composable () -> Unit,
+  icon: AppIcon,
   label: String,
-  labelColor: Color = MaterialTheme.colorScheme.onSurface,
+  tint: Color,
   onClick: () -> Unit,
 ) {
   Row(
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
     modifier =
       Modifier
         .fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp))
+        .clip(RoundedCornerShape(10.dp))
         .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 12.dp),
+        .padding(horizontal = 12.dp, vertical = 10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    icon()
-    Text(
-      text = label,
-      style = MaterialTheme.typography.bodyLarge,
-      color = labelColor,
-      modifier = Modifier.weight(1f),
-    )
+    Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+    Text(text = label, style = MaterialTheme.typography.bodyLarge, color = tint)
   }
 }
 
@@ -258,65 +251,231 @@ internal fun BookmarkListRow(
   val shape = RoundedCornerShape(10.dp)
   val containerColor =
     if (selected) {
-      MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+      MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
     } else {
-      Color.Transparent
+      MaterialTheme.colorScheme.surfaceContainerLow
     }
-  val titleColor =
+  val border =
     if (selected) {
-      MaterialTheme.colorScheme.primary
+      BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
     } else {
-      MaterialTheme.colorScheme.onSurface
+      BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     }
-  Row(
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+
+  Surface(
+    shape = shape,
+    color = containerColor,
+    border = border,
     modifier =
       modifier
         .fillMaxWidth()
         .clip(shape)
-        .background(containerColor)
-        .combinedClickable(
-          onClick = onClick,
-          onLongClick = onLongClick,
-          onLongClickLabel = stringResource(R.string.bookmark_edit_menu_rename),
-        ).padding(
-          horizontal = if (compact) 8.dp else 12.dp,
-          vertical = if (compact) 6.dp else 8.dp,
-        ),
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick),
   ) {
-    BookmarkThumbnailImage(
-      thumbnailPath = bookmark.thumbnailPath,
+    Row(
       modifier =
         Modifier
-          .width(if (compact) 56.dp else 76.dp)
-          .aspectRatio(16f / 9f),
-      cornerRadius = if (compact) 6.dp else 8.dp,
-    )
-    Column(
-      verticalArrangement = Arrangement.spacedBy(2.dp),
-      modifier = Modifier.weight(1f),
+          .fillMaxWidth()
+          .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = if (compact) 6.dp else 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
     ) {
-      Text(
-        text = bookmark.title,
-        style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-        color = titleColor,
-        maxLines = if (compact) 2 else 2,
-        overflow = TextOverflow.Ellipsis,
+      BookmarkThumbnailImage(
+        thumbnailPath = bookmark.thumbnailPath,
+        cornerRadius = 6.dp,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier.width(if (compact) 64.dp else 84.dp).aspectRatio(16f / 9f),
       )
-      Text(
-        text = Utils.prettyTime(positionSeconds),
-        style = MaterialTheme.typography.labelSmall,
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-      )
+      Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        Text(
+          text = bookmark.title,
+          style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+          fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          text = formatBookmarkTimecode(positionSeconds),
+          style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+          color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+        )
+      }
+      trailingContent?.invoke()
     }
-    trailingContent?.invoke()
   }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookmarkGridCard(
+  bookmark: PlaybackBookmarkEntity,
+  positionSeconds: Int,
+  selected: Boolean,
+  compactLabels: Boolean,
+  onClick: () -> Unit,
+  onLongClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val shape = RoundedCornerShape(10.dp)
+  val border =
+    if (selected) {
+      BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+    } else {
+      BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+    }
+
+  Surface(
+    shape = shape,
+    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    border = border,
+    modifier =
+      modifier
+        .clip(shape)
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+  ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+      BookmarkThumbnailImage(
+        thumbnailPath = bookmark.thumbnailPath,
+        cornerRadius = 0.dp,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier.fillMaxSize(),
+      )
+
+      // Top scrim for readable small title matching the user's sketch
+      Box(
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .align(Alignment.TopCenter)
+            .background(
+              Brush.verticalGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.25f), Color.Transparent),
+              ),
+            )
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+      ) {
+        Text(
+          text = bookmark.title,
+          style =
+            MaterialTheme.typography.labelSmall.copy(
+              fontSize = if (compactLabels) 10.sp else 11.sp,
+              lineHeight = if (compactLabels) 12.sp else 13.sp,
+              fontWeight = FontWeight.Medium,
+            ),
+          color = Color.White,
+          maxLines = if (compactLabels) 1 else 2,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+
+      // Bottom scrim + tabular HH:MM:SS timestamp pinned at card bottom
+      Box(
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .align(Alignment.BottomCenter)
+            .background(
+              Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f)),
+              ),
+            )
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = formatBookmarkTimecode(positionSeconds),
+          style =
+            MaterialTheme.typography.labelSmall.copy(
+              fontSize = if (compactLabels) 9.5.sp else 10.5.sp,
+              fontFeatureSettings = "tnum",
+              fontWeight = FontWeight.SemiBold,
+            ),
+          color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+          maxLines = 1,
+          softWrap = false,
+        )
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PanelToggleChip(
+  label: String,
+  icon: AppIcon,
+  contentDescription: String,
+  highlighted: Boolean = false,
+  onClick: () -> Unit,
+) {
+  Surface(
+    shape = RoundedCornerShape(8.dp),
+    color =
+      if (highlighted) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+      } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+      },
+    border =
+      BorderStroke(
+        1.dp,
+        if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+      ),
+    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+      Icon(
+        imageVector = icon,
+        contentDescription = contentDescription,
+        tint = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(13.dp),
+      )
+      if (label.isNotEmpty()) {
+        Text(
+          text = label,
+          style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp, fontFeatureSettings = "tnum"),
+          fontWeight = FontWeight.SemiBold,
+          color = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+          maxLines = 1,
+        )
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PanelIconAction(
+  icon: AppIcon,
+  contentDescription: String,
+  onClick: () -> Unit,
+  onLongClick: (() -> Unit)? = null,
+) {
+  Box(
+    modifier =
+      Modifier
+        .size(28.dp)
+        .clip(RoundedCornerShape(8.dp))
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+      imageVector = icon,
+      contentDescription = contentDescription,
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      modifier = Modifier.size(18.dp),
+    )
+  }
+}
+
 @Composable
 internal fun BookmarkSplitPanel(
   viewModel: PlayerViewModel,
@@ -330,212 +489,354 @@ internal fun BookmarkSplitPanel(
 ) {
   val bookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
   val sourceChapters by viewModel.sourceChapters.collectAsStateWithLifecycle()
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
+  val cardCount by viewModel.bookmarkGridCardCount.collectAsStateWithLifecycle()
+  val panelSizePercent by viewModel.bookmarkPanelSizePercent.collectAsStateWithLifecycle()
+  val activeGroup by viewModel.activeBookmarkGroup.collectAsStateWithLifecycle()
   val haptics = rememberAppHaptics()
+  val scope = rememberCoroutineScope()
+
   var menuBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
+  var showPresetDialog by remember { mutableStateOf(false) }
 
-  val insetsPadding =
-    if (isPortrait) {
-      WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-    } else {
-      WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Right)
+  val onQuickAdd: () -> Unit = {
+    if (viewModel.quickAddBookmark()) {
+      haptics.confirm()
     }
-
-  val nearestBookmarkId =
-    remember(bookmarks, currentPositionSeconds) {
-      bookmarks.minByOrNull { bookmark ->
-        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSeconds)
-      }?.takeIf { bookmark ->
-        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSeconds) <= 2f
-      }?.id
+  }
+  val onLongPressAdd: () -> Unit = {
+    if (viewModel.preparePlaybackBookmark(returnSheet = Sheets.None)) {
+      haptics.tick()
+      onOpenSheet(Sheets.BookmarkEditor)
     }
-
-  val displayChapters =
-    remember(sourceChapters, chapters) {
-      if (sourceChapters.isNotEmpty()) sourceChapters else emptyList()
-    }
+  }
 
   Surface(
-    color = MaterialTheme.colorScheme.surfaceContainerLow,
-    contentColor = MaterialTheme.colorScheme.onSurface,
-    modifier = modifier.fillMaxSize(),
+    modifier = modifier,
+    color = MaterialTheme.colorScheme.surfaceContainer,
+    tonalElevation = 2.dp,
   ) {
-    val contentBlock: @Composable (Modifier) -> Unit = { containerModifier ->
-      Column(
-        modifier = containerModifier.fillMaxSize().windowInsetsPadding(insetsPadding),
-      ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      if (isPortrait) {
         Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(2.dp),
-          modifier =
-            Modifier
-              .fillMaxWidth()
-              .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
           Text(
-            text = "${stringResource(R.string.bookmark_panel_title)} (${bookmarks.size})",
+            text = stringResource(R.string.bookmark_panel_title),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
           )
-          Box(
-            contentAlignment = Alignment.Center,
-            modifier =
-              Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .combinedClickable(
-                  onClick = {
-                    if (viewModel.quickAddBookmark()) haptics.confirm()
-                  },
-                  onLongClick = {
-                    if (viewModel.preparePlaybackBookmark(returnSheet = Sheets.None)) {
-                      haptics.confirm()
-                      onOpenSheet(Sheets.BookmarkEditor)
-                    }
-                  },
-                  onLongClickLabel = stringResource(R.string.audiobook_bookmark_name),
-                ),
-          ) {
-            Icon(
-              imageVector = Icons.RoundedFilled.Add,
-              contentDescription = stringResource(R.string.audiobook_add_bookmark),
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.size(18.dp),
-            )
-          }
-          IconButton(
+          PanelToggleChip(
+            label = "$cardCount",
+            icon = Icons.RoundedFilled.GridView,
+            contentDescription = stringResource(R.string.bookmark_panel_card_count_cd),
+            onClick = {
+              haptics.tick()
+              viewModel.cycleBookmarkGridCardCount()
+            },
+          )
+          PanelToggleChip(
+            label = "${panelSizePercent}%",
+            icon = Icons.RoundedFilled.AspectRatio,
+            contentDescription = stringResource(R.string.bookmark_panel_size_cd),
+            onClick = {
+              haptics.tick()
+              viewModel.cycleBookmarkPanelSizePercent()
+            },
+          )
+          PanelToggleChip(
+            label = activeGroup?.presetCode?.takeIf { it.isNotBlank() }?.take(8).orEmpty(),
+            icon = Icons.RoundedFilled.Fingerprint,
+            contentDescription = stringResource(R.string.bookmark_preset_button_cd),
+            highlighted = !activeGroup?.presetCode.isNullOrBlank(),
+            onClick = {
+              haptics.tick()
+              showPresetDialog = true
+            },
+          )
+          Spacer(Modifier.weight(1f))
+          PanelIconAction(
+            icon = Icons.RoundedFilled.Add,
+            contentDescription = stringResource(R.string.audiobook_add_bookmark),
+            onClick = onQuickAdd,
+            onLongClick = onLongPressAdd,
+          )
+          PanelIconAction(
+            icon = Icons.RoundedFilled.ZoomOutMap,
+            contentDescription = stringResource(R.string.bookmark_switch_to_overlay),
             onClick = onSwitchToOverlay,
-            modifier = Modifier.size(32.dp),
+          )
+          PanelIconAction(
+            icon = Icons.RoundedFilled.Close,
+            contentDescription = stringResource(R.string.bookmark_close_panel),
+            onClick = onClose,
+          )
+        }
+      } else {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
           ) {
-            Icon(
-              imageVector = Icons.RoundedFilled.ListAlt,
+            Text(
+              text = stringResource(R.string.bookmark_panel_title),
+              style = MaterialTheme.typography.labelLarge,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Add,
+              contentDescription = stringResource(R.string.audiobook_add_bookmark),
+              onClick = onQuickAdd,
+              onLongClick = onLongPressAdd,
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.ZoomOutMap,
               contentDescription = stringResource(R.string.bookmark_switch_to_overlay),
-              modifier = Modifier.size(17.dp),
+              onClick = onSwitchToOverlay,
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Close,
+              contentDescription = stringResource(R.string.bookmark_close_panel),
+              onClick = onClose,
             )
           }
-          IconButton(
-            onClick = onClose,
-            modifier = Modifier.size(32.dp),
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
           ) {
-            Icon(
-              imageVector = Icons.RoundedFilled.Close,
-              contentDescription = stringResource(R.string.bookmark_close_panel),
-              modifier = Modifier.size(18.dp),
+            PanelToggleChip(
+              label = "$cardCount",
+              icon = Icons.RoundedFilled.GridView,
+              contentDescription = stringResource(R.string.bookmark_panel_card_count_cd),
+              onClick = {
+                haptics.tick()
+                viewModel.cycleBookmarkGridCardCount()
+              },
+            )
+            PanelToggleChip(
+              label = "${panelSizePercent}%",
+              icon = Icons.RoundedFilled.AspectRatio,
+              contentDescription = stringResource(R.string.bookmark_panel_size_cd),
+              onClick = {
+                haptics.tick()
+                viewModel.cycleBookmarkPanelSizePercent()
+              },
+            )
+            PanelToggleChip(
+              label = activeGroup?.presetCode?.takeIf { it.isNotBlank() }?.take(7).orEmpty(),
+              icon = Icons.RoundedFilled.Fingerprint,
+              contentDescription = stringResource(R.string.bookmark_preset_button_cd),
+              highlighted = !activeGroup?.presetCode.isNullOrBlank(),
+              onClick = {
+                haptics.tick()
+                showPresetDialog = true
+              },
             )
           }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+      }
 
-        if (bookmarks.isEmpty() && displayChapters.isEmpty()) {
-          Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(12.dp),
-          ) {
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(8.dp),
+      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+      val activeChapterIndex =
+        remember(sourceChapters, currentPositionSeconds) {
+          sourceChapters.indexOfLast { it.start <= currentPositionSeconds }
+        }
+      val displayChapters =
+        remember(sourceChapters, chapters) {
+          if (sourceChapters.isNotEmpty()) sourceChapters else emptyList()
+        }
+
+      if (bookmarks.isEmpty() && displayChapters.isEmpty()) {
+        Box(
+          modifier = Modifier.weight(1f).fillMaxWidth().padding(12.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Text(
+            text = stringResource(R.string.playback_bookmarks_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+          )
+        }
+      } else {
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+          val spacing = 6.dp
+          val currentSecInt = currentPositionSeconds.toInt()
+          if (isPortrait) {
+            val rowHeight = (maxHeight - 12.dp).coerceIn(82.dp, 184.dp)
+            LazyVerticalGrid(
+              columns = GridCells.Fixed(cardCount),
+              modifier = Modifier.fillMaxSize(),
+              contentPadding = PaddingValues(6.dp),
+              horizontalArrangement = Arrangement.spacedBy(spacing),
+              verticalArrangement = Arrangement.spacedBy(spacing),
             ) {
-              Icon(
-                imageVector = Icons.RoundedFilled.Bookmarks,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(28.dp),
-              )
-              Text(
-                text = stringResource(R.string.playback_bookmarks_empty),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
-        } else {
-          LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            items(
-              items = bookmarks,
-              key = { "bm_${it.id}" },
-            ) { bookmark ->
-              val positionSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
-              BookmarkListRow(
-                bookmark = bookmark,
-                positionSeconds = positionSec,
-                selected = bookmark.id == nearestBookmarkId,
-                compact = true,
-                onClick = { viewModel.seekToBookmark(bookmark) },
-                onLongClick = { menuBookmark = bookmark },
-              )
-            }
-
-            if (displayChapters.isNotEmpty()) {
-              item(key = "chapters_header") {
-                Text(
-                  text = stringResource(R.string.bookmark_list_section_chapters),
-                  style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+              items(
+                items = bookmarks,
+                key = { "bm_${it.id}" },
+              ) { bookmark ->
+                val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
+                BookmarkGridCard(
+                  bookmark = bookmark,
+                  positionSeconds = posSec,
+                  selected = abs(posSec - currentSecInt) <= 2,
+                  compactLabels = cardCount >= 5,
+                  onClick = { viewModel.seekToBookmark(bookmark) },
+                  onLongClick = {
+                    haptics.tick()
+                    menuBookmark = bookmark
+                  },
+                  modifier = Modifier.fillMaxWidth().height(rowHeight),
                 )
               }
-              items(
-                items = displayChapters,
-                key = { "ch_${it.start}_${it.name}" },
-              ) { segment ->
-                val isCurrent =
-                  displayChapters.indexOfLast { it.start <= currentPositionSeconds }
-                    .let { idx -> idx >= 0 && displayChapters[idx] == segment }
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                  modifier =
-                    Modifier
-                      .fillMaxWidth()
-                      .clip(RoundedCornerShape(10.dp))
-                      .background(
-                        if (isCurrent) {
-                          MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        } else {
-                          Color.Transparent
-                        },
-                      ).clickable { viewModel.seekToPlaybackChapter(segment) }
-                      .padding(horizontal = 8.dp, vertical = 8.dp),
-                ) {
+
+              if (displayChapters.isNotEmpty()) {
+                item(span = { GridItemSpan(cardCount) }) {
                   Text(
-                    text = segment.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                  )
-                  Text(
-                    text = Utils.prettyTime(segment.start.toInt().coerceAtLeast(0)),
-                    style = MaterialTheme.typography.labelSmall,
+                    text = stringResource(R.string.bookmark_list_section_chapters),
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp, start = 2.dp),
                   )
+                }
+                items(
+                  count = displayChapters.size,
+                  key = { idx -> "ch_$idx" },
+                  span = { GridItemSpan(cardCount) },
+                ) { idx ->
+                  val chapter = displayChapters[idx]
+                  val selected = idx == activeChapterIndex
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color =
+                      if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                      } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                      },
+                    modifier =
+                      Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { viewModel.seekToPlaybackChapter(chapter) },
+                  ) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                      Text(
+                        text = chapter.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                      )
+                      Spacer(Modifier.width(8.dp))
+                      Text(
+                        text = formatBookmarkTimecode(chapter.start.toInt()),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                  }
+                }
+              }
+            }
+          } else {
+            val cardHeight =
+              ((maxHeight - 12.dp - spacing * (cardCount - 1)) / cardCount).coerceAtLeast(54.dp)
+            LazyColumn(
+              modifier = Modifier.fillMaxSize(),
+              contentPadding = PaddingValues(6.dp),
+              verticalArrangement = Arrangement.spacedBy(spacing),
+            ) {
+              items(
+                items = bookmarks,
+                key = { "bm_${it.id}" },
+              ) { bookmark ->
+                val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
+                BookmarkGridCard(
+                  bookmark = bookmark,
+                  positionSeconds = posSec,
+                  selected = abs(posSec - currentSecInt) <= 2,
+                  compactLabels = cardCount >= 5,
+                  onClick = { viewModel.seekToBookmark(bookmark) },
+                  onLongClick = {
+                    haptics.tick()
+                    menuBookmark = bookmark
+                  },
+                  modifier = Modifier.fillMaxWidth().height(cardHeight),
+                )
+              }
+
+              if (displayChapters.isNotEmpty()) {
+                item(key = "ch_header") {
+                  Text(
+                    text = stringResource(R.string.bookmark_list_section_chapters),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+                  )
+                }
+                items(
+                  count = displayChapters.size,
+                  key = { idx -> "ch_$idx" },
+                ) { idx ->
+                  val chapter = displayChapters[idx]
+                  val selected = idx == activeChapterIndex
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color =
+                      if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                      } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                      },
+                    modifier =
+                      Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { viewModel.seekToPlaybackChapter(chapter) },
+                  ) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                      Text(
+                        text = chapter.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                      )
+                      Spacer(Modifier.width(6.dp))
+                      Text(
+                        text = formatBookmarkTimecode(chapter.start.toInt()),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                  }
                 }
               }
             }
           }
         }
-      }
-    }
-
-    if (isPortrait) {
-      Column(Modifier.fillMaxSize()) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        contentBlock(Modifier.weight(1f))
-      }
-    } else {
-      Row(Modifier.fillMaxSize()) {
-        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        contentBlock(Modifier.weight(1f))
       }
     }
   }
@@ -544,7 +845,7 @@ internal fun BookmarkSplitPanel(
     val targetPosSec = (viewModel.bookmarkPositionMs(target) / 1000L).toInt().coerceAtLeast(0)
     BookmarkActionMenuDialog(
       bookmark = target,
-      formattedTimestamp = Utils.prettyTime(targetPosSec),
+      formattedTimestamp = formatBookmarkTimecode(targetPosSec),
       onJump = { viewModel.seekToBookmark(target) },
       onRename = {
         if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.None)) {
@@ -553,16 +854,18 @@ internal fun BookmarkSplitPanel(
       },
       onDelete = {
         scope.launch {
-          try {
-            viewModel.deletePlaybackBookmark(target)
-          } catch (cancelled: CancellationException) {
-            throw cancelled
-          } catch (_: Exception) {
-            Toast.makeText(context, R.string.playback_bookmark_update_failed, Toast.LENGTH_SHORT).show()
-          }
+          viewModel.deletePlaybackBookmark(target)
+          haptics.tick()
         }
       },
       onDismiss = { menuBookmark = null },
+    )
+  }
+
+  if (showPresetDialog) {
+    BookmarkPresetDialog(
+      viewModel = viewModel,
+      onDismiss = { showPresetDialog = false },
     )
   }
 }

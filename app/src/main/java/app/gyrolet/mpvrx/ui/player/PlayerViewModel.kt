@@ -120,8 +120,9 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -1080,18 +1081,167 @@ class PlayerViewModel(
           ?: persistentListOf()
       }.stateIn(viewModelScope, SharingStarted.Eagerly, persistentListOf())
 
-  private fun bookmarkMediaId(item: PlaybackItem?): String? = item?.audiobook?.let {
+  private fun rawBookmarkMediaId(item: PlaybackItem?): String? = item?.audiobook?.let {
     app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity.audiobookMediaId(it.bookId)
   } ?: item?.stableId
 
-  val bookmarkMediaId: StateFlow<String?> = PlaybackSession.state.map { bookmarkMediaId(it.currentItem) }
-    .distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+  private fun resolveMediaFileSizeBytes(item: PlaybackItem): Long {
+    val mpvSize =
+      runCatching { PlaybackSession.getPropertyDouble("file-size")?.toLong() }.getOrNull()
+        ?.takeIf { it > 0L }
+        ?: runCatching { PlaybackSession.getPropertyDouble("stream-end")?.toLong() }.getOrNull()
+          ?.takeIf { it > 0L }
+    if (mpvSize != null) return mpvSize
+
+    listOf(item.playableUri, item.originalUri).forEach { candidate ->
+      when {
+        candidate.startsWith("file://") -> {
+          val len = runCatching { Uri.parse(candidate).path?.let(::java.io.File)?.takeIf { it.isFile }?.length() }.getOrNull()
+          if (len != null && len > 0L) return len
+        }
+        candidate.startsWith("/") -> {
+          val len = runCatching { java.io.File(candidate).takeIf { it.isFile }?.length() }.getOrNull()
+          if (len != null && len > 0L) return len
+        }
+        candidate.startsWith("content://") -> {
+          val parsed = Uri.parse(candidate)
+          val afdLen =
+            runCatching {
+              appContext.contentResolver.openAssetFileDescriptor(parsed, "r")?.use { it.length }
+            }.getOrNull()?.takeIf { it > 0L }
+          if (afdLen != null) return afdLen
+          val colLen =
+            runCatching {
+              appContext.contentResolver.query(
+                parsed,
+                arrayOf(android.provider.OpenableColumns.SIZE),
+                null,
+                null,
+                null,
+              )?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+              }
+            }.getOrNull()?.takeIf { it > 0L }
+          if (colLen != null) return colLen
+        }
+      }
+    }
+    return 0L
+  }
+
+  private fun buildBookmarkMediaMetadata(
+    item: PlaybackItem?,
+    widthProp: Int?,
+    heightProp: Int?,
+    durationProp: Double?,
+  ): app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata? {
+    val rawId = rawBookmarkMediaId(item) ?: return null
+    if (item == null) return null
+    if (item.audiobook != null) {
+      return app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata(
+        rawMediaId = rawId,
+        durationSec = (durationProp?.toInt()?.takeIf { it > 0 } ?: item.durationSeconds ?: 0),
+        sourceLabel = item.title,
+      )
+    }
+    val width = widthProp?.takeIf { it > 0 } ?: runCatching { PlaybackSession.getPropertyInt("video-params/w") }.getOrNull() ?: 0
+    val height = heightProp?.takeIf { it > 0 } ?: runCatching { PlaybackSession.getPropertyInt("video-params/h") }.getOrNull() ?: 0
+    val durationSec =
+      durationProp?.toInt()?.takeIf { it > 0 }
+        ?: runCatching { PlaybackSession.getPropertyDouble("duration")?.toInt() }.getOrNull()?.takeIf { it > 0 }
+        ?: item.durationSeconds
+        ?: 0
+    val fileSizeBytes = resolveMediaFileSizeBytes(item)
+    val label =
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.displaySourceLabel(
+        title = item.title,
+        pathOrUri = item.originalUri,
+      )
+    val stemKey =
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(item.originalUri)
+        ?: app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(item.title)
+    return app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata(
+      rawMediaId = rawId,
+      fileSizeBytes = fileSizeBytes,
+      width = width,
+      height = height,
+      durationSec = durationSec,
+      sourceLabel = label,
+      stemKey = stemKey,
+    )
+  }
+
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  val bookmarkMediaId: StateFlow<String?> =
+    PlaybackSession.state
+      .map { rawBookmarkMediaId(it.currentItem) }
+      .distinctUntilChanged()
+      .flatMapLatest { rawId ->
+        if (rawId == null) {
+          flowOf(null)
+        } else if (rawId.startsWith("audiobook:")) {
+          flowOf(rawId)
+        } else {
+          combine(
+            playbackBookmarkDao.observeLinkedGroupKey(rawId),
+            PlaybackSession.state,
+            PlaybackSession.propInt["video-params/w"],
+            PlaybackSession.propInt["video-params/h"],
+            PlaybackSession.propDouble["duration"],
+          ) { linked, session, w, h, dur ->
+            Triple(linked, session.currentItem, Triple(w, h, dur))
+          }.mapLatest { (linked, item, props) ->
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+              val meta = buildBookmarkMediaMetadata(item, props.first, props.second, props.third)
+              if (linked != null) {
+                if (meta != null && playbackBookmarkDao.countInGroup(linked) > 0) {
+                  app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+                    dao = playbackBookmarkDao,
+                    groupKey = linked,
+                    metadata = meta,
+                  )
+                }
+                linked
+              } else {
+                val resolved =
+                  app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.resolveGroupKey(
+                    dao = playbackBookmarkDao,
+                    rawMediaId = rawId,
+                    fingerprint = meta?.fingerprint,
+                    stemKey = meta?.stemKey,
+                    durationSec = meta?.durationSec ?: 0,
+                  )
+                if (meta != null && playbackBookmarkDao.countInGroup(resolved) > 0) {
+                  app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+                    dao = playbackBookmarkDao,
+                    groupKey = resolved,
+                    metadata = meta,
+                  )
+                }
+                resolved
+              }
+            }
+          }
+        }
+      }.distinctUntilChanged()
+      .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val playbackBookmarks: StateFlow<List<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity>> =
     bookmarkMediaId.flatMapLatest { mediaId ->
       if (mediaId == null) flowOf(emptyList()) else playbackBookmarkDao.observe(mediaId).onStart { emit(emptyList()) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  val activeBookmarkGroup: StateFlow<app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity?> =
+    bookmarkMediaId.flatMapLatest { groupKey ->
+      if (groupKey == null) flowOf(null) else playbackBookmarkDao.observeGroup(groupKey).onStart { emit(null) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  val savedBookmarkPresets: StateFlow<List<app.gyrolet.mpvrx.database.dao.BookmarkGroupSummary>> =
+    playbackBookmarkDao
+      .observePresetSummaries()
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   /**
    * Chapters that come from the media itself: mpv's chapter list, or the book's own track
@@ -1107,9 +1257,8 @@ class PlayerViewModel(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, persistentListOf())
 
   val playbackChapters: StateFlow<List<dev.vivvvek.seeker.Segment>> =
-    combine(sourceChapters, playbackBookmarks, AudiobookPlayback.book, PlaybackSession.state) { sourceChapters, bookmarks, book, state ->
+    combine(sourceChapters, playbackBookmarks, bookmarkMediaId, AudiobookPlayback.book, PlaybackSession.state) { sourceChapters, bookmarks, mediaId, book, state ->
       val item = state.currentItem
-      val mediaId = bookmarkMediaId(item)
       val currentBook = book?.takeIf { it.book.id == item?.audiobook?.bookId }
       val customChapters = bookmarks.filter { it.mediaId == mediaId }.mapNotNull { bookmark ->
         val positionMs = if (bookmark.bookTrackId == null) bookmark.positionMs else {
@@ -2223,6 +2372,40 @@ fun restartFromBeginning() {
   private val _bookmarkDraft = MutableStateFlow<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity?>(null)
   val bookmarkDraft = _bookmarkDraft.asStateFlow()
 
+  val bookmarkGridCardCount: StateFlow<Int> =
+    playerPreferences.bookmarkGridCardCount.changes()
+      .map { it.coerceIn(3, 5) }
+      .stateIn(viewModelScope, SharingStarted.Eagerly, playerPreferences.bookmarkGridCardCount.get().coerceIn(3, 5))
+
+  val bookmarkPanelSizePercent: StateFlow<Int> =
+    playerPreferences.bookmarkPanelSizePercent.changes()
+      .map { if (it in setOf(25, 30, 35)) it else 25 }
+      .stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        playerPreferences.bookmarkPanelSizePercent.get().let { if (it in setOf(25, 30, 35)) it else 25 },
+      )
+
+  fun cycleBookmarkGridCardCount() {
+    val next =
+      when (bookmarkGridCardCount.value) {
+        3 -> 4
+        4 -> 5
+        else -> 3
+      }
+    playerPreferences.bookmarkGridCardCount.set(next)
+  }
+
+  fun cycleBookmarkPanelSizePercent() {
+    val next =
+      when (bookmarkPanelSizePercent.value) {
+        25 -> 30
+        30 -> 35
+        else -> 25
+      }
+    playerPreferences.bookmarkPanelSizePercent.set(next)
+  }
+
   fun toggleBookmarkPanel() {
     _isBookmarkPanelOpen.update { !it }
   }
@@ -2243,10 +2426,20 @@ fun restartFromBeginning() {
     }
   }
 
+  private fun snapshotBookmarkMediaMetadata(): app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata? =
+    buildBookmarkMediaMetadata(
+      item = PlaybackSession.state.value.currentItem,
+      widthProp = PlaybackSession.propInt["video-params/w"].value,
+      heightProp = PlaybackSession.propInt["video-params/h"].value,
+      durationProp = PlaybackSession.propDouble["duration"].value,
+    )
+
   private fun buildPlaybackBookmarkDraft(): app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? {
-    val mediaId = bookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return null
+    val currentItem = PlaybackSession.state.value.currentItem
+    val rawMediaId = rawBookmarkMediaId(currentItem) ?: return null
+    val groupKey = bookmarkMediaId.value ?: rawMediaId
     val (item, positionMs) = PlaybackSession.bookmarkSnapshot() ?: return null
-    if (bookmarkMediaId(item) != mediaId) return null
+    if (rawBookmarkMediaId(item) != rawMediaId) return null
     val timelinePosition = item.audiobook?.let { info ->
       AudiobookPlayback.book.value?.takeIf { it.book.id == info.bookId }?.positionInBook(info.trackId, positionMs)
     } ?: positionMs
@@ -2254,7 +2447,7 @@ fun restartFromBeginning() {
     val time = android.text.format.DateUtils.formatElapsedTime(timelinePosition / 1000)
     val defaultTitle = if (!chapter.isNullOrBlank()) "$chapter • $time" else "Bookmark $time"
     return app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
-      mediaId = mediaId,
+      mediaId = groupKey,
       bookTrackId = item.audiobook?.trackId,
       positionMs = positionMs,
       title = defaultTitle,
@@ -2275,9 +2468,16 @@ fun restartFromBeginning() {
 
   fun quickAddBookmark(): Boolean {
     val draft = buildPlaybackBookmarkDraft() ?: return false
+    val metaSnapshot = snapshotBookmarkMediaMetadata()
     playerUpdate.value = PlayerUpdates.BookmarkCreated()
     viewModelScope.launch(Dispatchers.IO) {
       val insertedId = playbackBookmarkDao.add(draft)
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+        dao = playbackBookmarkDao,
+        groupKey = draft.mediaId,
+        metadata = metaSnapshot,
+        forceLinkRawMediaId = true,
+      )
       captureAndAttachBookmarkThumbnail(insertedId)
     }
     return true
@@ -2287,7 +2487,8 @@ fun restartFromBeginning() {
     existing: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? = null,
     returnSheet: Sheets = Sheets.None,
   ): Boolean {
-    val mediaId = bookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return false
+    val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return false
+    val mediaId = bookmarkMediaId.value ?: rawId
     bookmarkEditorReturnSheet = returnSheet
     if (existing != null) {
       if (existing.mediaId != mediaId) return false
@@ -2305,25 +2506,131 @@ fun restartFromBeginning() {
   }
 
   suspend fun savePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity, title: String) {
-    require(title.isNotBlank())
+    val resolvedTitle = title.trim().ifBlank { bookmark.title.trim() }
+    require(resolvedTitle.isNotBlank())
+    val metaSnapshot = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
     if (bookmark.id == 0L) {
-      val insertedId = playbackBookmarkDao.add(bookmark.copy(title = title.trim()))
+      val insertedId = playbackBookmarkDao.add(bookmark.copy(title = resolvedTitle))
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+        dao = playbackBookmarkDao,
+        groupKey = bookmark.mediaId,
+        metadata = metaSnapshot,
+        forceLinkRawMediaId = true,
+      )
       if (bookmark.thumbnailPath == null) {
         captureAndAttachBookmarkThumbnail(insertedId)
       }
     } else {
-      playbackBookmarkDao.rename(bookmark.id, title.trim())
+      playbackBookmarkDao.rename(bookmark.id, resolvedTitle)
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+        dao = playbackBookmarkDao,
+        groupKey = bookmark.mediaId,
+        metadata = metaSnapshot,
+        forceLinkRawMediaId = true,
+      )
     }
   }
 
   suspend fun deletePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
-    playbackBookmarkDao.delete(bookmark.id)
+    app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.deleteBookmarkSafely(
+      dao = playbackBookmarkDao,
+      context = appContext,
+      bookmark = bookmark,
+    )
     if (_bookmarkDraft.value?.id == bookmark.id) _bookmarkDraft.value = null
-    app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(appContext, bookmark.thumbnailPath)
+  }
+
+  suspend fun findExistingBookmarkGroupByCode(rawCode: String): app.gyrolet.mpvrx.database.dao.BookmarkGroupSummary? =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val normalized = app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizePresetCode(rawCode)
+      if (normalized.isBlank()) return@withContext null
+      val currentGroupKey = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+      val found = playbackBookmarkDao.findGroupByPresetCode(normalized) ?: return@withContext null
+      if (found.groupKey == currentGroupKey) return@withContext null
+      val count = playbackBookmarkDao.countInGroup(found.groupKey)
+      if (count <= 0) return@withContext null
+      app.gyrolet.mpvrx.database.dao.BookmarkGroupSummary(
+        groupKey = found.groupKey,
+        presetCode = found.presetCode,
+        fingerprint = found.fingerprint,
+        stemKey = found.stemKey,
+        durationSec = found.durationSec,
+        width = found.width,
+        height = found.height,
+        fileSizeBytes = found.fileSizeBytes,
+        sourceLabel = found.sourceLabel,
+        updatedAt = found.updatedAt,
+        bookmarkCount = count,
+      )
+    }
+
+  suspend fun assignBookmarkPresetCode(rawCode: String): String? =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return@withContext null
+      val groupKey = bookmarkMediaId.value ?: rawId
+      val meta = snapshotBookmarkMediaMetadata()
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.assignPresetCode(
+        dao = playbackBookmarkDao,
+        groupKey = groupKey,
+        rawCode = rawCode,
+        metadata = meta,
+      )
+    }
+
+  suspend fun loadBookmarkGroup(sourceGroupKey: String): app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupLoadResult {
+    val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+      ?: return app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupLoadResult.AlreadyActive
+    val currentGroupKey = bookmarkMediaId.value ?: rawId
+    val meta = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
+    return app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.loadGroupIntoCurrent(
+      dao = playbackBookmarkDao,
+      rawMediaId = rawId,
+      currentGroupKey = currentGroupKey,
+      sourceGroupKey = sourceGroupKey,
+      metadata = meta,
+    )
+  }
+
+  suspend fun exportBookmarkPreset(uri: Uri): Result<Int> =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val group = activeBookmarkGroup.value
+      val bookmarks = playbackBookmarks.value
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkPresetArchive.exportToUri(
+        context = appContext,
+        uri = uri,
+        group = group,
+        bookmarks = bookmarks,
+      )
+    }
+
+  suspend fun importBookmarkPreset(uri: Uri): Result<Int> {
+    val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+      ?: return Result.failure(IllegalStateException("No active media"))
+    val groupKey = bookmarkMediaId.value ?: rawId
+    val meta = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
+    return app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.importArchiveIntoCurrent(
+      dao = playbackBookmarkDao,
+      context = appContext,
+      uri = uri,
+      groupKey = groupKey,
+      metadata = meta,
+    )
+  }
+
+  fun suggestedBookmarkPresetFilename(): String {
+    val fallback =
+      PlaybackSession.state.value.currentItem?.let {
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.displaySourceLabel(it.title, it.originalUri)
+      }
+    return app.gyrolet.mpvrx.domain.bookmark.BookmarkPresetArchive.suggestedFilename(
+      group = activeBookmarkGroup.value,
+      fallbackTitle = fallback,
+    )
   }
 
   fun seekToBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
-    if (bookmark.mediaId != bookmarkMediaId(PlaybackSession.state.value.currentItem)) return
+    val mediaId = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+    if (bookmark.mediaId != mediaId) return
     if (bookmark.bookTrackId != null) AudiobookPlayback.seekToBookmark(bookmark.bookTrackId, bookmark.positionMs)
     else PlaybackSession.command("seek", (bookmark.positionMs / 1000.0).toString(), "absolute+exact")
   }

@@ -4,6 +4,13 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.0.4 — Sketch Bookmark Cards, Smart Fingerprint Sync & Presets
+
+- **Sketch-style bookmark cards with non-stretched thumbnails:** Bookmark thumbnails inside the split-screen panel now fill each card with `ContentScale.Fit` (zero stretching across 16:9, 21:9, 4:3, and vertical videos), crisp `720px` frame captures, small titles pinned at the top, and tabular `HH:MM:SS` timestamps pinned at the bottom.
+- **Toggleable `3 / 4 / 5` card layout & `25% / 30% / 35%` panel size:** One header toggle cycles between 3, 4, and 5 visible cards (rows in landscape, columns in portrait) and a panel-size pill cycles between `25%`, `30%`, and `35%` panel size while smoothly scrolling when dragging directly over cards. Both preferences persist across sessions.
+- **Smarter name entry & landscape-safe edit menu:** Long-pressing `Add Bookmark` (`+`) opens the name sheet blank with the generated default name as a placeholder hint (tap Save immediately or type your own). Long-pressing an existing bookmark opens a compact scrollable action menu (Jump, Edit bookmark name, Delete) tailored for landscape screens, and `Edit bookmark name` pre-fills and auto-selects the full title for one-tap replacement.
+- **Auto-fingerprint matching, Secure Folder migration & Presets:** Bookmarks automatically follow renamed files, Secure Folder hides/restores, and quality upgrades (matching `(fileSize + resolution + duration)` cleanly, or matching `(normalized title stem + duration)` when swapping to higher-res copies). Includes a **Presets & Video Code** dialog to assign custom codes, reuse saved bookmark groups even after deleting old files, and export/import `.mpvrx-bookmarks.zip` preset packs with all thumbnails intact.
+
 ## 3.0.3 — Quick Bookmarks, Split Panel, Seekbar Pins & LRC Export
 
 - **One-tap quick bookmarks & custom name editor:** Single-tap `Add Bookmark` (`+`) to immediately capture a private frame thumbnail and save a bookmark with a `"Bookmark created"` OSD notice, or long-press it to enter a custom name. Both `Add Bookmark` and `Bookmarks List` can be repositioned or hidden in the player button layout editor.

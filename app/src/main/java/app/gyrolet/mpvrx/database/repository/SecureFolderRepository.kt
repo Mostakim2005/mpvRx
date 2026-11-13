@@ -190,6 +190,19 @@ class SecureFolderRepository(
           removeFromMediaStore(context, video)
           RecentlyPlayedOps.onVideoDeleted(video.path)
           PlaybackStateOps.onVideoDeleted(video.path)
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
+            oldMediaIds =
+              listOfNotNull(
+                video.path.takeIf { it.isNotBlank() }?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
+                app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(video.uri.toString()),
+              ),
+            newMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(destFile.absolutePath)),
+            fileSizeBytes = sourceFile.length(),
+            width = video.width,
+            height = video.height,
+            durationSec = (video.duration / 1000L).toInt().coerceAtLeast(0),
+            sourceLabel = sourceFile.name,
+          )
 
           succeeded += video.id
         } catch (e: CancellationException) {
@@ -313,6 +326,20 @@ class SecureFolderRepository(
           try {
             if (move.video.uri in deletedUris) {
               PlaybackStateOps.onScopedVideoDeleted(move.video)
+              app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
+                oldMediaIds =
+                  listOfNotNull(
+                    move.video.path.takeIf { it.isNotBlank() }
+                      ?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
+                    app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(move.video.uri.toString()),
+                  ),
+                newMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(move.file.absolutePath)),
+                fileSizeBytes = move.file.length(),
+                width = move.video.width,
+                height = move.video.height,
+                durationSec = (move.video.duration / 1000L).toInt().coerceAtLeast(0),
+                sourceLabel = move.file.name,
+              )
             } else {
               dao.deleteById(move.entityId)
               discardPrivateCopy(move.file)
@@ -615,6 +642,20 @@ class SecureFolderRepository(
         )
         if (publishedRows <= 0) throw IOException("Could not publish restored media for ${entity.fileName}")
         published = true
+        val restoredLocalPath = ScopedHiddenFolderScanner.localPathOf(restoredUri)
+        app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
+          oldMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(entity.secureFilePath)),
+          newMediaIds =
+            listOfNotNull(
+              app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(restoredUri.toString()),
+              restoredLocalPath?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
+            ),
+          fileSizeBytes = expectedSize,
+          width = 0,
+          height = 0,
+          durationSec = 0,
+          sourceLabel = entity.fileName,
+        )
         dao.deleteById(entity.id)
         if (!secureFile.delete()) {
           val message = "Restored but couldn't clean up secure copy: ${entity.secureFilePath}"

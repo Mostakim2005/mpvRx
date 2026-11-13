@@ -68,11 +68,13 @@ import app.gyrolet.mpvrx.domain.network.NetworkConnection
     AudiobookTrackEntity::class,
     AudiobookChapterEntity::class,
     PlaybackBookmarkEntity::class,
+    app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity::class,
+    app.gyrolet.mpvrx.database.entities.BookmarkMediaLinkEntity::class,
     AudiobookshelfServerEntity::class,
     FrameCaptureEntity::class,
     SnapshotFolderEntity::class,
   ],
-  version = 32,
+  version = 33,
   exportSchema = true,
 )
 @TypeConverters(NetworkProtocolConverter::class, NetworkStreamEntryTypeConverter::class)

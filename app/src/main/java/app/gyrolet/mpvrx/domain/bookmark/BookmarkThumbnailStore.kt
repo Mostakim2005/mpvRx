@@ -30,7 +30,7 @@ object BookmarkThumbnailStore {
   private const val THUMBNAIL_DIR_NAME = "bookmark-thumbnails"
   private const val CAPTURE_TEMP_DIR_NAME = "bookmark-capture"
   private const val NOMEDIA_FILE_NAME = ".nomedia"
-  private const val THUMBNAIL_MAX_PX = 320
+  private const val THUMBNAIL_MAX_PX = 720
   private const val JPEG_QUALITY = 82
   private const val SCREENSHOT_POLL_INTERVAL_MS = 25L
   private const val SCREENSHOT_TIMEOUT_MS = 800L

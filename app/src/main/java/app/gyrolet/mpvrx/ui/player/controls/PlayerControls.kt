@@ -2544,11 +2544,19 @@ fun PlayerControls(
         }
 
         if (showSplitBookmarkPanel) {
+          val bookmarkPanelSizePercent by playerPreferences.bookmarkPanelSizePercent.collectAsState()
+          val panelWeight =
+            when (bookmarkPanelSizePercent) {
+              30 -> 0.30f
+              35 -> 0.35f
+              else -> 0.25f
+            }
+          val videoWeight = 1f - panelWeight
           CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             if (isPortrait) {
               Column(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
-                  Box(modifier = Modifier.fillMaxWidth().weight(0.75f)) {
+                  Box(modifier = Modifier.fillMaxWidth().weight(videoWeight)) {
                     videoOverlayPane(Modifier.fillMaxSize())
                   }
                   BookmarkSplitPanel(
@@ -2559,14 +2567,14 @@ fun PlayerControls(
                     onOpenSheet = onOpenSheet,
                     onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
                     onClose = { viewModel.setBookmarkPanelOpen(false) },
-                    modifier = Modifier.fillMaxWidth().weight(0.25f),
+                    modifier = Modifier.fillMaxWidth().weight(panelWeight),
                   )
                 }
               }
             } else {
               Row(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
-                  Box(modifier = Modifier.fillMaxHeight().weight(0.75f)) {
+                  Box(modifier = Modifier.fillMaxHeight().weight(videoWeight)) {
                     videoOverlayPane(Modifier.fillMaxSize())
                   }
                   BookmarkSplitPanel(
@@ -2577,7 +2585,7 @@ fun PlayerControls(
                     onOpenSheet = onOpenSheet,
                     onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
                     onClose = { viewModel.setBookmarkPanelOpen(false) },
-                    modifier = Modifier.fillMaxHeight().weight(0.25f),
+                    modifier = Modifier.fillMaxHeight().weight(panelWeight),
                   )
                 }
               }

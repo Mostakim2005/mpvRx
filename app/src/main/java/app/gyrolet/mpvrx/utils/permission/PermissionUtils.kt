@@ -518,6 +518,7 @@ object PermissionUtils {
             // Update history
             RecentlyPlayedOps.onVideoRenamed(oldFile.absolutePath, newFile.absolutePath)
             PlaybackStateOps.onVideoRenamed(oldFile.absolutePath, newFile.absolutePath)
+            app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onPathRenamed(oldFile.absolutePath, newFile.absolutePath)
 
             // Notify that media library has changed
             MediaLibraryEvents.notifyChanged()
@@ -578,6 +579,7 @@ object PermissionUtils {
         mediaPaths.forEach { (oldPath, newPath) ->
           RecentlyPlayedOps.onVideoRenamed(oldPath, newPath)
           PlaybackStateOps.onVideoRenamed(oldPath, newPath)
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onPathRenamed(oldPath, newPath)
         }
         scanChangedPaths(context, mediaPaths.flatMap { (oldPath, newPath) -> listOf(oldPath, newPath) })
         MediaLibraryEvents.notifyChanged()
@@ -623,6 +625,7 @@ object PermissionUtils {
             val renamedUri = DocumentsContract.renameDocument(context.contentResolver, video.uri, newDisplayName)
               ?: return@withContext Result.failure(IllegalStateException("Document rename failed"))
             PlaybackStateOps.onScopedVideoRenamed(video, renamedUri.toString(), renamedUri, newDisplayName)
+            app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onScopedVideoRenamed(video, renamedUri.toString(), newDisplayName)
             MediaLibraryEvents.notifyChanged()
             return@withContext Result.success(Unit)
           }
@@ -658,6 +661,7 @@ object PermissionUtils {
             val newPath = parent?.let { File(it, newDisplayName).absolutePath } ?: video.uri.toString()
 
             PlaybackStateOps.onScopedVideoRenamed(video, newPath, video.uri, newDisplayName)
+            app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onScopedVideoRenamed(video, newPath, newDisplayName)
             MediaLibraryEvents.notifyChanged()
 
             Log.d(TAG, "✓ Renamed (scoped): ${video.displayName} -> $newDisplayName")

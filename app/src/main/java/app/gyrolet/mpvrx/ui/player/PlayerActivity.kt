@@ -1507,8 +1507,15 @@ class PlayerActivity :
     if (containerWidth <= 0 || containerHeight <= 0) return
 
     val isPortrait = containerWidth < containerHeight
-    val regionWidth = if (isPortrait) containerWidth else (containerWidth * 0.75f).roundToInt().coerceIn(1, containerWidth)
-    val regionHeight = if (isPortrait) (containerHeight * 0.75f).roundToInt().coerceIn(1, containerHeight) else containerHeight
+    val panelPercent =
+      when (playerPreferences.bookmarkPanelSizePercent.get()) {
+        30 -> 0.30f
+        35 -> 0.35f
+        else -> 0.25f
+      }
+    val videoFraction = 1f - panelPercent
+    val regionWidth = if (isPortrait) containerWidth else (containerWidth * videoFraction).roundToInt().coerceIn(1, containerWidth)
+    val regionHeight = if (isPortrait) (containerHeight * videoFraction).roundToInt().coerceIn(1, containerHeight) else containerHeight
     val isRtl = binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL
 
     var targetWidth = regionWidth
@@ -1659,9 +1666,10 @@ class PlayerActivity :
           viewModel.isBookmarkPanelOpen,
           viewModel.isAudioOnly,
           PlaybackSession.state,
-        ) { panelOpen, isAudio, sessionState ->
-          panelOpen && !isAudio && sessionState.currentItem?.audiobook == null
-        }.distinctUntilChanged().collect { shouldSplit ->
+          viewModel.bookmarkPanelSizePercent,
+        ) { panelOpen, isAudio, sessionState, panelPercent ->
+          (panelOpen && !isAudio && sessionState.currentItem?.audiobook == null) to panelPercent
+        }.distinctUntilChanged().collect { (shouldSplit, _) ->
           if (
             !shouldSplit &&
             viewModel.isBookmarkPanelOpen.value &&

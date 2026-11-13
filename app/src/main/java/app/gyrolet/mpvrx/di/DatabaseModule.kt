@@ -975,6 +975,30 @@ val MIGRATION_31_32 =
     }
   }
 
+val MIGRATION_32_33 =
+  object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL(
+        "CREATE TABLE IF NOT EXISTS `bookmark_groups` (`groupKey` TEXT NOT NULL, `presetCode` TEXT, `fingerprint` TEXT, `stemKey` TEXT, `durationSec` INTEGER NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `sourceLabel` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`groupKey`))",
+      )
+      db.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_bookmark_groups_presetCode` ON `bookmark_groups` (`presetCode`)",
+      )
+      db.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_bookmark_groups_fingerprint` ON `bookmark_groups` (`fingerprint`)",
+      )
+      db.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_bookmark_groups_stemKey` ON `bookmark_groups` (`stemKey`)",
+      )
+      db.execSQL(
+        "CREATE TABLE IF NOT EXISTS `bookmark_media_links` (`mediaId` TEXT NOT NULL, `groupKey` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`mediaId`))",
+      )
+      db.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_bookmark_media_links_groupKey` ON `bookmark_media_links` (`groupKey`)",
+      )
+    }
+  }
+
 val MIGRATION_24_25 =
   object : Migration(24, 25) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -1045,6 +1069,7 @@ val DatabaseModule =
           MIGRATION_29_30,
           MIGRATION_30_31,
           MIGRATION_31_32,
+          MIGRATION_32_33,
         ).build()
     }
 
