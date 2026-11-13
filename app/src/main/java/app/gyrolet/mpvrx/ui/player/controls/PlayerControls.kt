@@ -505,7 +505,7 @@ fun PlayerControls(
   val showSplitBookmarkPanel =
     !isTelevision &&
       !isAudioOnly &&
-      playbackSessionState.currentItem?.audiobook == null &&
+      currentQueueItem?.audiobook == null &&
       isBookmarkPanelOpen &&
       bookmarkListSplitPanel
   val splitHorizontalSides =
@@ -604,7 +604,6 @@ fun PlayerControls(
     }
   }
 
-  val isAudioOnly by viewModel.isAudioOnly.collectAsState()
   val activity = LocalActivity.current as? PlayerActivity
   val currentPlaybackItem = playbackQueue.currentItem
   val useAudioPlayer =
@@ -2628,7 +2627,6 @@ fun PlayerControls(
           viewModel = viewModel,
           onDismissRequest = { onOpenPanel(Panels.None) },
         )
-      }
       }
     }
   }
