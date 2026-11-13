@@ -1096,7 +1096,7 @@ class PlayerViewModel(
     listOf(item.playableUri, item.originalUri).forEach { candidate ->
       when {
         candidate.startsWith("file://") -> {
-          val len = runCatching { Uri.parse(candidate).path?.let(::java.io.File)?.takeIf { it.isFile }?.length() }.getOrNull()
+          val len = runCatching { Uri.parse(candidate).path?.let { java.io.File(it) }?.takeIf { it.isFile }?.length() }.getOrNull()
           if (len != null && len > 0L) return len
         }
         candidate.startsWith("/") -> {
@@ -1141,7 +1141,7 @@ class PlayerViewModel(
       return app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata(
         rawMediaId = rawId,
         durationSec = (durationProp?.toInt()?.takeIf { it > 0 } ?: item.durationSeconds ?: 0),
-        sourceLabel = item.title,
+        sourceLabel = item.title ?: "Audiobook",
       )
     }
     val width = widthProp?.takeIf { it > 0 } ?: runCatching { PlaybackSession.getPropertyInt("video-params/w") }.getOrNull() ?: 0
@@ -1159,7 +1159,7 @@ class PlayerViewModel(
       )
     val stemKey =
       app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(item.originalUri)
-        ?: app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(item.title)
+        ?: item.title?.let { app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(it) }
     return app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata(
       rawMediaId = rawId,
       fileSizeBytes = fileSizeBytes,
