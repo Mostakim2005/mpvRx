@@ -68,7 +68,7 @@ fun AppAlertDialog(
   val compact = configuration.screenHeightDp < COMPACT_HEIGHT_DP
   val maximumHeight =
     if (compact) {
-      (configuration.screenHeightDp.dp * COMPACT_MAX_HEIGHT_FRACTION).coerceAtLeast(COMPACT_MIN_HEIGHT_DP)
+      (configuration.screenHeightDp.dp * COMPACT_MAX_HEIGHT_FRACTION).coerceAtLeast(COMPACT_MIN_HEIGHT)
     } else {
       (configuration.screenHeightDp.dp - 48.dp).coerceAtLeast(120.dp)
     }
@@ -184,4 +184,4 @@ private const val COMPACT_HEIGHT_DP = 520
 /** Compact dialogs may use most of the window, but keep a margin so the scrim stays visible. */
 private const val COMPACT_MAX_HEIGHT_FRACTION = 0.92f
 
-private const val COMPACT_MIN_HEIGHT_DP = 200
+private val COMPACT_MIN_HEIGHT = 200.dp

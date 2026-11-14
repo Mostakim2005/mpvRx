@@ -1244,6 +1244,9 @@ class PlayerViewModel(
     viewModelScope.launch {
       playbackBookmarks.collect { bookmarks ->
         val mediaId = bookmarks.firstOrNull()?.mediaId ?: return@collect
+        // Without a current item there is no URI to record; leave the media unmarked so the next
+        // emission (once playback is ready) can still backfill it.
+        if (PlaybackSession.state.value.currentItem == null) return@collect
         if (recordedBookmarkMediaRefs.add(mediaId)) recordBookmarkMediaRef(mediaId)
       }
     }
