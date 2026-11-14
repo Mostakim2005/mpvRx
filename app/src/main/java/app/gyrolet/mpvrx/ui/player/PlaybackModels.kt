@@ -434,31 +434,78 @@ object PlaybackIdentity {
     return normalized.joinToString("/")
   }
 
-  private fun normalizeLocalPath(path: String): String =
-    runCatching { URI(null, null, path.replace('\\', '/'), null).normalize().path }
-      .getOrDefault(path.replace('\\', '/'))
-      .trim()
+  internal fun normalizeLocalPath(path: String): String {
+    val trimmed = path.trim()
+    if (trimmed.isEmpty()) return ""
+
+    val withoutFileScheme = when {
+      trimmed.startsWith("file://", ignoreCase = true) -> trimmed.substring(7)
+      trimmed.startsWith("file:", ignoreCase = true) -> trimmed.substring(5)
+      else -> trimmed
+    }
+
+    if (withoutFileScheme.startsWith("content://", ignoreCase = true) ||
+      withoutFileScheme.startsWith("content:", ignoreCase = true) ||
+      withoutFileScheme.startsWith("http://", ignoreCase = true) ||
+      withoutFileScheme.startsWith("https://", ignoreCase = true) ||
+      withoutFileScheme.startsWith("media:", ignoreCase = true) ||
+      withoutFileScheme.startsWith("torrent:", ignoreCase = true)
+    ) {
+      return withoutFileScheme
+    }
+
+    val unified = withoutFileScheme.replace('\\', '/')
+    val isAbsolute = unified.startsWith('/')
+
+    val segments = unified.split('/').fold(mutableListOf<String>()) { parts, part ->
+      when (part) {
+        "", "." -> Unit
+        ".." -> if (parts.isNotEmpty() && parts.last() != "..") {
+          parts.removeAt(parts.lastIndex)
+        } else if (!isAbsolute) {
+          parts += part
+        }
+        else -> parts += part
+      }
+      parts
+    }
+
+    val joined = segments.joinToString("/")
+    val hasDriveLetter = segments.firstOrNull()?.let {
+      it.length == 2 && it[0].isLetter() && it[1] == ':'
+    } == true
+
+    return when {
+      hasDriveLetter -> joined
+      isAbsolute -> if (joined.isEmpty()) "/" else "/$joined"
+      else -> joined
+    }
+  }
 
   private fun canonicalizeUri(raw: String): String {
-    val parsed = runCatching { URI(raw) }.getOrNull() ?: return raw.trim()
+    val trimmed = raw.trim()
+    val parsed = runCatching { URI(trimmed) }.getOrNull() ?: return trimmed
     val scheme = parsed.scheme?.lowercase(Locale.ROOT)
-    if (scheme != "http" && scheme != "https") return parsed.normalize().toString()
+    if (scheme != "http" && scheme != "https") {
+      return runCatching { parsed.normalize().toString() }.getOrNull()?.trim() ?: trimmed
+    }
 
     val host = parsed.host?.lowercase(Locale.ROOT)
     val port =
       parsed.port.takeUnless { port ->
         port == -1 || (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
       } ?: -1
+    val safePath = parsed.path?.takeIf { it.isNotBlank() } ?: "/"
     return runCatching {
       URI(
         scheme,
         null,
         host,
         port,
-        parsed.path.ifBlank { "/" },
+        safePath,
         parsed.query,
         null,
       ).normalize().toString()
-    }.getOrDefault(raw.trim())
+    }.getOrNull()?.trim() ?: trimmed
   }
 }

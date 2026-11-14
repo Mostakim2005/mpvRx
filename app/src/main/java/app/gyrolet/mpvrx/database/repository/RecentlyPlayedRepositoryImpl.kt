@@ -40,7 +40,7 @@ class RecentlyPlayedRepositoryImpl(
   ) = addMutex.withLock {
     // Secure Folder playback stays out of the public history entirely; quarantining it in the
     // same table would still surface private titles in Recents, search and the Profile shelf.
-    if (SecureMediaRegistry.isProtectedReference(filePath)) return@withLock
+    if (runCatching { SecureMediaRegistry.isProtectedReference(filePath) }.getOrDefault(false)) return@withLock
 
     // Check if there's an existing entry for this file
     val existingEntry = recentlyPlayedDao.getByFilePath(filePath)

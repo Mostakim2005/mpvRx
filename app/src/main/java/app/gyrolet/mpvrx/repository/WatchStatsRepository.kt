@@ -165,8 +165,9 @@ class WatchStatsRepository(context: Context) {
   private fun WatchStatsSnapshot.sanitized(): WatchStatsSnapshot {
     if (media.isEmpty()) return this
     val kept = media.filterKeys { key ->
-      !SecureMediaRegistry.isProtectedReference(key) &&
-        !SecureMediaRegistry.isProtectedReference(media[key]?.sourceUri)
+      val protectedKey = runCatching { SecureMediaRegistry.isProtectedReference(key) }.getOrDefault(false)
+      val protectedSource = runCatching { SecureMediaRegistry.isProtectedReference(media[key]?.sourceUri) }.getOrDefault(false)
+      !protectedKey && !protectedSource
     }
     if (kept.size == media.size) return this
     val keptSeconds = kept.values.sumOf { it.seconds }
@@ -184,8 +185,10 @@ class WatchStatsRepository(context: Context) {
   }
 
   private fun isProtected(item: PlaybackItem): Boolean =
-    SecureMediaRegistry.isProtectedReference(item.stableId) ||
-      SecureMediaRegistry.isProtectedReference(item.originalUri)
+    runCatching {
+      SecureMediaRegistry.isProtectedReference(item.stableId) ||
+        SecureMediaRegistry.isProtectedReference(item.originalUri)
+    }.getOrDefault(false)
 
   private fun existingStats(item: PlaybackItem, existing: WatchMediaStats?): WatchMediaStats =
     WatchMediaStats(

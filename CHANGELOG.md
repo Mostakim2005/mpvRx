@@ -4,6 +4,12 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.1.1 — Safe Path Normalization & Background Flow Fixes
+
+- **Fix crash on non-ASCII & Unicode filenames:** Replaced `java.net.URI`-based local path normalization with robust pure-string segment normalization that safely handles Unicode paths (such as Bengali filenames), content URIs, opaque IDs, colons, Windows backslashes, and relative traversals without throwing or returning null.
+- **Defensive guards in SecureMediaRegistry & Flow queries:** Wrapped `isProtectedReference` and Room Flow emission filters (`RecentlyPlayedRepository`, `WatchStatsRepository`, `RecentlyPlayedSecureFilter`, `MediaUtils`) in safe exception guards so unexpected path formats or queries never crash background threads or library browsers.
+- **Release tag:** `v3.1.1`.
+
 ## 3.1.0 — Secure Folder Sandbox, Secret Mode & Gallery Layout
 
 - **Private files stay private:** Bookmarks, Recently Played and Profile watch statistics no longer include anything the Secure Folder holds. Secure playback records into a separate quarantined statistics file, and statistics written before this change are cleaned as they are read.

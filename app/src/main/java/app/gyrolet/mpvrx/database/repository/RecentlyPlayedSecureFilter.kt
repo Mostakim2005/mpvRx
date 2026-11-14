@@ -14,4 +14,4 @@ import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 
 /** True when this history row points at a file the Secure Folder owns. */
 internal fun RecentlyPlayedEntity.isProtected(): Boolean =
-  SecureMediaRegistry.isProtectedReference(filePath)
+  runCatching { SecureMediaRegistry.isProtectedReference(filePath) }.getOrDefault(false)

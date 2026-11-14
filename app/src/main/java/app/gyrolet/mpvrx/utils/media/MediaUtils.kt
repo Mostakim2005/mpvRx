@@ -593,8 +593,10 @@ object MediaUtils {
    */
   private fun startGuarded(context: Context, intent: Intent) {
     val protected =
-      SecureMediaRegistry.isProtectedReference(intent.dataString) ||
-        SecureMediaRegistry.isProtectedReference(intent.getStringExtra("local_media_path"))
+      runCatching {
+        SecureMediaRegistry.isProtectedReference(intent.dataString) ||
+          SecureMediaRegistry.isProtectedReference(intent.getStringExtra("local_media_path"))
+      }.getOrDefault(false)
     if (protected) SecureUnlockActivity.launch(context, intent) else context.startActivity(intent)
   }
 

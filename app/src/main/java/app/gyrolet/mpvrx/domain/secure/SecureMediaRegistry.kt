@@ -66,15 +66,22 @@ object SecureMediaRegistry {
     if (value.isNullOrBlank()) return false
     val current = snapshot
     if (current.paths.isEmpty() && current.identities.isEmpty()) return false
-    if (value in current.identities) return true
-    val path = normalize(value)
+    val trimmed = value.trim()
+    if (trimmed in current.identities) return true
+    val path = normalize(trimmed)
     if (path != null && path in current.paths) return true
-    return PlaybackIdentity.forLocalPath(value) in current.identities
+    val target = path ?: trimmed
+    val identity = runCatching { PlaybackIdentity.forLocalPath(target) }.getOrNull()
+    return identity != null && identity in current.identities
   }
 
   private fun normalize(raw: String?): String? {
     val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    val withoutScheme = trimmed.removePrefix("file://").removePrefix("FILE://")
+    val withoutScheme = when {
+      trimmed.startsWith("file://", ignoreCase = true) -> trimmed.substring(7)
+      trimmed.startsWith("file:", ignoreCase = true) -> trimmed.substring(5)
+      else -> trimmed
+    }
     return withoutScheme.trimEnd('/').takeIf { it.isNotEmpty() }
   }
 }
