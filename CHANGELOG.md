@@ -4,6 +4,16 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.0.5 — Bookmark Tags, Gallery & Landscape Fixes
+
+- **Bookmark panel at 20% by default:** The panel-width toggle now cycles `20% / 25% / 30% / 35%`, and new installs start at `20%` so the video gets 80% of the screen and the bookmark column is no longer wider than the 16:9 card it holds.
+- **Long-press menu cleanup:** `Jump to bookmark` is gone from the bookmark action menu, because tapping a card already seeks there; only `Edit bookmark name`, `Delete bookmark` and `Cancel` remain.
+- **Landscape dialogs fit again:** Dialogs may now use up to 92% of the window height, with tighter header and action padding on short windows. The bookmark action menu can no longer push `Delete bookmark` off the card, and the Presets dialog can scroll to `Save file`, `Load file` and the saved bookmark groups.
+- **Clean 16:9 bookmark cards:** Card height is derived from the panel width, thumbnails are cropped instead of stretched, and the grey side letterboxing is gone. Titles sit on a top gradient inside the frame; tags and the `HH:MM:SS` timestamp sit on a bottom gradient inside the same frame, so a card uses no vertical space beyond its thumbnail.
+- **Multi-tag bookmarks with memory:** A bookmark now takes several tag chips. While typing, matching tags used on any video are suggested; a new tag is remembered after the bookmark that introduced it is deleted, so the same labels stay one tap away across the whole library.
+- **Cross-video bookmark gallery:** A gallery button in the bookmark toolbar (and in the chapters sheet, the video list and the Secure Folder) opens every bookmark in the library as 16:9 cards. It offers an `All videos` / `Secure videos` scope, multi-tag filtering with suggestions, a column count of Auto or 2–6, and tapping a card reopens that video at the exact bookmark timestamp.
+- **Database v34:** Adds bookmark tags, tag usage memory and a small media-reference table so the gallery can reopen the right file.
+
 ## 3.0.4 — Sketch Bookmark Cards, Smart Fingerprint Sync & Presets
 
 - **Sketch-style bookmark cards with non-stretched thumbnails:** Bookmark thumbnails inside the split-screen panel now fill each card with `ContentScale.Fit` (zero stretching across 16:9, 21:9, 4:3, and vertical videos), crisp `720px` frame captures, small titles pinned at the top, and tabular `HH:MM:SS` timestamps pinned at the bottom.
