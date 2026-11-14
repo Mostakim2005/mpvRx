@@ -57,6 +57,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
+import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
 import kotlin.concurrent.withLock
 
 data class PlaybackSessionState(
@@ -149,7 +150,10 @@ object PlaybackSession : MPVLib.EventObserver {
   internal val autoEqUnavailable: StateFlow<Boolean> = _autoEqUnavailable.asStateFlow()
   private val _hrtfStatus = MutableStateFlow(HrtfStatus.Inactive)
   internal val hrtfStatus: StateFlow<HrtfStatus> = _hrtfStatus.asStateFlow()
-  private val nativeEvents = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
+  private val nativeEvents =
+    CoroutineScope(
+      SupervisorJob() + Dispatchers.Default.limitedParallelism(1) + LoggingCoroutineExceptionHandler,
+    )
   private var nativeObserver: NativeEventObserver? = null
 
   private class NativeEventObserver : MPVLib.EventObserver {

@@ -201,6 +201,15 @@ jobs:
             cp "$out_dir/$base.apk" "release-assets/mpvRx-${ASSET_NAME:-$abi}-${VERSION_TAG}.apk"
           done
 
+      - name: Upload R8 mapping
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ matrix.distribution.id }}-${{ needs.prepare.outputs.version_tag }}
+          path: app/build/outputs/mapping/${{ matrix.distribution.dir }}Release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Upload release assets
         uses: actions/upload-artifact@v7
         with:

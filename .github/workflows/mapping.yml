@@ -1,0 +1,53 @@
+name: Build R8 mapping
+
+# Produces the proguard/R8 mapping.txt for a given ref so release-crash stack traces, which ship
+# obfuscated, can be symbolicated after the fact.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (tag, branch or SHA)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpvrx-mapping-${{ inputs.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mapping:
+    name: Mapping for ${{ inputs.ref }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build release APK (generates mapping.txt)
+        env:
+          MEASURE_API_KEY: ${{ secrets.MEASURE_API_KEY }}
+        run: ./gradlew assembleStandardRelease -PtargetAbi=arm64-v8a --stacktrace --no-daemon --max-workers=2
+
+      - name: Upload mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ inputs.ref }}
+          path: app/build/outputs/mapping/standardRelease/mapping.txt
+          if-no-files-found: error
+          retention-days: 90

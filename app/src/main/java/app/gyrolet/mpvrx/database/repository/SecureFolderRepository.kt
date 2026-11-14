@@ -29,6 +29,7 @@ import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
+import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -107,7 +108,7 @@ class SecureFolderRepository(
   init {
     // Public stores (bookmarks, recents, watch stats) and the playback gate ask for secure
     // membership synchronously, so the registry mirrors this table for the whole process.
-    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+    CoroutineScope(SupervisorJob() + Dispatchers.IO + LoggingCoroutineExceptionHandler).launch {
       dao.observeAll().collect { entries -> SecureMediaRegistry.update(entries) }
     }
   }

@@ -67,6 +67,7 @@ import kotlinx.coroutines.withContext
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.annotation.KoinExperimentalAPI
 import org.koin.core.context.GlobalContext
+import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
 import org.koin.core.context.startKoin
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -77,7 +78,8 @@ class App :
   Application.ActivityLifecycleCallbacks {
   override val workManagerConfiguration: androidx.work.Configuration
     get() = androidx.work.Configuration.Builder().setMinimumLoggingLevel(Log.WARN).build()
-  private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+  private val applicationScope =
+    CoroutineScope(SupervisorJob() + Dispatchers.Default + LoggingCoroutineExceptionHandler)
   private val networkAutoConnectStarted = AtomicBoolean(false)
   private val metadataMaintenanceStarted = AtomicBoolean(false)
   private val fastThumbnailsStarted = AtomicBoolean(false)
