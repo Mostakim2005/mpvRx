@@ -158,6 +158,15 @@
             android:theme="@style/Theme.mpvrx.Splash">
         </activity>
 
+        <!-- Credential gate for playback targets held by the Secure Folder. It shows no UI of its
+             own, so it stays out of the recents list. -->
+        <activity
+            android:name=".ui.securefolder.SecureUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <activity
             android:name=".PurpleMainActivity"
             android:exported="false"

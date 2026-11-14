@@ -85,13 +85,13 @@ import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ProfileWatchStatistics() {
+internal fun ProfileWatchStatistics(secretMode: Boolean = false) {
   val configuration = androidx.compose.ui.platform.LocalConfiguration.current
   val isTablet = configuration.smallestScreenWidthDp >= 600
   val repository = koinInject<WatchStatsRepository>()
   val scope = rememberCoroutineScope()
   val revision by repository.revision.collectAsStateWithLifecycle()
-  val stats by produceState(WatchStatsSnapshot(), repository, revision) { value = repository.snapshot() }
+  val stats by produceState(WatchStatsSnapshot(), revision, secretMode) { value = repository.snapshot(includeSecure = secretMode) }
   var confirmReset by rememberSaveable { mutableStateOf(false) }
   var mediaFilter by rememberSaveable { mutableStateOf(0) }
 

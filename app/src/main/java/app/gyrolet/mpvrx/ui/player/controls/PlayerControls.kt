@@ -2552,7 +2552,8 @@ fun PlayerControls(
             if (isPortrait) {
               Column(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
-                  Box(modifier = Modifier.fillMaxWidth().weight(videoWeight)) {
+                  // Portrait budget: 45% video, the remaining 55% is the bookmark drawer.
+                  Box(modifier = Modifier.fillMaxWidth().weight(0.45f)) {
                     videoOverlayPane(Modifier.fillMaxSize())
                   }
                   BookmarkSplitPanel(
@@ -2563,7 +2564,7 @@ fun PlayerControls(
                     onOpenSheet = onOpenSheet,
                     onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
                     onClose = { viewModel.setBookmarkPanelOpen(false) },
-                    modifier = Modifier.fillMaxWidth().weight(panelWeight),
+                    modifier = Modifier.fillMaxWidth().weight(0.55f),
                   )
                 }
               }

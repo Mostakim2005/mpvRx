@@ -1511,7 +1511,8 @@ class PlayerActivity :
       app.gyrolet.mpvrx.ui.player.controls.components.bookmarkPanelFraction(
         playerPreferences.bookmarkPanelSizePercent.get(),
       )
-    val videoFraction = 1f - panelPercent
+    // Portrait keeps a fixed 45% video band; the width-based percent steps only apply in landscape.
+    val videoFraction = if (isPortrait) 0.45f else 1f - panelPercent
     val regionWidth = if (isPortrait) containerWidth else (containerWidth * videoFraction).roundToInt().coerceIn(1, containerWidth)
     val regionHeight = if (isPortrait) (containerHeight * videoFraction).roundToInt().coerceIn(1, containerHeight) else containerHeight
     val isRtl = binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL

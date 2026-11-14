@@ -18,6 +18,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import app.gyrolet.mpvrx.domain.media.model.Video
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
+import app.gyrolet.mpvrx.ui.securefolder.SecureUnlockActivity
 import app.gyrolet.mpvrx.domain.torrent.isTorrentSource
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
 import app.gyrolet.mpvrx.ui.player.ContainerGeometryProbe
@@ -90,7 +92,7 @@ object MediaUtils {
     val selectedIndex = startIndex.coerceIn(queueItems.indices)
     if (userScriptRuntimeNeedsReload()) {
       val token = PreparedPlaybackLaunchStore.stage(queueItems, selectedIndex, isExplicitQueue = true)
-      context.startActivity(Intent(context, PlayerActivity::class.java)
+      startGuarded(context, Intent(context, PlayerActivity::class.java)
         .setAction(Intent.ACTION_VIEW)
         .setData(Uri.parse(queueItems[selectedIndex].originalUri))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -186,7 +188,7 @@ object MediaUtils {
       }
     ContainerGeometryProbe.prefetch(localPlaybackPath(selected), selected.width, selected.height, selected.rotation, selected.isAudio)
     PlaybackPerformanceTrace.mark("OPEN_REQUEST", "source=$launchSource queue=${videos.size}")
-    context.startActivity(intent)
+    startGuarded(context, intent)
   }
 
   /**
@@ -380,7 +382,7 @@ object MediaUtils {
       "OPEN_REQUEST",
       "source=${launchSource ?: (if (videoSource != null) "library" else "direct")} kind=${if (videoSource != null) "video" else (playbackUri.scheme ?: "path")}",
     )
-    context.startActivity(intent)
+    startGuarded(context, intent)
   }
 
   internal fun playbackIdentity(video: Video): String =
@@ -584,6 +586,17 @@ object MediaUtils {
           uri.isHierarchical && !uri.isRelative && (!uri.host.isNullOrBlank() || !uri.path.isNullOrBlank())
         structureOk && Utils.PROTOCOLS.contains(uri.scheme)
       }
+
+  /**
+   * Launches a player intent, routing Secure Folder targets through the credential gate first.
+   * A private file is never handed to the player until the device credential is confirmed.
+   */
+  private fun startGuarded(context: Context, intent: Intent) {
+    val protected =
+      SecureMediaRegistry.isProtectedReference(intent.dataString) ||
+        SecureMediaRegistry.isProtectedReference(intent.getStringExtra("local_media_path"))
+    if (protected) SecureUnlockActivity.launch(context, intent) else context.startActivity(intent)
+  }
 
   /**
    * Share videos via system share sheet.

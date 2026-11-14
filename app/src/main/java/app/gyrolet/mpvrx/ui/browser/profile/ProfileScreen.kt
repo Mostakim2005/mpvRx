@@ -161,6 +161,12 @@ import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
 import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.theme.onWallpaper
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.gyrolet.mpvrx.ui.securefolder.rememberDeviceCredentialPrompt
+import app.gyrolet.mpvrx.ui.securefolder.secretTaps
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
@@ -242,6 +248,25 @@ object ProfileScreen : Screen {
     var activeVideoItem by remember { mutableStateOf<RecentlyPlayedItem.VideoItem?>(null) }
     var playlistToDelete by remember { mutableStateOf<app.gyrolet.mpvrx.database.entities.PlaylistEntity?>(null) }
     var showProfileDialog by rememberSaveable { mutableStateOf(false) }
+    // Secret Mode is deliberately not saveable: leaving the screen or backgrounding the app
+    // re-locks it and drops the private statistics from memory.
+    var secretMode by remember { mutableStateOf(false) }
+    val requestSecretUnlock =
+      rememberDeviceCredentialPrompt(
+        title = "Secret Mode",
+        subtitle = "Authenticate to open secret statistics",
+        onUnavailable = { },
+        onSuccess = { secretMode = true },
+      )
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+      val observer =
+        LifecycleEventObserver { _, event ->
+          if (event == Lifecycle.Event.ON_STOP) secretMode = false
+        }
+      lifecycleOwner.lifecycle.addObserver(observer)
+      onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val isRefreshing = remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val missingFileMessage = stringResource(R.string.ui_recent_file_no_longer_exists)
@@ -357,6 +382,34 @@ object ProfileScreen : Screen {
           verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
           item(key = "profile_overview") {
+            // Stealth entry point: five rapid taps on the wordmark unlock Secret Statistics;
+            // five more (or the Lock button below) purge them again.
+            Row(
+              modifier =
+                Modifier
+                  .fillMaxWidth()
+                  .padding(start = 20.dp, end = 20.dp, top = 4.dp)
+                  .clip(RoundedCornerShape(10.dp))
+                  .secretTaps(onTriggered = { if (secretMode) secretMode = false else requestSecretUnlock() })
+                  .padding(vertical = 4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Text(
+                text = "mpvRx",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.primary.onWallpaper(),
+              )
+              if (secretMode) {
+                Text(
+                  text = "🔒 Secret Mode",
+                  style = MaterialTheme.typography.labelMedium,
+                  fontWeight = FontWeight.SemiBold,
+                  color = MaterialTheme.colorScheme.error,
+                )
+              }
+            }
             ProfileOverviewCard(
               name = profileName,
               recentCount = recentItems.size,
@@ -528,7 +581,22 @@ object ProfileScreen : Screen {
             }
           }
           item(key = "watch_statistics") {
-            ProfileWatchStatistics()
+            if (secretMode) {
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+              ) {
+                Text(
+                  text = "🔒 Secret Mode",
+                  style = MaterialTheme.typography.titleSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(onClick = { secretMode = false }) { Text("Lock") }
+              }
+            }
+            ProfileWatchStatistics(secretMode = secretMode)
           }
         }
       }

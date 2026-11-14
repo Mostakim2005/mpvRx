@@ -46,7 +46,14 @@ class BookmarkGalleryRepository(
   fun observeItems(scope: BookmarkGalleryScope): Flow<List<BookmarkGalleryItem>> {
     val scopedRows: Flow<List<BookmarkGalleryRow>> =
       when (scope) {
-        BookmarkGalleryScope.AllVideos -> bookmarkDao.observeGallery()
+        // The public slice must never surface a bookmark whose media now lives in Secure
+        // Folder storage, otherwise private titles leak into the normal gallery.
+        BookmarkGalleryScope.AllVideos ->
+          combine(bookmarkDao.observeGallery(), secureFolderRepository.observeAll()) { rows, entries ->
+            if (entries.isEmpty()) return@combine rows
+            val secureIds = entries.mapTo(HashSet()) { PlaybackIdentity.forLocalPath(it.secureFilePath) }
+            rows.filterNot { it.mediaId in secureIds }
+          }
         BookmarkGalleryScope.SecureVideos ->
           combine(bookmarkDao.observeGallery(), secureFolderRepository.observeAll()) { rows, entries ->
             if (entries.isEmpty()) return@combine emptyList()

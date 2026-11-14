@@ -765,10 +765,12 @@ internal fun BookmarkSplitPanel(
           if (isPortrait) {
             // Height follows the column width so a card is always exactly 16:9. Filling a fixed
             // slot instead is what turned every card into a tall box with letterbox flanks.
-            val slotWidth = (maxWidth - 12.dp - spacing * (cardCount - 1)) / cardCount
+            // Portrait is a strict 2-column grid so two rows stay visible above the fold.
+            val portraitColumns = 2
+            val slotWidth = (maxWidth - 12.dp - spacing * (portraitColumns - 1)) / portraitColumns
             val rowHeight = (slotWidth * 9f / 16f).coerceIn(48.dp, 184.dp)
             LazyVerticalGrid(
-              columns = GridCells.Fixed(cardCount),
+              columns = GridCells.Fixed(portraitColumns),
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),
               horizontalArrangement = Arrangement.spacedBy(spacing),
@@ -795,7 +797,7 @@ internal fun BookmarkSplitPanel(
               }
 
               if (displayChapters.isNotEmpty()) {
-                item(span = { GridItemSpan(cardCount) }) {
+                item(span = { GridItemSpan(portraitColumns) }) {
                   Text(
                     text = stringResource(R.string.bookmark_list_section_chapters),
                     style = MaterialTheme.typography.labelMedium,
@@ -806,7 +808,7 @@ internal fun BookmarkSplitPanel(
                 items(
                   count = displayChapters.size,
                   key = { idx -> "ch_$idx" },
-                  span = { GridItemSpan(cardCount) },
+                  span = { GridItemSpan(portraitColumns) },
                 ) { idx ->
                   val chapter = displayChapters[idx]
                   val selected = idx == activeChapterIndex

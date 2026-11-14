@@ -11,8 +11,10 @@ package app.gyrolet.mpvrx.database.repository
 
 import app.gyrolet.mpvrx.database.dao.RecentlyPlayedDao
 import app.gyrolet.mpvrx.database.entities.RecentlyPlayedEntity
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 import app.gyrolet.mpvrx.domain.recentlyplayed.repository.RecentlyPlayedRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -36,6 +38,10 @@ class RecentlyPlayedRepositoryImpl(
     playlistId: Int?,
     artworkUrl: String?,
   ) = addMutex.withLock {
+    // Secure Folder playback stays out of the public history entirely; quarantining it in the
+    // same table would still surface private titles in Recents, search and the Profile shelf.
+    if (SecureMediaRegistry.isProtectedReference(filePath)) return@withLock
+
     // Check if there's an existing entry for this file
     val existingEntry = recentlyPlayedDao.getByFilePath(filePath)
 
@@ -78,28 +84,30 @@ class RecentlyPlayedRepositoryImpl(
     }
   }
 
-  override suspend fun getLastPlayed(): RecentlyPlayedEntity? = recentlyPlayedDao.getLastPlayed()
+  override suspend fun getLastPlayed(): RecentlyPlayedEntity? =
+    recentlyPlayedDao.getLastPlayed()?.takeUnless { it.isProtected() }
 
   override suspend fun markLastPlayed(filePath: String, timestamp: Long) = addMutex.withLock {
     val previousTimestamp = recentlyPlayedDao.getLastPlayed()?.timestamp ?: 0L
     recentlyPlayedDao.markLastPlayed(filePath, maxOf(timestamp, previousTimestamp + 1L))
   }
 
-  override fun observeLastPlayed(): Flow<RecentlyPlayedEntity?> = recentlyPlayedDao.observeLastPlayed()
+  override fun observeLastPlayed(): Flow<RecentlyPlayedEntity?> =
+    recentlyPlayedDao.observeLastPlayed().map { it?.takeUnless { row -> row.isProtected() } }
 
   override suspend fun getLastPlayedForHighlight(): RecentlyPlayedEntity? =
-    recentlyPlayedDao.getLastPlayedForHighlight()
+    recentlyPlayedDao.getLastPlayedForHighlight()?.takeUnless { it.isProtected() }
 
   override fun observeLastPlayedForHighlight(): Flow<RecentlyPlayedEntity?> =
-    recentlyPlayedDao.observeLastPlayedForHighlight()
+    recentlyPlayedDao.observeLastPlayedForHighlight().map { it?.takeUnless { row -> row.isProtected() } }
 
   override suspend fun getRecentlyPlayed(limit: Int): List<RecentlyPlayedEntity> =
-    recentlyPlayedDao.getRecentlyPlayed(limit)
+    recentlyPlayedDao.getRecentlyPlayed(limit).filterNot { it.isProtected() }
 
   override suspend fun getRecentlyPlayedCount(): Int = recentlyPlayedDao.getRecentlyPlayedCount()
 
   override fun observeRecentlyPlayed(limit: Int): Flow<List<RecentlyPlayedEntity>> =
-    recentlyPlayedDao.observeRecentlyPlayed(limit)
+    recentlyPlayedDao.observeRecentlyPlayed(limit).map { rows -> rows.filterNot { it.isProtected() } }
 
   override suspend fun getRecentlyPlayedBySource(
     launchSource: String,

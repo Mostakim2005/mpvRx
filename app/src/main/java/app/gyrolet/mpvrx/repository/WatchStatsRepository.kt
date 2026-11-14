@@ -3,6 +3,7 @@ package app.gyrolet.mpvrx.repository
 import android.content.Context
 import android.util.AtomicFile
 import android.util.Log
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 import app.gyrolet.mpvrx.ui.player.DeclaredPlaybackMediaKind
 import app.gyrolet.mpvrx.ui.player.PlaybackItem
 import app.gyrolet.mpvrx.ui.player.declaredMediaKind
@@ -42,8 +43,19 @@ data class WatchMediaStats(
   val lastWatchedAt: Long = 0,
 )
 
+/**
+ * Watch statistics for the public library, plus a quarantined store for Secure Folder playback.
+ *
+ * Two files back this repository:
+ * - `watch_stats.json` — everything the normal library plays. Secure entries are stripped on read,
+ *   so statistics written before the sandbox existed stop leaking private titles.
+ * - `watch_stats_secure.json` — only Secure Folder playback. It is read exclusively through
+ *   [snapshot]`(includeSecure = true)`, which only the stealth-unlocked Secret Statistics view asks
+ *   for, so private files never reach Profile "Most watched" or the weekly totals.
+ */
 class WatchStatsRepository(context: Context) {
-  private val file = AtomicFile(File(context.filesDir, "watch_stats.json"))
+  private val publicFile = AtomicFile(File(context.filesDir, STATS_FILE_NAME))
+  private val secureFile = AtomicFile(File(context.filesDir, SECURE_STATS_FILE_NAME))
   private val json = Json { ignoreUnknownKeys = true }
   private val mutex = Mutex()
   private val _resetVersion = MutableStateFlow(0L)
@@ -51,25 +63,30 @@ class WatchStatsRepository(context: Context) {
   private val _revision = MutableStateFlow(0L)
   val revision = _revision.asStateFlow()
 
-  // Only this repository writes the file, so the decoded copy stays current. Playback records every
-  // 15 s; re-reading and decoding the whole file each time was steady garbage during playback.
-  private var cached: WatchStatsSnapshot? = null
+  // Only this repository writes the files, so the decoded copies stay current. Playback records
+  // every 15 s; re-reading and decoding the whole file each time was steady garbage during playback.
+  private var cachedPublic: WatchStatsSnapshot? = null
+  private var cachedSecure: WatchStatsSnapshot? = null
 
-  suspend fun recordSession(item: PlaybackItem) = update { current ->
-    val key = item.stableId.ifBlank { item.originalUri }
-    val existing = current.media[key]
-    current.copy(
-      sessions = current.sessions + 1,
-      media = current.media + (key to existingStats(item, existing).copy(
-        sessions = (existing?.sessions ?: 0) + 1,
-        lastWatchedAt = System.currentTimeMillis(),
-      )),
-    )
+  suspend fun recordSession(item: PlaybackItem) {
+    val secure = isProtected(item)
+    update(secure) { current ->
+      val key = item.stableId.ifBlank { item.originalUri }
+      val existing = current.media[key]
+      current.copy(
+        sessions = current.sessions + 1,
+        media = current.media + (key to existingStats(item, existing).copy(
+          sessions = (existing?.sessions ?: 0) + 1,
+          lastWatchedAt = System.currentTimeMillis(),
+        )),
+      )
+    }
   }
 
   suspend fun recordPlayback(item: PlaybackItem, seconds: Long) {
     if (seconds <= 0) return
-    update { current ->
+    val secure = isProtected(item)
+    update(secure) { current ->
       val isAudio = item.declaredMediaKind() == DeclaredPlaybackMediaKind.AUDIO
       val key = item.stableId.ifBlank { item.originalUri }
       val existing = current.media[key]
@@ -87,20 +104,33 @@ class WatchStatsRepository(context: Context) {
     }
   }
 
-  suspend fun snapshot(): WatchStatsSnapshot = mutex.withLock { withContext(Dispatchers.IO) { readCached() } }
+  /**
+   * Statistics for one mode: the public library by default, or the quarantined Secure Folder store
+   * when [includeSecure] is true (Secret Mode only).
+   */
+  suspend fun snapshot(includeSecure: Boolean = false): WatchStatsSnapshot =
+    mutex.withLock { withContext(Dispatchers.IO) { if (includeSecure) readCachedSecure() else readCachedPublic() } }
 
   suspend fun clear() = mutex.withLock {
-    withContext(Dispatchers.IO) { file.delete() }
-    cached = WatchStatsSnapshot()
+    withContext(Dispatchers.IO) {
+      publicFile.delete()
+      secureFile.delete()
+    }
+    cachedPublic = WatchStatsSnapshot()
+    cachedSecure = WatchStatsSnapshot()
     _resetVersion.value++
     _revision.value++
   }
 
-  private suspend fun update(transform: (WatchStatsSnapshot) -> WatchStatsSnapshot) = mutex.withLock {
+  private suspend fun update(
+    secure: Boolean,
+    transform: (WatchStatsSnapshot) -> WatchStatsSnapshot,
+  ) = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val updated = transform(readCached())
+      val updated = transform(if (secure) readCachedSecure() else readCachedPublic())
       // Kept even if the write fails, so the next update persists it instead of losing it.
-      cached = updated
+      if (secure) cachedSecure = updated else cachedPublic = updated
+      val file = if (secure) secureFile else publicFile
       val output = file.startWrite()
       try {
         output.write(json.encodeToString(updated).toByteArray(Charsets.UTF_8))
@@ -116,9 +146,12 @@ class WatchStatsRepository(context: Context) {
     }
   }
 
-  private fun readCached(): WatchStatsSnapshot = cached ?: read().also { cached = it }
+  private fun readCachedPublic(): WatchStatsSnapshot =
+    cachedPublic ?: read(publicFile).sanitized().also { cachedPublic = it }
 
-  private fun read(): WatchStatsSnapshot =
+  private fun readCachedSecure(): WatchStatsSnapshot = cachedSecure ?: read(secureFile).also { cachedSecure = it }
+
+  private fun read(file: AtomicFile): WatchStatsSnapshot =
     if (!file.baseFile.exists() && !File("${file.baseFile.path}.bak").exists()) {
       WatchStatsSnapshot()
     } else {
@@ -127,6 +160,32 @@ class WatchStatsRepository(context: Context) {
       }.onFailure { error -> Log.e(TAG, "Unable to read watch statistics", error) }
         .getOrDefault(WatchStatsSnapshot())
     }
+
+  /** Drops anything the Secure Folder owns, including rows written before the sandbox existed. */
+  private fun WatchStatsSnapshot.sanitized(): WatchStatsSnapshot {
+    if (media.isEmpty()) return this
+    val kept = media.filterKeys { key ->
+      !SecureMediaRegistry.isProtectedReference(key) &&
+        !SecureMediaRegistry.isProtectedReference(media[key]?.sourceUri)
+    }
+    if (kept.size == media.size) return this
+    val keptSeconds = kept.values.sumOf { it.seconds }
+    val keptSessions = kept.values.sumOf { it.sessions }
+    val keptAudioSeconds = kept.values.filter { it.isAudio }.sumOf { it.seconds }
+    val removedVideoSeconds =
+      media.filterKeys { it !in kept }.values.filterNot { it.isAudio }.sumOf { it.seconds }
+    return copy(
+      media = kept,
+      sessions = keptSessions.coerceAtMost(sessions),
+      videoSeconds = (videoSeconds - removedVideoSeconds).coerceIn(0, videoSeconds),
+      audioSeconds = keptAudioSeconds.coerceAtMost(audioSeconds),
+      totalSeconds = (keptSeconds).coerceIn(0, totalSeconds),
+    )
+  }
+
+  private fun isProtected(item: PlaybackItem): Boolean =
+    SecureMediaRegistry.isProtectedReference(item.stableId) ||
+      SecureMediaRegistry.isProtectedReference(item.originalUri)
 
   private fun existingStats(item: PlaybackItem, existing: WatchMediaStats?): WatchMediaStats =
     WatchMediaStats(
@@ -146,5 +205,7 @@ class WatchStatsRepository(context: Context) {
 
   private companion object {
     const val TAG = "WatchStatsRepository"
+    const val STATS_FILE_NAME = "watch_stats.json"
+    const val SECURE_STATS_FILE_NAME = "watch_stats_secure.json"
   }
 }

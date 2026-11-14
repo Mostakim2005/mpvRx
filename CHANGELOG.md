@@ -4,6 +4,15 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.1.0 — Secure Folder Sandbox, Secret Mode & Gallery Layout
+
+- **Private files stay private:** Bookmarks, Recently Played and Profile watch statistics no longer include anything the Secure Folder holds. Secure playback records into a separate quarantined statistics file, and statistics written before this change are cleaned as they are read.
+- **Playback gate:** Starting a file that lives in the Secure Folder now asks for the device PIN, pattern or password first. Cancelling the prompt cancels playback instead of playing it anyway.
+- **Five-tap Secret Mode:** Five quick taps on the `mpvRx` wordmark on Profile unlock Secret Statistics after authentication, with a `🔒 Secret Mode` badge and a Lock button. Five taps again, Lock, or leaving the app re-locks immediately.
+- **Bookmark gallery fits two rows:** The gallery budgets 34% for controls and search plus 33% for each thumbnail row, so both rows are visible without scrolling. Columns are capped at 3 in portrait and 4 in landscape, with Auto still available.
+- **Portrait player split:** The portrait bookmark drawer now takes 55% of the screen and the video keeps 45%, with a strict two-column bookmark grid so two rows stay visible.
+- **Release tag:** `v3.1.0`.
+
 ## 3.0.5 — Bookmark Tags, Gallery & Landscape Fixes
 
 - **Bookmark panel at 20% by default:** The panel-width toggle now cycles `20% / 25% / 30% / 35%`, and new installs start at `20%` so the video gets 80% of the screen and the bookmark column is no longer wider than the 16:9 card it holds.

@@ -28,12 +28,17 @@ import app.gyrolet.mpvrx.utils.media.PlaybackStateOps
 import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
@@ -98,6 +103,14 @@ class SecureFolderRepository(
   val progress: StateFlow<SecureOperationProgress> = _progress.asStateFlow()
 
   private val isCancelled = AtomicBoolean(false)
+
+  init {
+    // Public stores (bookmarks, recents, watch stats) and the playback gate ask for secure
+    // membership synchronously, so the registry mirrors this table for the whole process.
+    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+      dao.observeAll().collect { entries -> SecureMediaRegistry.update(entries) }
+    }
+  }
 
   fun cancelOperation() {
     isCancelled.set(true)
