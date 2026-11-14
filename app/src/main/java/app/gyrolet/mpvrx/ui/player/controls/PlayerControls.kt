@@ -2546,11 +2546,7 @@ fun PlayerControls(
         if (showSplitBookmarkPanel) {
           val bookmarkPanelSizePercent by playerPreferences.bookmarkPanelSizePercent.collectAsState()
           val panelWeight =
-            when (bookmarkPanelSizePercent) {
-              30 -> 0.30f
-              35 -> 0.35f
-              else -> 0.25f
-            }
+            app.gyrolet.mpvrx.ui.player.controls.components.bookmarkPanelFraction(bookmarkPanelSizePercent)
           val videoWeight = 1f - panelWeight
           CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             if (isPortrait) {

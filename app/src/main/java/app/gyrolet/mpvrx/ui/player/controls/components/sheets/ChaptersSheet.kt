@@ -14,20 +14,28 @@ import androidx.compose.animation.core.snap
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import app.gyrolet.mpvrx.presentation.components.AppTextField as OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,6 +54,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -219,6 +228,7 @@ fun ChapterTrack(
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> Unit, onDismiss: () -> Unit) {
   val draft by viewModel.bookmarkDraft.collectAsStateWithLifecycle()
@@ -247,14 +257,49 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
   LaunchedEffect(bookmark.mediaId, bookmark.id, bookmark.positionMs) {
     runCatching { focusRequester.requestFocus() }
   }
+  var tagInput by remember(bookmark.id) { mutableStateOf("") }
+  var selectedTags by remember(bookmark.id) { mutableStateOf<List<String>>(emptyList()) }
+  LaunchedEffect(bookmark.id) {
+    selectedTags = if (bookmark.id == 0L) emptyList() else viewModel.tagsForBookmark(bookmark.id)
+  }
+  val rememberedTags by viewModel.tagSuggestions.collectAsStateWithLifecycle()
+  val tagSuggestions =
+    remember(rememberedTags, tagInput, selectedTags) {
+      val query = app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.normalize(tagInput)
+      rememberedTags
+        .filter { it.isNotBlank() && it !in selectedTags }
+        .filter { query.isEmpty() || it.lowercase().startsWith(query) || it.lowercase().contains(query) }
+        .take(8)
+    }
   var saving by remember(bookmark) { mutableStateOf(false) }
   var failed by remember(bookmark) { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val haptics = rememberAppHaptics()
-  PlayerSheet(onDismissRequest = { if (!saving) onDismiss() }, title = stringResource(R.string.audiobook_bookmark_name)) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Text(Utils.prettyTime((viewModel.bookmarkPositionMs(bookmark) / 1000).toInt()),
-        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+  fun commitTag(raw: String) {
+    val parsed = app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.parse(raw)
+    if (parsed.isEmpty()) return
+    selectedTags =
+      (selectedTags +
+        parsed.filter { it !in selectedTags })
+        .take(app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.MAX_TAGS_PER_BOOKMARK)
+    tagInput = ""
+    haptics.tick()
+  }
+
+  PlayerSheet(
+    onDismissRequest = { if (!saving) onDismiss() },
+    title = stringResource(R.string.audiobook_bookmark_name),
+  ) {
+    Column(
+      Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Text(
+        Utils.prettyTime((viewModel.bookmarkPositionMs(bookmark) / 1000).toInt()),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
       OutlinedTextField(
         value = nameValue,
         onValueChange = { nameValue = it },
@@ -262,13 +307,27 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
         enabled = !saving,
         maxLines = 3,
         label = { Text(stringResource(R.string.audiobook_bookmark_name)) },
-        placeholder = if (isNewDraft) {
-          { Text(bookmark.title) }
-        } else {
-          null
-        },
+        placeholder =
+          if (isNewDraft) {
+            { Text(bookmark.title) }
+          } else {
+            null
+          },
       )
-      if (failed) Text(stringResource(R.string.playback_bookmark_update_failed), color = MaterialTheme.colorScheme.error)
+
+      BookmarkTagEditor(
+        tagInput = tagInput,
+        onTagInputChange = { tagInput = it },
+        selectedTags = selectedTags,
+        suggestions = tagSuggestions,
+        enabled = !saving,
+        onAddTag = ::commitTag,
+        onRemoveTag = { tag -> selectedTags = selectedTags - tag },
+      )
+
+      if (failed) {
+        Text(stringResource(R.string.playback_bookmark_update_failed), color = MaterialTheme.colorScheme.error)
+      }
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.generic_cancel)) }
         TextButton(
@@ -279,7 +338,7 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
             failed = false
             scope.launch {
               try {
-                viewModel.savePlaybackBookmark(bookmark, resolvedTitle)
+                viewModel.savePlaybackBookmark(bookmark, resolvedTitle, selectedTags)
                 haptics.confirm()
                 onSaved()
               } catch (cancelled: CancellationException) {
@@ -292,6 +351,104 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
             }
           },
         ) { Text(stringResource(R.string.audiobook_save)) }
+      }
+    }
+  }
+}
+
+/**
+ * Tag entry with chips plus a live suggestion list drawn from persistent tag memory.
+ *
+ * Suggestions are not filtered to the current video: the point of the memory is that a tag invented
+ * on one video is offered on the next.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BookmarkTagEditor(
+  tagInput: String,
+  onTagInputChange: (String) -> Unit,
+  selectedTags: List<String>,
+  suggestions: List<String>,
+  enabled: Boolean,
+  onAddTag: (String) -> Unit,
+  onRemoveTag: (String) -> Unit,
+) {
+  Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Text(
+      text = stringResource(R.string.bookmark_tags_label),
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (selectedTags.isNotEmpty()) {
+      FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        selectedTags.forEach { tag ->
+          InputChip(
+            selected = false,
+            onClick = { onRemoveTag(tag) },
+            enabled = enabled,
+            label = { Text(tag) },
+            trailingIcon = {
+              app.gyrolet.mpvrx.ui.icons.Icon(
+                imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Close,
+                contentDescription = stringResource(R.string.bookmark_tags_remove, tag),
+                modifier = Modifier.size(14.dp),
+              )
+            },
+          )
+        }
+      }
+    }
+    OutlinedTextField(
+      value = tagInput,
+      onValueChange = { raw ->
+        // A typed comma commits immediately, so pasting "a, b, c" works without extra taps.
+        if (raw.contains(',') || raw.contains('\u060C')) {
+          onAddTag(raw)
+        } else {
+          onTagInputChange(raw)
+        }
+      },
+      modifier = Modifier.fillMaxWidth(),
+      enabled = enabled,
+      singleLine = true,
+      textStyle = MaterialTheme.typography.bodyMedium,
+      label = { Text(stringResource(R.string.bookmark_tags_hint)) },
+      keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+      keyboardActions = KeyboardActions(onDone = { onAddTag(tagInput) }),
+      trailingIcon = {
+        if (tagInput.isNotBlank()) {
+          IconButton(onClick = { onAddTag(tagInput) }, enabled = enabled) {
+            app.gyrolet.mpvrx.ui.icons.Icon(
+              imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Add,
+              contentDescription = stringResource(R.string.bookmark_tags_add),
+              modifier = Modifier.size(18.dp),
+            )
+          }
+        }
+      },
+    )
+    if (suggestions.isNotEmpty()) {
+      Text(
+        text = stringResource(R.string.bookmark_tags_suggestions),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        suggestions.forEach { suggestion ->
+          SuggestionChip(
+            onClick = { onAddTag(suggestion) },
+            enabled = enabled,
+            label = { Text(suggestion) },
+          )
+        }
       }
     }
   }

@@ -830,6 +830,7 @@ private fun ChaptersSheetWithBookmarks(
   val haptics = rememberAppHaptics()
   var menuBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
   var showPresetDialog by remember { mutableStateOf(false) }
+  var showGallery by remember { mutableStateOf(false) }
 
   val nearestBookmarkId =
     remember(bookmarks, currentPositionSec) {
@@ -897,6 +898,14 @@ private fun ChaptersSheetWithBookmarks(
       }
       if (!isAudioOnly && !isAudiobook) {
         androidx.compose.material3.IconButton(
+          onClick = { showGallery = true },
+        ) {
+          app.gyrolet.mpvrx.ui.icons.Icon(
+            imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Bookmarks,
+            contentDescription = androidx.compose.ui.res.stringResource(R.string.bookmark_gallery_open),
+          )
+        }
+        androidx.compose.material3.IconButton(
           onClick = { showPresetDialog = true },
         ) {
           app.gyrolet.mpvrx.ui.icons.Icon(
@@ -921,10 +930,6 @@ private fun ChaptersSheetWithBookmarks(
     BookmarkActionMenuDialog(
       bookmark = target,
       formattedTimestamp = Utils.prettyTime(targetPosSec),
-      onJump = {
-        viewModel.seekToBookmark(target)
-        onDismissRequest()
-      },
       onRename = {
         if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.Chapters)) {
           onShowSheet(Sheets.BookmarkEditor)
@@ -949,5 +954,8 @@ private fun ChaptersSheetWithBookmarks(
       viewModel = viewModel,
       onDismiss = { showPresetDialog = false },
     )
+  }
+  if (showGallery) {
+    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(onClose = { showGallery = false })
   }
 }

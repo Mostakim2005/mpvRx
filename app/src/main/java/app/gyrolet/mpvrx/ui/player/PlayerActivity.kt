@@ -1508,11 +1508,9 @@ class PlayerActivity :
 
     val isPortrait = containerWidth < containerHeight
     val panelPercent =
-      when (playerPreferences.bookmarkPanelSizePercent.get()) {
-        30 -> 0.30f
-        35 -> 0.35f
-        else -> 0.25f
-      }
+      app.gyrolet.mpvrx.ui.player.controls.components.bookmarkPanelFraction(
+        playerPreferences.bookmarkPanelSizePercent.get(),
+      )
     val videoFraction = 1f - panelPercent
     val regionWidth = if (isPortrait) containerWidth else (containerWidth * videoFraction).roundToInt().coerceIn(1, containerWidth)
     val regionHeight = if (isPortrait) (containerHeight * videoFraction).roundToInt().coerceIn(1, containerHeight) else containerHeight

@@ -233,6 +233,7 @@ class PlayerViewModel(
   private val hdrToysManager: HdrToysManager by inject()
   private val json: Json by inject()
   private val playbackBookmarkDao: app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao by inject()
+  private val bookmarkTagDao: app.gyrolet.mpvrx.database.dao.BookmarkTagDao by inject()
   private val aiService: app.gyrolet.mpvrx.repository.ai.AiService by inject()
   private val subtitleGenerationService: SubtitleGenerationService by inject()
   private val realtimeSubtitleService: app.gyrolet.mpvrx.repository.ai.RealtimeSubtitleService by inject()
@@ -1231,6 +1232,22 @@ class PlayerViewModel(
     bookmarkMediaId.flatMapLatest { mediaId ->
       if (mediaId == null) flowOf(emptyList()) else playbackBookmarkDao.observe(mediaId).onStart { emit(emptyList()) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  /** Media whose replay target has already been written this session. */
+  private val recordedBookmarkMediaRefs = mutableSetOf<String>()
+
+  /**
+   * Bookmarks made before the gallery existed have no replay row, so record the current media as
+   * soon as its bookmarks appear. The set keeps this from rewriting the row on every list change.
+   */
+  init {
+    viewModelScope.launch {
+      playbackBookmarks.collect { bookmarks ->
+        val mediaId = bookmarks.firstOrNull()?.mediaId ?: return@collect
+        if (recordedBookmarkMediaRefs.add(mediaId)) recordBookmarkMediaRef(mediaId)
+      }
+    }
+  }
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val activeBookmarkGroup: StateFlow<app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity?> =
@@ -2379,12 +2396,19 @@ fun restartFromBeginning() {
 
   val bookmarkPanelSizePercent: StateFlow<Int> =
     playerPreferences.bookmarkPanelSizePercent.changes()
-      .map { if (it in setOf(25, 30, 35)) it else 25 }
+      .map { it.coerceToPanelPercent() }
       .stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        playerPreferences.bookmarkPanelSizePercent.get().let { if (it in setOf(25, 30, 35)) it else 25 },
+        playerPreferences.bookmarkPanelSizePercent.get().coerceToPanelPercent(),
       )
+
+  private fun Int.coerceToPanelPercent(): Int =
+    if (this in app.gyrolet.mpvrx.ui.player.controls.components.BOOKMARK_PANEL_PERCENT_STEPS) {
+      this
+    } else {
+      app.gyrolet.mpvrx.ui.player.controls.components.DEFAULT_BOOKMARK_PANEL_PERCENT
+    }
 
   fun cycleBookmarkGridCardCount() {
     val next =
@@ -2397,12 +2421,9 @@ fun restartFromBeginning() {
   }
 
   fun cycleBookmarkPanelSizePercent() {
-    val next =
-      when (bookmarkPanelSizePercent.value) {
-        25 -> 30
-        30 -> 35
-        else -> 25
-      }
+    val steps = app.gyrolet.mpvrx.ui.player.controls.components.BOOKMARK_PANEL_PERCENT_STEPS
+    val current = steps.indexOf(bookmarkPanelSizePercent.value).takeIf { it >= 0 } ?: 0
+    val next = steps[(current + 1) % steps.size]
     playerPreferences.bookmarkPanelSizePercent.set(next)
   }
 
@@ -2505,9 +2526,43 @@ fun restartFromBeginning() {
     return AudiobookPlayback.book.value?.positionInBook(trackId, bookmark.positionMs) ?: bookmark.positionMs
   }
 
-  suspend fun savePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity, title: String) {
+  /**
+   * Records the playable URI behind [mediaId] so the cross-video gallery can reopen this video.
+   *
+   * The bookmark row only stores an opaque media hash; without this the gallery could show a card but
+   * would have nothing to play. Best-effort: a failure here must not fail the bookmark itself.
+   */
+  private suspend fun recordBookmarkMediaRef(mediaId: String) {
+    val item = PlaybackSession.state.value.currentItem ?: return
+    val playable = item.playableUri.takeIf { it.isNotBlank() } ?: item.originalUri.takeIf { it.isNotBlank() }
+    if (playable.isNullOrBlank()) return
+    runCatching {
+      kotlinx.coroutines.withContext(Dispatchers.IO) {
+        bookmarkTagDao.upsertMediaRef(
+          app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity(
+            mediaId = mediaId,
+            playableUri = playable,
+            title = item.title,
+            artworkUri = item.artworkUri,
+          ),
+        )
+      }
+    }
+  }
+
+  suspend fun savePlaybackBookmark(
+    bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity,
+    title: String,
+    tags: List<String> = emptyList(),
+  ) {
     val resolvedTitle = title.trim().ifBlank { bookmark.title.trim() }
     require(resolvedTitle.isNotBlank())
+    val normalizedTags =
+      tags
+        .map { app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.normalize(it) }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .take(app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.MAX_TAGS_PER_BOOKMARK)
     val metaSnapshot = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
     if (bookmark.id == 0L) {
       val insertedId = playbackBookmarkDao.add(bookmark.copy(title = resolvedTitle))
@@ -2520,6 +2575,8 @@ fun restartFromBeginning() {
       if (bookmark.thumbnailPath == null) {
         captureAndAttachBookmarkThumbnail(insertedId)
       }
+      replaceBookmarkTags(insertedId, normalizedTags)
+      recordBookmarkMediaRef(bookmark.mediaId)
     } else {
       playbackBookmarkDao.rename(bookmark.id, resolvedTitle)
       app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
@@ -2528,8 +2585,64 @@ fun restartFromBeginning() {
         metadata = metaSnapshot,
         forceLinkRawMediaId = true,
       )
+      replaceBookmarkTags(bookmark.id, normalizedTags)
+      recordBookmarkMediaRef(bookmark.mediaId)
     }
   }
+
+  /**
+   * Rewrites one bookmark's tags and folds them into the suggestion memory.
+   *
+   * `useCount` only ever grows here, so a tag stays suggested after the bookmark that introduced it
+   * is deleted — which is what makes "remember the tags I use" hold across videos.
+   */
+  private suspend fun replaceBookmarkTags(bookmarkId: Long, normalizedTags: List<String>) {
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val existing = bookmarkTagDao.tagsFor(bookmarkId)
+      val alreadyPresent = existing.map { it.name }.toSet()
+      bookmarkTagDao.clearForBookmark(bookmarkId)
+      if (normalizedTags.isNotEmpty()) {
+        bookmarkTagDao.insertAll(
+          normalizedTags.map { name ->
+            app.gyrolet.mpvrx.database.entities.BookmarkTagEntity(
+              bookmarkId = bookmarkId,
+              name = name,
+              displayName = name,
+            )
+          },
+        )
+      }
+      normalizedTags.forEach { name ->
+        if (name in alreadyPresent) {
+          bookmarkTagDao.bumpMemory(name = name, displayName = name)
+        } else {
+          bookmarkTagDao.insertMemory(
+            app.gyrolet.mpvrx.database.entities.BookmarkTagMemoryEntity(name = name, displayName = name),
+          )
+          bookmarkTagDao.bumpMemory(name = name, displayName = name)
+        }
+      }
+    }
+  }
+
+  suspend fun tagsForBookmark(bookmarkId: Long): List<String> =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      bookmarkTagDao.tagsFor(bookmarkId).map { it.displayName.ifBlank { it.name } }
+    }
+
+  /** Every tag currently attached to any bookmark, keyed by bookmark id, for card chips. */
+  val bookmarkTags: StateFlow<Map<Long, List<String>>> =
+    bookmarkTagDao
+      .observeAllPairs()
+      .map { pairs -> pairs.groupBy({ it.bookmarkId }, { it.name }) }
+      .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+  /** Persistent tag memory, most-used first, used both to suggest while typing and to filter. */
+  val tagSuggestions: StateFlow<List<String>> =
+    bookmarkTagDao
+      .observeMemory()
+      .map { entries -> entries.map { it.displayName.ifBlank { it.name } } }
+      .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
   suspend fun deletePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
     app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.deleteBookmarkSafely(
@@ -2537,6 +2650,7 @@ fun restartFromBeginning() {
       context = appContext,
       bookmark = bookmark,
     )
+    bookmarkTagDao.clearForBookmark(bookmark.id)
     if (_bookmarkDraft.value?.id == bookmark.id) _bookmarkDraft.value = null
   }
 

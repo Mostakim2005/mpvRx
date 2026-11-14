@@ -250,6 +250,19 @@ data object SecureFolderScreen : Screen {
             }
           },
           onCancelSelection = { viewModel.clearSelection() },
+          additionalActions = {
+            // The secure slice of the gallery: only bookmarks whose video is in this folder.
+            androidx.compose.material3.IconButton(
+              onClick = {
+                backstack.navigateTo(app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryScreen(secureOnly = true))
+              },
+            ) {
+              Icon(
+                imageVector = Icons.RoundedFilled.Bookmarks,
+                contentDescription = stringResource(R.string.bookmark_gallery_open),
+              )
+            }
+          },
           onSortClick = { sortDialogOpen = true },
           onSelectAll = { viewModel.selectAll() },
           onInvertSelection = { viewModel.invertSelection() },

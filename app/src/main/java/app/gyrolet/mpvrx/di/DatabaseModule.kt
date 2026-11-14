@@ -999,6 +999,49 @@ val MIGRATION_32_33 =
     }
   }
 
+val MIGRATION_33_34 =
+  object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL(
+        """CREATE TABLE IF NOT EXISTS `bookmark_tags` (
+        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        `bookmarkId` INTEGER NOT NULL,
+        `name` TEXT NOT NULL,
+        `displayName` TEXT NOT NULL,
+        `createdAt` INTEGER NOT NULL,
+        FOREIGN KEY(`bookmarkId`) REFERENCES `playback_bookmarks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      )""",
+      )
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_bookmark_tags_bookmarkId` ON `bookmark_tags` (`bookmarkId`)")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_bookmark_tags_name` ON `bookmark_tags` (`name`)")
+      db.execSQL(
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_bookmark_tags_name_bookmarkId` ON `bookmark_tags` (`name`, `bookmarkId`)",
+      )
+      db.execSQL(
+        """CREATE TABLE IF NOT EXISTS `bookmark_tag_memory` (
+        `name` TEXT NOT NULL,
+        `displayName` TEXT NOT NULL,
+        `useCount` INTEGER NOT NULL,
+        `lastUsedAt` INTEGER NOT NULL,
+        PRIMARY KEY(`name`)
+      )""",
+      )
+      db.execSQL(
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_bookmark_tag_memory_name` ON `bookmark_tag_memory` (`name`)",
+      )
+      db.execSQL(
+        """CREATE TABLE IF NOT EXISTS `bookmark_media_refs` (
+        `mediaId` TEXT NOT NULL,
+        `playableUri` TEXT NOT NULL,
+        `title` TEXT,
+        `artworkUri` TEXT,
+        `updatedAt` INTEGER NOT NULL,
+        PRIMARY KEY(`mediaId`)
+      )""",
+      )
+    }
+  }
+
 val MIGRATION_24_25 =
   object : Migration(24, 25) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -1070,6 +1113,7 @@ val DatabaseModule =
           MIGRATION_30_31,
           MIGRATION_31_32,
           MIGRATION_32_33,
+          MIGRATION_33_34,
         ).build()
     }
 
@@ -1085,6 +1129,7 @@ val DatabaseModule =
 
     single { get<MpvRxDatabase>().audiobookDao() }
     single { get<MpvRxDatabase>().playbackBookmarkDao() }
+    single { get<MpvRxDatabase>().bookmarkTagDao() }
     single { get<MpvRxDatabase>().frameCaptureDao() }
     single { get<MpvRxDatabase>().snapshotFolderDao() }
 
@@ -1147,6 +1192,14 @@ val DatabaseModule =
     single {
       app.gyrolet.mpvrx.database.repository.SecureFolderRepository(
         dao = get<MpvRxDatabase>().secureMediaDao(),
+      )
+    }
+
+    single {
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository(
+        bookmarkDao = get<MpvRxDatabase>().playbackBookmarkDao(),
+        tagDao = get<MpvRxDatabase>().bookmarkTagDao(),
+        secureFolderRepository = get(),
       )
     }
 

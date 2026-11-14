@@ -90,6 +90,22 @@ private fun formatBookmarkTimecode(positionSeconds: Int): String {
   return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, secs)
 }
 
+/**
+ * Sidebar width stops, smallest first.
+ *
+ * 20% leads and is the default: at 25% the card column was wider than the 16:9 frame it held, so
+ * every card carried grey letterbox flanks and the video paid for space nothing used.
+ */
+internal val BOOKMARK_PANEL_PERCENT_STEPS = listOf(20, 25, 30, 35)
+
+internal const val DEFAULT_BOOKMARK_PANEL_PERCENT = 20
+
+/** Converts a stored stop to the fraction of the window the panel occupies. */
+internal fun bookmarkPanelFraction(percent: Int): Float {
+  val clamped = if (percent in BOOKMARK_PANEL_PERCENT_STEPS) percent else DEFAULT_BOOKMARK_PANEL_PERCENT
+  return clamped / 100f
+}
+
 @Composable
 internal fun BookmarkThumbnailImage(
   thumbnailPath: String?,
@@ -133,7 +149,6 @@ internal fun BookmarkThumbnailImage(
 internal fun BookmarkActionMenuDialog(
   bookmark: PlaybackBookmarkEntity,
   formattedTimestamp: String,
-  onJump: () -> Unit,
   onRename: () -> Unit,
   onDelete: () -> Unit,
   onDismiss: () -> Unit,
@@ -150,7 +165,7 @@ internal fun BookmarkActionMenuDialog(
           BookmarkThumbnailImage(
             thumbnailPath = bookmark.thumbnailPath,
             cornerRadius = 8.dp,
-            contentScale = ContentScale.Fit,
+            contentScale = ContentScale.Crop,
             modifier = Modifier.width(88.dp).aspectRatio(16f / 9f),
           )
         }
@@ -177,15 +192,8 @@ internal fun BookmarkActionMenuDialog(
         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        BookmarkMenuActionRow(
-          icon = Icons.RoundedFilled.PlayArrow,
-          label = stringResource(R.string.bookmark_edit_menu_jump),
-          tint = MaterialTheme.colorScheme.onSurface,
-          onClick = {
-            onJump()
-            onDismiss()
-          },
-        )
+        // No "Jump to bookmark" row: tapping the card itself already seeks there, so repeating it
+        // here only pushed the destructive action off a landscape dialog.
         BookmarkMenuActionRow(
           icon = Icons.RoundedFilled.Edit,
           label = stringResource(R.string.bookmark_edit_menu_rename),
@@ -318,6 +326,7 @@ private fun BookmarkGridCard(
   compactLabels: Boolean,
   onClick: () -> Unit,
   onLongClick: () -> Unit,
+  tagNames: List<String> = emptyList(),
   modifier: Modifier = Modifier,
 ) {
   val shape = RoundedCornerShape(10.dp)
@@ -337,15 +346,18 @@ private fun BookmarkGridCard(
         .clip(shape)
         .combinedClickable(onClick = onClick, onLongClick = onLongClick),
   ) {
+    // Every label lives inside the frame: the card consumes exactly one 16:9 thumbnail, so no
+    // vertical space is spent on text rows beside it. Crop (not Fit) keeps the frame filled and the
+    // old letterbox flanks were only ever the empty container showing through.
     Box(modifier = Modifier.fillMaxSize()) {
       BookmarkThumbnailImage(
         thumbnailPath = bookmark.thumbnailPath,
         cornerRadius = 0.dp,
-        contentScale = ContentScale.Fit,
+        contentScale = ContentScale.Crop,
         modifier = Modifier.fillMaxSize(),
       )
 
-      // Top scrim for readable small title matching the user's sketch
+      // Top scrim carrying the bookmark name.
       Box(
         modifier =
           Modifier
@@ -353,7 +365,7 @@ private fun BookmarkGridCard(
             .align(Alignment.TopCenter)
             .background(
               Brush.verticalGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.25f), Color.Transparent),
+                colors = listOf(Color.Black.copy(alpha = 0.80f), Color.Black.copy(alpha = 0.28f), Color.Transparent),
               ),
             )
             .padding(horizontal = 6.dp, vertical = 4.dp),
@@ -367,25 +379,29 @@ private fun BookmarkGridCard(
               fontWeight = FontWeight.Medium,
             ),
           color = Color.White,
-          maxLines = if (compactLabels) 1 else 2,
+          maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
       }
 
-      // Bottom scrim + tabular HH:MM:SS timestamp pinned at card bottom
-      Box(
+      // Bottom scrim carrying the tag chips and the timestamp.
+      Column(
         modifier =
           Modifier
             .fillMaxWidth()
             .align(Alignment.BottomCenter)
             .background(
               Brush.verticalGradient(
-                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f)),
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.88f)),
               ),
             )
             .padding(horizontal = 6.dp, vertical = 3.dp),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
       ) {
+        if (tagNames.isNotEmpty()) {
+          BookmarkTagChipRow(tags = tagNames, maxChips = if (compactLabels) 2 else 3, dense = true)
+        }
         Text(
           text = formatBookmarkTimecode(positionSeconds),
           style =
@@ -399,6 +415,56 @@ private fun BookmarkGridCard(
           softWrap = false,
         )
       }
+    }
+  }
+}
+
+/**
+ * Renders tag chips inside a thumbnail scrim. Uses translucent fills so it stays readable over video
+ * frames without a solid background band.
+ */
+@Composable
+internal fun BookmarkTagChipRow(
+  tags: List<String>,
+  maxChips: Int = 3,
+  dense: Boolean = false,
+) {
+  if (tags.isEmpty()) return
+  val shown = tags.take(maxChips)
+  val overflow = tags.size - shown.size
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    shown.forEach { tag ->
+      Box(
+        modifier =
+          Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.22f))
+            .padding(horizontal = 4.dp, vertical = if (dense) 0.5.dp else 2.dp),
+      ) {
+        Text(
+          text = tag,
+          style =
+            MaterialTheme.typography.labelSmall.copy(
+              fontSize = if (dense) 7.sp else 10.sp,
+              lineHeight = if (dense) 9.sp else 13.sp,
+            ),
+          color = Color.White,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+    if (overflow > 0) {
+      Text(
+        text = "+$overflow",
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = if (dense) 7.sp else 10.sp),
+        color = Color.White.copy(alpha = 0.85f),
+        maxLines = 1,
+      )
     }
   }
 }
@@ -497,6 +563,7 @@ internal fun BookmarkSplitPanel(
 
   var menuBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
   var showPresetDialog by remember { mutableStateOf(false) }
+  var showGallery by remember { mutableStateOf(false) }
 
   val onQuickAdd: () -> Unit = {
     if (viewModel.quickAddBookmark()) {
@@ -558,6 +625,15 @@ internal fun BookmarkSplitPanel(
             },
           )
           Spacer(Modifier.weight(1f))
+          // One tap switches from this video's bookmarks to every video's, without leaving playback.
+          PanelIconAction(
+            icon = Icons.RoundedFilled.Bookmarks,
+            contentDescription = stringResource(R.string.bookmark_gallery_open),
+            onClick = {
+              haptics.tick()
+              showGallery = true
+            },
+          )
           PanelIconAction(
             icon = Icons.RoundedFilled.Add,
             contentDescription = stringResource(R.string.audiobook_add_bookmark),
@@ -591,6 +667,16 @@ internal fun BookmarkSplitPanel(
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
               modifier = Modifier.weight(1f),
+            )
+            // Landscape sidebar is only 20-35% wide, so the gallery lives in the icon row rather
+            // than adding a fourth chip that the chip row could not fit.
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Bookmarks,
+              contentDescription = stringResource(R.string.bookmark_gallery_open),
+              onClick = {
+                haptics.tick()
+                showGallery = true
+              },
             )
             PanelIconAction(
               icon = Icons.RoundedFilled.Add,
@@ -673,8 +759,14 @@ internal fun BookmarkSplitPanel(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
           val spacing = 6.dp
           val currentSecInt = currentPositionSeconds.toInt()
+          val tagsByBookmark by viewModel.bookmarkTags.collectAsStateWithLifecycle()
+          fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> = tagsByBookmark[bookmark.id].orEmpty()
+
           if (isPortrait) {
-            val rowHeight = (maxHeight - 12.dp).coerceIn(82.dp, 184.dp)
+            // Height follows the column width so a card is always exactly 16:9. Filling a fixed
+            // slot instead is what turned every card into a tall box with letterbox flanks.
+            val slotWidth = (maxWidth - 12.dp - spacing * (cardCount - 1)) / cardCount
+            val rowHeight = (slotWidth * 9f / 16f).coerceIn(48.dp, 184.dp)
             LazyVerticalGrid(
               columns = GridCells.Fixed(cardCount),
               modifier = Modifier.fillMaxSize(),
@@ -692,6 +784,7 @@ internal fun BookmarkSplitPanel(
                   positionSeconds = posSec,
                   selected = abs(posSec - currentSecInt) <= 2,
                   compactLabels = cardCount >= 5,
+                  tagNames = tagsFor(bookmark),
                   onClick = { viewModel.seekToBookmark(bookmark) },
                   onLongClick = {
                     haptics.tick()
@@ -756,8 +849,9 @@ internal fun BookmarkSplitPanel(
               }
             }
           } else {
-            val cardHeight =
-              ((maxHeight - 12.dp - spacing * (cardCount - 1)) / cardCount).coerceAtLeast(54.dp)
+            // Landscape sidebar: derive height from the panel width so cards stay 16:9 and the card
+            // never stretches to fill the column. `cardCount` is the grid-density control here.
+            val rowHeight = ((maxWidth - 12.dp) * 9f / 16f).coerceIn(40.dp, 140.dp)
             LazyColumn(
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),
@@ -773,12 +867,13 @@ internal fun BookmarkSplitPanel(
                   positionSeconds = posSec,
                   selected = abs(posSec - currentSecInt) <= 2,
                   compactLabels = cardCount >= 5,
+                  tagNames = tagsFor(bookmark),
                   onClick = { viewModel.seekToBookmark(bookmark) },
                   onLongClick = {
                     haptics.tick()
                     menuBookmark = bookmark
                   },
-                  modifier = Modifier.fillMaxWidth().height(cardHeight),
+                  modifier = Modifier.fillMaxWidth().height(rowHeight),
                 )
               }
 
@@ -846,7 +941,6 @@ internal fun BookmarkSplitPanel(
     BookmarkActionMenuDialog(
       bookmark = target,
       formattedTimestamp = formatBookmarkTimecode(targetPosSec),
-      onJump = { viewModel.seekToBookmark(target) },
       onRename = {
         if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.None)) {
           onOpenSheet(Sheets.BookmarkEditor)
@@ -867,5 +961,9 @@ internal fun BookmarkSplitPanel(
       viewModel = viewModel,
       onDismiss = { showPresetDialog = false },
     )
+  }
+
+  if (showGallery) {
+    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(onClose = { showGallery = false })
   }
 }

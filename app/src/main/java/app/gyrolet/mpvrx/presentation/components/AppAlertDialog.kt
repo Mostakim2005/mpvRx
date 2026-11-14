@@ -61,7 +61,19 @@ fun AppAlertDialog(
   singleRowActions: Boolean = false,
 ) {
   val colors = MaterialTheme.colorScheme
-  val maximumHeight = (LocalConfiguration.current.screenHeightDp.dp - 48.dp).coerceAtLeast(120.dp)
+  val configuration = LocalConfiguration.current
+  // A landscape phone has roughly half the portrait height, while the dialog keeps portraiture-sized
+  // text and padding. Budget against the real window and tighten the chrome when the window is short,
+  // otherwise the header and action row alone can consume the whole card and the body is clipped.
+  val compact = configuration.screenHeightDp < COMPACT_HEIGHT_DP
+  val maximumHeight =
+    if (compact) {
+      (configuration.screenHeightDp.dp * COMPACT_MAX_HEIGHT_FRACTION).coerceAtLeast(COMPACT_MIN_HEIGHT_DP)
+    } else {
+      (configuration.screenHeightDp.dp - 48.dp).coerceAtLeast(120.dp)
+    }
+  val sectionPadding = if (compact) 12.dp else 20.dp
+  val actionPadding = if (compact) 8.dp else 12.dp
   val hasHeader = title != null || icon != null
   val sections = (if (hasHeader) 1 else 0) + (if (text != null) 1 else 0) + 1
   val bodyIndex = if (hasHeader) 1 else 0
@@ -85,18 +97,28 @@ fun AppAlertDialog(
             contentColor = titleContentColor,
           ) {
             Row(
-              modifier = Modifier.padding(20.dp),
+              modifier = Modifier.padding(if (compact) 12.dp else 20.dp),
               horizontalArrangement = Arrangement.spacedBy(16.dp),
               verticalAlignment = Alignment.CenterVertically,
             ) {
               if (icon != null) {
-                Surface(shape = MaterialTheme.shapes.largeIncreased, color = Color.Transparent, contentColor = iconContentColor) {
-                  Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { icon() }
+                Surface(
+                  shape = MaterialTheme.shapes.largeIncreased,
+                  color = Color.Transparent,
+                  contentColor = iconContentColor,
+                ) {
+                  Box(Modifier.size(if (compact) 28.dp else 48.dp), contentAlignment = Alignment.Center) { icon() }
                 }
               }
               if (title != null) {
                 Box(Modifier.weight(1f).semantics { heading() }) {
-                  ProvideTextStyle(MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)) { title() }
+                  val titleStyle =
+                    if (compact) {
+                      MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                      MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                    }
+                  ProvideTextStyle(titleStyle) { title() }
                 }
               }
             }
@@ -104,12 +126,16 @@ fun AppAlertDialog(
         }
         if (text != null) {
           Surface(
+            // Reserved before the action row: without this weight a long body measures itself at
+            // the full remaining height and pushes Cancel/OK past the bottom edge of the card.
+            // fill = false still lets a short body keep the dialog compact, while a long one is
+            // bounded here and scrolls inside its own content.
             modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
             shape = rememberConnectedShape(bodyIndex, sections, ConnectedLayout.Vertical),
             color = containerColor,
             contentColor = textContentColor,
           ) {
-            Box(Modifier.padding(20.dp)) {
+            Box(Modifier.fillMaxWidth().padding(sectionPadding)) {
               ProvideTextStyle(MaterialTheme.typography.bodyLarge) { text() }
             }
           }
@@ -122,7 +148,7 @@ fun AppAlertDialog(
           if (singleRowActions) {
             // Keep Cancel beside split confirmations while their status label changes width.
             Row(
-              modifier = Modifier.fillMaxWidth().padding(12.dp),
+              modifier = Modifier.fillMaxWidth().padding(actionPadding),
               horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
               verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -136,7 +162,7 @@ fun AppAlertDialog(
             }
           } else {
             FlowRow(
-              modifier = Modifier.fillMaxWidth().padding(12.dp),
+              modifier = Modifier.fillMaxWidth().padding(actionPadding),
               horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
               verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -151,3 +177,11 @@ fun AppAlertDialog(
     }
   }
 }
+
+/** Below this window height the dialog switches to compact chrome (a landscape phone). */
+private const val COMPACT_HEIGHT_DP = 520
+
+/** Compact dialogs may use most of the window, but keep a margin so the scrim stays visible. */
+private const val COMPACT_MAX_HEIGHT_FRACTION = 0.92f
+
+private const val COMPACT_MIN_HEIGHT_DP = 200

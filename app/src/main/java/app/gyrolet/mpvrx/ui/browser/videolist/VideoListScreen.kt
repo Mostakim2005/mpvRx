@@ -413,6 +413,19 @@ data class VideoListScreen(
             }
           },
           onCancelSelection = { selectionManager.clear() },
+          additionalActions = {
+            // Cross-video bookmark gallery for the public library.
+            androidx.compose.material3.IconButton(
+              onClick = {
+                backstack.navigateTo(app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryScreen(secureOnly = false))
+              },
+            ) {
+              app.gyrolet.mpvrx.ui.icons.Icon(
+                imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Bookmarks,
+                contentDescription = androidx.compose.ui.res.stringResource(app.gyrolet.mpvrx.R.string.bookmark_gallery_open),
+              )
+            }
+          },
           onSortClick = { sortDialogOpen.value = true },
           onSearchClick = { internalIsSearching = true },
           onSettingsClick =

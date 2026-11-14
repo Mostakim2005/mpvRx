@@ -137,4 +137,15 @@ interface PlaybackBookmarkDao {
     presetCode: String?,
     updatedAt: Long = System.currentTimeMillis(),
   )
+
+  /** Every bookmark in the library, newest first, for the cross-video gallery. */
+  @Query(
+    """
+    SELECT b.id, b.mediaId, b.positionMs, b.title, b.createdAt, b.thumbnailPath
+    FROM playback_bookmarks b
+    WHERE b.bookTrackId IS NULL
+    ORDER BY b.createdAt DESC, b.positionMs
+    """,
+  )
+  fun observeGallery(): Flow<List<BookmarkGalleryRow>>
 }
