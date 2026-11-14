@@ -259,8 +259,12 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
   }
   var tagInput by remember(bookmark.id) { mutableStateOf("") }
   var selectedTags by remember(bookmark.id) { mutableStateOf<List<String>>(emptyList()) }
+  // An edit reads its tags from disk; saving before that lands would rewrite the bookmark with an
+  // empty tag list, so the save button waits for the read to finish.
+  var tagsLoaded by remember(bookmark.id) { mutableStateOf(bookmark.id == 0L) }
   LaunchedEffect(bookmark.id) {
     selectedTags = if (bookmark.id == 0L) emptyList() else viewModel.tagsForBookmark(bookmark.id)
+    tagsLoaded = true
   }
   val rememberedTags by viewModel.tagSuggestions.collectAsStateWithLifecycle()
   val tagSuggestions =
@@ -331,7 +335,7 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.generic_cancel)) }
         TextButton(
-          enabled = !saving && (isNewDraft || nameValue.text.isNotBlank()),
+          enabled = !saving && tagsLoaded && (isNewDraft || nameValue.text.isNotBlank()),
           onClick = {
             val resolvedTitle = nameValue.text.trim().ifBlank { bookmark.title }
             saving = true
