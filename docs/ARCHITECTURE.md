@@ -7,16 +7,18 @@
 flowchart TB
     subgraph UI["📱 UI & Presentation Layer (Jetpack Compose)"]
         PlayerView["Player Activity & Surface (mpv native)"]
-        PortraitDrawer["Portrait Bookmark Drawer (16:9 Video + 1R/2R 16:9 Cards)"]
-        LandscapeSidebar["Landscape Bookmark Sidebar (20%-35% + Global Scope Toggle)"]
-        GalleryModal["Bookmark Gallery Screen (Vertical Scroll + Tag Search)"]
+        PortraitDrawer["Portrait Bookmark Drawer (Native Video Ratio + 1R/2R/3R 16:9 Cards + Tag Filter)"]
+        LandscapeSidebar["Landscape Bookmark Sidebar (20%-35% + Non-Overflow 2-Tier Toolbar + Global Scope)"]
+        GalleryModal["Bookmark Gallery Screen (Vertical Scroll + Tag Autocomplete)"]
         ProfileSec["Profile Screen (5-Tap Stealth Mode)"]
-        AudioUI["Audio Player Controls (2-Line/3-Line Lyrics + Scaled Art)"]
+        AudioUI["Audio Player Controls (2-Line/3-Line Lyrics + 50/50 & 40/60 Landscape Split)"]
+        MusicCustomUI["Music Customization (Tag Editor + Video-in-Art + Downloader)"]
     end
 
     subgraph State["🧠 State & ViewModel Layer"]
         PlayerVM["PlayerViewModel (Queue, PlaybackState, Tags, Scope)"]
         GalleryVM["BookmarkGalleryViewModel"]
+        AudioVM["AudioPlayerViewModel"]
         SecDetector["SecretTapDetector"]
     end
 
@@ -25,13 +27,14 @@ flowchart TB
         Matcher["BookmarkMediaMatcher (Fingerprints)"]
         TagRules["BookmarkTagRules (Normalization)"]
         Identity["PlaybackIdentity (SHA-256 Digest Engine)"]
-        Persistence["VaultPersistenceManager (Durable Storage)"]
+        Geometry["VideoGeometryEngine (Native Aspect Ratio Budget)"]
+        VaultPersistence["VaultPersistenceManager (Durable Storage /sdcard/Documents/mpvRx/)"]
     end
 
     subgraph Data["💾 Storage & Persistence Layer"]
-        RoomDB[("MpvRx Room Database (Bookmarks, Tags, Links)")]
+        RoomDB[("MpvRx Room Database (Bookmarks, Tags, Links, Music)")]
         WatchStats[("Watch Stats JSON (Public & Quarantined Files)")]
-        SecureVault["Persistent App-Private Media Vault with .nomedia"]
+        DurableVault["Durable Storage /sdcard/Documents/mpvRx/ (.nomedia, vault, backups, verifier)"]
     end
 
     PlayerView --> PlayerVM
@@ -39,18 +42,22 @@ flowchart TB
     LandscapeSidebar --> PlayerVM
     GalleryModal --> GalleryVM
     ProfileSec --> SecDetector
+    AudioUI --> AudioVM
+    MusicCustomUI --> AudioVM
 
     PlayerVM --> Registry
     PlayerVM --> Identity
     PlayerVM --> Matcher
+    PlayerVM --> Geometry
     GalleryVM --> Registry
     SecDetector --> WatchStats
 
     Registry --> RoomDB
-    Registry --> SecureVault
-    Persistence --> SecureVault
+    Registry --> DurableVault
+    VaultPersistence --> DurableVault
     PlayerVM --> RoomDB
     PlayerVM --> WatchStats
+    AudioVM --> RoomDB
 ```
 
 ---
@@ -59,21 +66,50 @@ flowchart TB
 
 | Layer | Tool / Library | Plain-English Reason Why |
 | --- | --- | --- |
-| Playback Core | `libmpv` (C/C++ via JNI) | Unmatched format compatibility, hardware decoding, subtitle formatting, and custom shader pipelines. |
+| Playback Core | `libmpv` (C/C++ via JNI) | Unmatched format compatibility, hardware decoding, subtitle formatting, custom shader pipelines, and audio-video track switching. |
 | UI Framework | Android Jetpack Compose + Material 3 | Declarative, reactive UI that effortlessly animates split panels, adaptive grids, and dual-orientation layouts. |
 | Dependency Injection | Koin | Lightweight Kotlin-native DI with zero reflection overhead and immediate startup speeds. |
-| Persistence | AndroidX Room (SQLite) + AtomicFile | Robust schema migrations for bookmarks/tags and atomic file writes for JSON statistics snapshots. |
+| Persistence | AndroidX Room (SQLite) + AtomicFile | Robust schema migrations for bookmarks/tags/music and atomic file writes for JSON statistics snapshots. |
 | Media ID Hash | Java `MessageDigest` (SHA-256) | Generates collision-resistant stable identifiers for media across URI schemes and filesystem paths. |
+| Persistent Vault | `/sdcard/Documents/mpvRx/` (with `.nomedia`) | Ensures private media, bookmark thumbnails, database backups, and PIN credentials survive app uninstallation. |
 
 ---
 
 ## 3. Core Subsystems & Engineering Tricks
 
-### [SUBSYSTEM: Dual-Orientation-In-Player-Bookmarks] | Aliases: portrait 16:9 drawer, landscape sidebar, in-player scope toggle
-> **1-Line Summary:** Provides orientation-tailored bookmark interfaces: dynamic 16:9 video + 1R/2R 16:9 cards in portrait, and 20%-35% sidebar + in-drawer scope toggle in landscape.
+### [SUBSYSTEM: Dynamic-Portrait-Video-And-Bookmark-Drawer] | Aliases: portrait native ratio, dynamic rows, portrait tag filter
+> **1-Line Summary:** Computes portrait video height dynamically based on native media aspect ratio, dedicates remaining vertical space to 16:9 bookmark cards (1, 2, or 3+ rows), caps columns at 2 or 3, and embeds a tag filter button in the portrait toolbar.
 * **How It Works (Plain English):**
-  * **In Portrait:** Video height is calculated dynamically as `containerWidth * 9 / 16` so video stays at exact 16:9 without black borders. The remaining screen height is dedicated to the bookmark drawer. User can select 2 or 3 columns and toggle between 1 visible row or 2 visible rows of 16:9 cards.
-  * **In Landscape:** Width cycles across 20%, 25%, 30%, and 35%. A dedicated toggle button in the 2-tier toolbar switches between displaying bookmarks from *This Video* and *All Videos (Global)* directly inside the player drawer.
+  * **Native Video Aspect Ratio:** In `PlayerControls.kt`, the video height is no longer hardcoded to 16:9 or a fixed percentage. It is calculated as `containerWidth / mediaAspectRatio`. A standard 16:9 video uses `width * 9 / 16`; an ultra-wide 21:9 video uses `width * 9 / 21`, immediately freeing extra vertical space.
+  * **Dynamic Row Capacity:** The remaining height (`containerHeight - videoHeight - toolbarHeight`) is evaluated. Depending on the user's row preference (`1 Row`, `2 Rows`, `Auto-Fit`), the drawer displays 1, 2, or 3+ visible rows of cards without awkward clipping.
+  * **Columns Selector:** Strictly restricted to 2 or 3 columns (`2 Cols` ⇄ `3 Cols`).
+  * **Tag Filter in Portrait:** The portrait drawer toolbar includes a `🏷️ Filter` button that triggers the tag selection dialog overlay directly in portrait mode.
+* **Data Flow Diagram:**
+```mermaid
+flowchart TD
+    A["Video Metadata (width x height)"] --> B["Compute mediaAspectRatio = w / h"]
+    B --> C["videoHeight = screenWidth / mediaAspectRatio"]
+    C --> D["remainingHeight = screenHeight - videoHeight - controlsHeight"]
+    D --> E{"User Row Preference"}
+    E -->|1-Row| F["1 Row Visible (~110dp card height) + scroll"]
+    E -->|2-Rows| G["2 Rows Visible (~220dp) + scroll"]
+    E -->|Auto/3-Rows| H["3+ Rows Visible on wide videos / tall screens"]
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `BookmarkSplitPanel`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`, `BookmarkListContent`
+
+---
+
+### [SUBSYSTEM: Landscape-Sidebar-With-Global-Scope-Toggle] | Aliases: landscape sidebar, 20-35 width, non-overflow toolbar, global scope toggle
+> **1-Line Summary:** Landscape bookmark sidebar maintaining 20% to 35% width steps with a non-overflow 2-tier toolbar, floating tag overlay, and an in-drawer toggle between this video's bookmarks and all library bookmarks.
+* **How It Works (Plain English):**
+  * **Width Menu:** Cycles across 20%, 25%, 30%, and 35%.
+  * **Non-Overflow 2-Tier Toolbar:**
+    * *Tier 1 (Action Icons):* 4 compact icon buttons with tooltips (`🏷️ Filter`, `⊞ Add`, `↗ Gallery`, `✕ Close`).
+    * *Tier 2 (Toggle Chips):* Compact chips (`Scope: 🎬/🌐`, `25%`, `1 Col`). Uses short labels and compact paddings to prevent wrapping or overflowing at 20% width.
+  * **In-Player Scope Toggle:** Tapping `🎬 This Video ⇄ 🌐 All Bookmarks` triggers `PlayerViewModel.toggleInPlayerBookmarkScope()`, switching the drawer between the current video's timestamps and all library bookmarks.
+  * **Floating Tag Filter Popup:** Opens a centered translucent overlay over the video without stopping playback.
 * **Data Flow Diagram:**
 ```mermaid
 sequenceDiagram
@@ -91,12 +127,13 @@ sequenceDiagram
     VM->>mpv: command("seek", positionSeconds, "absolute")
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `BookmarkSplitPanel`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkListContent`
+
+---
 
 ### [SUBSYSTEM: Natural-Scroll-Gallery] | Aliases: bookmark gallery, vertical scroll grid, tag filter
 > **1-Line Summary:** Fullscreen modal browsing all library bookmarks with natural vertical scrolling (`LazyVerticalGrid`), autocomplete tag search, and orientation column caps (max 3 portrait, max 4 landscape).
-* **How It Works (Plain English):** Replaces the flawed two-row horizontal strip design with a clean vertical `LazyVerticalGrid`. Top area provides a padded search bar with clickable autocomplete tag pills directly underneath. Columns are capped at 3 in portrait and 4 in landscape. Cards are 16:9 with gradient labels.
+* **How It Works (Plain English):** Smooth vertical `LazyVerticalGrid`. Top area provides a search bar with clickable autocomplete tag pills directly underneath. Columns are capped at 3 in portrait and 4 in landscape. Cards are 16:9 with gradient labels.
 * **Data Flow Diagram:**
 ```mermaid
 sequenceDiagram
@@ -118,23 +155,31 @@ sequenceDiagram
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryScreen`, `resolveColumnCount`
 
-### [SUBSYSTEM: Music-Player-Lyrics-And-Dynamic-Artwork] | Aliases: 2-line lyrics, 3-line lyrics, 144dp art, lyrics slider
-> **1-Line Summary:** Multi-line lyrics engine with dynamic artwork scaling (144dp for 2-line, 112dp for 3-line) to eliminate transport button crowding.
-* **How It Works (Plain English):** In `AudioPlayerControls.kt`, lyrics mode determines album art size:
-  * 1-Line Mode: 176dp x 176dp artwork.
-  * 2-Line Mode (Default): 144dp x 144dp artwork.
-  * 3-Line Mode: 112dp x 112dp artwork.
-  Lyrics text size is adjustable via a slider from 11sp to 20sp in preferences.
+---
+
+### [SUBSYSTEM: Music-Player-Lyrics-And-Split-Landscape] | Aliases: 2-line lyrics, 3-line lyrics, landscape 50-50 split, landscape 40-60 split
+> **1-Line Summary:** Multi-line synchronized lyrics in portrait (2-line default, 3-line option) with dynamic artwork scaling, and configurable artwork vs lyrics split in landscape (`50/50`, `40/60`, `60/40`).
+* **How It Works (Plain English):**
+  * **Portrait Mode:** 2-line mode scales album artwork to 144dp; 3-line mode scales artwork to 112dp. Ensures transport controls and seekbars are never clipped or pushed off screen.
+  * **Landscape Mode:** A split selector allows the user to allocate screen width between album artwork (or music video) and scrolling lyrics (`50/50` equal balance, `40/60` lyrics priority, `60/40` artwork priority).
+  * **Customization Suite:** Details in [`docs/MUSIC_PLAYER_CUSTOMIZATION.md`](file:///c:/Users/kazir/Documents/Agentic Harness/mpvRx/docs/MUSIC_PLAYER_CUSTOMIZATION.md).
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
 
-### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: secure media registry, quarantined stats, vault persistence
-> **1-Line Summary:** Synchronous in-memory security registry and biometric gate that isolates private media from history, public stats, and unauthenticated intent playback, backed by durable storage.
-* **How It Works (Plain English):** `SecureMediaRegistry` caches private file paths and playback identities in memory. Room Flow observers (`RecentlyPlayedRepository`, `WatchStatsRepository`) query `isProtectedReference()` synchronously. Starting any private URI routes through `SecureUnlockActivity`. On Profile, `SecretTapDetector` requires 5 rapid taps on the "mpvRx" wordmark to reveal secret stats. Vault files and databases are stored in durable app-external storage with `.nomedia` so they survive app uninstall.
+---
+
+### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry
+> **1-Line Summary:** Quarantines private media from history and stats, challenges using the Secure Folder PIN directly, and stores vault media, thumbnails, database backups, and PIN verifiers in persistent public storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) to survive uninstallation.
+* **How It Works (Plain English):**
+  * `SecureMediaRegistry` caches private file paths in memory; history/stats repos query `isProtectedReference()` synchronously.
+  * Starting any private URI routes through `SecureUnlockActivity` using the Secure Folder PIN (no device PIN double prompt).
+  * All encrypted media, bookmark thumbnails, database snapshots, and salt/verifier credentials are stored under `/sdcard/Documents/mpvRx/`.
+  * A `.nomedia` file blocks standard Android media scanner from discovering private files.
+  * On app reinstallation, mpvRx detects the existing `/sdcard/Documents/mpvRx/` folder, authenticates using the existing PIN verifier, and restores the library seamlessly.
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `isProtectedReference`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `launch`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecretTapDetector.kt` -> `SecretTapDetector`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
 
 ---
 

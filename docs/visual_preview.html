@@ -30,7 +30,7 @@
     }
     .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: var(--bg-surface-highest); border-radius: 4px; }
-    .phone-portrait { width: 320px; height: 600px; }
+    .phone-portrait { width: 320px; height: 620px; }
     .phone-landscape { width: 580px; height: 320px; }
   </style>
 </head>
@@ -44,13 +44,13 @@
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
           <span class="inline-block px-3 py-1 bg-purple-950 text-purple-300 rounded-full text-xs font-semibold tracking-wide uppercase mb-2 border border-purple-800">
-            Implementation Blueprint & Feedback Review
+            Implementation Blueprint & Verification Previews
           </span>
           <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
             mpvRx: Calibrated Layouts & Dual-Orientation Architecture
           </h1>
           <p class="text-sm text-[var(--text-med)] mt-1">
-            Visual implementation blueprint incorporating all collected feedback. Numbered <span class="text-amber-400 font-bold">[1]–[5]</span> with separate <strong>Portrait</strong> and <strong>Landscape</strong> views.
+            Visual implementation blueprint incorporating all feedback. Numbered <span class="text-amber-400 font-bold">[1]–[5]</span> with separate <strong>Portrait</strong> and <strong>Landscape</strong> views.
           </p>
         </div>
         <div class="text-xs bg-[var(--bg-surface-elevated)] px-4 py-2 rounded-xl border border-[var(--border-subtle)] text-purple-300">
@@ -64,16 +64,19 @@
           <span class="font-bold text-amber-400">[1]</span> Gallery: Natural Scroll & Tag Autocomplete
         </a>
         <a href="#feature-2" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
-          <span class="font-bold text-amber-400">[2]</span> Portrait Player: 16:9 Video & 1R/2R Switcher
+          <span class="font-bold text-amber-400">[2]</span> Portrait Player: Native Video Ratio & Dynamic Rows
         </a>
         <a href="#feature-3" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
-          <span class="font-bold text-amber-400">[3]</span> Landscape Player: Global Scope & Tag Overlay
+          <span class="font-bold text-amber-400">[3]</span> Landscape Player: Compact Toolbar & Global Scope
         </a>
         <a href="#feature-4" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
-          <span class="font-bold text-amber-400">[4]</span> Music Player: 2-Line Lyrics & 144dp Art
+          <span class="font-bold text-amber-400">[4]</span> Music Player: Synced Lyrics & Landscape Splits
         </a>
         <a href="#feature-5" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
-          <span class="font-bold text-amber-400">[5]</span> Security: Secure Folder PIN & Vault Persistence
+          <span class="font-bold text-amber-400">[5]</span> Security & Persistence: Secure PIN & /sdcard/Documents/mpvRx/
+        </a>
+        <a href="music_customization_preview.html" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition font-bold shadow">
+          🎵 Open Music Customization Suite Preview →
         </a>
       </div>
     </header>
@@ -285,37 +288,37 @@
     </section>
 
     <!-- ========================================================================= -->
-    <!-- FEATURE 2: PORTRAIT IN-PLAYER VIDEO & BOOKMARK DRAWER                     -->
+    <!-- FEATURE 2: PORTRAIT IN-PLAYER VIDEO & DYNAMIC BOOKMARK DRAWER             -->
     <!-- ========================================================================= -->
     <section id="feature-2" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
           <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [2]</span>
-          <h2 class="text-xl font-bold text-white mt-1">Portrait Player: Dynamic 16:9 Video & 1-Row / 2-Row Drawer Switcher</h2>
+          <h2 class="text-xl font-bold text-white mt-1">Portrait Player: Native Video Ratio, Portrait Tag Filter & Dynamic Rows</h2>
           <p class="text-xs text-[var(--text-med)] mt-1">
-            Replaces the broken hardcoded 45%/55% split. Video plays natively at 16:9, and the drawer below offers a dedicated 1-Row vs 2-Row visible toggle with 2 or 3 columns only.
+            No hardcoded ratios: video renders at native aspect ratio (`width / ratio`). Remaining height is budgeted for 16:9 bookmark cards (1, 2, or 3+ rows if space permits), 2-3 column switcher, and in-drawer tag filter.
           </p>
         </div>
         <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
-          Portrait-Specific Architecture
+          Native Ratio Geometry
         </span>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
-        <!-- 2A: 1-ROW VISIBLE MODE -->
+        <!-- 2A: STANDARD 16:9 NATIVE VIDEO -->
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
           <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
-            <span class="font-bold text-purple-300">📱 View 2A: 1-Row Visible Mode (Max Video Focus)</span>
-            <span class="text-gray-400">1 Row • 2 or 3 Cols</span>
+            <span class="font-bold text-purple-300">📱 View 2A: 16:9 Video (2 Rows Visible • 2-3 Cols)</span>
+            <span class="text-amber-400 font-bold">🏷️ Tag Filter Active</span>
           </div>
 
           <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
-            <!-- Native 16:9 Video Playback Surface -->
+            <!-- Native 16:9 Video Playback Surface (Height = 320 * 9/16 = 180px) -->
             <div class="w-full aspect-video bg-[#1a1329] flex flex-col justify-between p-2 border-b border-gray-800 relative">
               <div class="flex justify-between text-[9px] text-gray-300">
-                <span class="font-bold truncate">Episode 04 • 16:9 Native</span>
-                <span>1080p</span>
+                <span class="font-bold truncate">Cyberpunk Edgerunners • 16:9 Native</span>
+                <span class="text-purple-300">1080p</span>
               </div>
               <div class="self-center text-purple-300 text-lg">▶</div>
               <div class="w-full space-y-1">
@@ -324,126 +327,134 @@
                 </div>
                 <div class="flex justify-between text-[7px] text-gray-400 font-mono">
                   <span>14:20</span>
-                  <span>45:00</span>
+                  <span>24:10</span>
                 </div>
               </div>
             </div>
 
-            <!-- In-Player Drawer: 1-Row Visible Configuration -->
+            <!-- In-Player Drawer: Remaining Height Consumed -->
             <div class="flex-1 bg-[#140f21] flex flex-col">
-              <!-- Toolbar -->
-              <div class="px-3 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
-                <span class="font-bold text-white text-[11px]">Bookmarks</span>
-                <div class="flex items-center gap-1.5 text-[9px]">
-                  <!-- Row Switcher (Active: 1 Row) -->
-                  <span class="px-2 py-0.5 bg-purple-600 text-white rounded font-bold">⊞ 1 Row</span>
-                  <!-- Columns Switcher (2 or 3 only) -->
-                  <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60">2 Cols</span>
+              <!-- Non-Overflow Portrait Toolbar -->
+              <div class="px-2.5 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
+                <span class="font-bold text-white text-[10px]">Bookmarks</span>
+                <div class="flex items-center gap-1 text-[9px]">
+                  <!-- Dedicated Portrait Tag Filter Button -->
+                  <span class="px-2 py-0.5 bg-purple-900/80 text-purple-200 rounded font-bold border border-purple-700 cursor-pointer flex items-center gap-0.5">
+                    <span>🏷️</span> Filter
+                  </span>
+                  <!-- Row Switcher (1R / 2R) -->
+                  <span class="px-1.5 py-0.5 bg-purple-600 text-white rounded font-bold">2 Rows</span>
+                  <!-- Column Switcher (strictly 2 or 3) -->
+                  <span class="px-1.5 py-0.5 bg-[#2b2244] text-purple-300 rounded font-bold border border-purple-800/60">2 Cols</span>
                   <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">+</span>
-                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">✕</span>
                 </div>
               </div>
 
-              <!-- 1 Row Visible: Exactly 1 row of cards fits comfortably, remaining scrollable below -->
-              <div class="p-2 space-y-2 overflow-y-auto custom-scroll flex-1">
-                <div class="grid grid-cols-2 gap-2">
+              <!-- 2 Rows of 16:9 Cards (4 visible cards in 2-col mode) -->
+              <div class="p-2 space-y-1.5 overflow-y-auto custom-scroll flex-1">
+                <div class="grid grid-cols-2 gap-1.5">
                   <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-purple-600/60">
-                    <span class="text-[9px] font-bold text-white truncate">Key Moment</span>
-                    <span class="text-[8px] text-amber-300 font-mono">08:15</span>
+                    <span class="text-[8px] font-bold text-white truncate">Main Action</span>
+                    <span class="text-[7px] text-amber-300 font-mono">04:15</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[9px] font-bold text-white truncate">Reaction</span>
-                    <span class="text-[8px] text-amber-300 font-mono">14:02</span>
+                    <span class="text-[8px] font-bold text-white truncate">Highway Chase</span>
+                    <span class="text-[7px] text-amber-300 font-mono">09:30</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[8px] font-bold text-white truncate">Night City Skyline</span>
+                    <span class="text-[7px] text-amber-300 font-mono">15:10</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[8px] font-bold text-white truncate">Final Battle</span>
+                    <span class="text-[7px] text-amber-300 font-mono">22:04</span>
                   </div>
                 </div>
-                <div class="text-[9px] text-gray-500 text-center py-1">
-                  ↕️ Scroll down to reveal more bookmark rows...
+                <div class="text-[8px] text-gray-500 text-center py-1">
+                  ↕️ Scroll down to reveal more rows...
                 </div>
               </div>
             </div>
           </div>
           <p class="text-[11px] text-gray-300">
-            <strong>1-Row Mode:</strong> Video surface remains large and dominant at true 16:9; drawer shows one prominent row of thumbnails with remaining rows scrollable beneath.
+            <strong>Standard 16:9 Video:</strong> Dynamic geometry sizes the video cleanly to 16:9, budgeting the drawer for 2 full rows (or 1 row if toggled) and providing a direct <code class="text-purple-300">🏷️ Filter</code> button.
           </p>
         </div>
 
-        <!-- 2B: 2-ROW VISIBLE MODE -->
+        <!-- 2B: ULTRA-WIDE 21:9 VIDEO WITH 3 ROWS VISIBLE -->
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
           <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
-            <span class="font-bold text-purple-300">📱 View 2B: 2-Row Visible Mode (High Bookmark Density)</span>
-            <span class="text-gray-400">2 Rows • 2 or 3 Cols</span>
+            <span class="font-bold text-purple-300">📱 View 2B: 21:9 Movie (3 Rows Visible • Extra Space)</span>
+            <span class="text-green-400 font-bold">Auto-Fit More Rows</span>
           </div>
 
           <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
-            <!-- Native 16:9 Video Surface -->
-            <div class="w-full aspect-video bg-[#1a1329] flex flex-col justify-between p-2 border-b border-gray-800 relative">
-              <div class="flex justify-between text-[9px] text-gray-300">
-                <span class="font-bold truncate">Episode 04 • 16:9 Native</span>
-                <span>1080p</span>
+            <!-- Native 21:9 Cinematic Video (Height = 320 * 9/21 = ~137px, freeing 43px!) -->
+            <div class="w-full h-[137px] bg-[#100a1c] flex flex-col justify-between p-2 border-b border-gray-800 relative">
+              <div class="flex justify-between text-[8px] text-gray-300">
+                <span class="font-bold truncate">Dune: Part Two • 21:9 Cinematic</span>
+                <span class="text-amber-300">4K HDR</span>
               </div>
-              <div class="self-center text-purple-300 text-lg">▶</div>
-              <div class="w-full space-y-1">
+              <div class="self-center text-purple-300 text-base">▶</div>
+              <div class="w-full space-y-0.5">
                 <div class="h-1 bg-purple-900 rounded overflow-hidden">
-                  <div class="w-1/3 h-full bg-purple-400"></div>
+                  <div class="w-2/5 h-full bg-purple-400"></div>
                 </div>
                 <div class="flex justify-between text-[7px] text-gray-400 font-mono">
-                  <span>14:20</span>
-                  <span>45:00</span>
+                  <span>01:14:20</span>
+                  <span>02:46:00</span>
                 </div>
               </div>
             </div>
 
-            <!-- In-Player Drawer: 2-Row Visible Configuration -->
+            <!-- In-Player Drawer: Absorbs the extra space to fit 3 full rows! -->
             <div class="flex-1 bg-[#140f21] flex flex-col">
-              <!-- Toolbar -->
-              <div class="px-3 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
-                <span class="font-bold text-white text-[11px]">Bookmarks</span>
-                <div class="flex items-center gap-1.5 text-[9px]">
-                  <!-- Row Switcher (Active: 2 Rows) -->
-                  <span class="px-2 py-0.5 bg-purple-600 text-white rounded font-bold">⊞ 2 Rows</span>
-                  <!-- Columns Switcher (Active: 3 Cols) -->
-                  <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60">3 Cols</span>
+              <div class="px-2.5 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
+                <span class="font-bold text-white text-[10px]">Bookmarks</span>
+                <div class="flex items-center gap-1 text-[9px]">
+                  <span class="px-2 py-0.5 bg-purple-900/80 text-purple-200 rounded font-bold border border-purple-700">🏷️ Filter</span>
+                  <span class="px-1.5 py-0.5 bg-purple-600 text-white rounded font-bold">3 Rows</span>
+                  <span class="px-1.5 py-0.5 bg-[#2b2244] text-purple-300 rounded font-bold border border-purple-800/60">3 Cols</span>
                   <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">+</span>
-                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">✕</span>
                 </div>
               </div>
 
-              <!-- 2 Rows Visible: 6 cards (3x2 grid) visible immediately above fold -->
-              <div class="p-2 space-y-1.5 overflow-y-auto custom-scroll flex-1">
-                <div class="grid grid-cols-3 gap-1.5">
+              <!-- 3 Rows of 16:9 Cards visible immediately above fold without scrolling! -->
+              <div class="p-1.5 space-y-1 overflow-y-auto custom-scroll flex-1">
+                <div class="grid grid-cols-3 gap-1">
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 1</span>
-                    <span class="text-[6px] text-amber-300 font-mono">03:10</span>
+                    <span class="text-[7px] font-bold text-white truncate">Sandworm Ride</span>
+                    <span class="text-[6px] text-amber-300 font-mono">00:45:10</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 2</span>
-                    <span class="text-[6px] text-amber-300 font-mono">09:40</span>
+                    <span class="text-[7px] font-bold text-white truncate">Spice Harvester</span>
+                    <span class="text-[6px] text-amber-300 font-mono">01:02:40</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 3</span>
-                    <span class="text-[6px] text-amber-300 font-mono">15:20</span>
+                    <span class="text-[7px] font-bold text-white truncate">Duel Scene</span>
+                    <span class="text-[6px] text-amber-300 font-mono">01:35:20</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 4</span>
-                    <span class="text-[6px] text-amber-300 font-mono">22:05</span>
+                    <span class="text-[7px] font-bold text-white truncate">Emperor Arrival</span>
+                    <span class="text-[6px] text-amber-300 font-mono">01:58:15</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 5</span>
-                    <span class="text-[6px] text-amber-300 font-mono">31:18</span>
+                    <span class="text-[7px] font-bold text-white truncate">Southern Siege</span>
+                    <span class="text-[6px] text-amber-300 font-mono">02:10:00</span>
                   </div>
                   <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
-                    <span class="text-[7px] font-bold text-white truncate">Scene 6</span>
-                    <span class="text-[6px] text-amber-300 font-mono">42:30</span>
+                    <span class="text-[7px] font-bold text-white truncate">Final Eclipse</span>
+                    <span class="text-[6px] text-amber-300 font-mono">02:38:40</span>
                   </div>
                 </div>
-                <div class="text-[8px] text-gray-500 text-center py-0.5">
-                  ↕️ 6 cards visible above the fold; scroll for more...
+                <div class="text-[8px] text-green-400 text-center py-0.5 font-semibold">
+                  ✓ Extra vertical space naturally allows 3 full rows!
                 </div>
               </div>
             </div>
           </div>
           <p class="text-[11px] text-gray-300">
-            <strong>2-Row Mode:</strong> Compact 16:9 cards allow 2 full rows (4 cards in 2-col mode, or 6 cards in 3-col mode) visible above fold.
+            <strong>Dynamic Native Ratio Advantage:</strong> A 21:9 video is shallower than 16:9, so instead of showing black bars, the drawer automatically expands to show <strong>3 rows of cards</strong> above the fold!
           </p>
         </div>
 
@@ -451,59 +462,74 @@
     </section>
 
     <!-- ========================================================================= -->
-    <!-- FEATURE 3: LANDSCAPE SIDEBAR - GLOBAL SCOPE & TAG OVERLAY                -->
+    <!-- FEATURE 3: LANDSCAPE SIDEBAR - COMPACT NON-OVERFLOW TOOLBAR              -->
     <!-- ========================================================================= -->
     <section id="feature-3" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
           <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [3]</span>
-          <h2 class="text-xl font-bold text-white mt-1">Landscape Sidebar: In-Drawer Global Scope Toggle & Floating Tag Overlay</h2>
+          <h2 class="text-xl font-bold text-white mt-1">Landscape Sidebar: Compact Non-Overflow 2-Tier Toolbar & Global Scope Toggle</h2>
           <p class="text-xs text-[var(--text-med)] mt-1">
-            Retains the 20%, 25%, 30%, 35% menu. Adds a new button to toggle between bookmarks from <strong>This Video</strong> and <strong>All Bookmarks (Global)</strong> directly in the drawer, plus a floating tag filter popup.
+            Fixes button collision and overflow at narrow 20%-35% widths. Compact Tier 1 icon buttons and Tier 2 short toggle chips ensure zero wrapping, plus in-drawer switch between <strong>This Video</strong> and <strong>All Bookmarks (Global)</strong>.
           </p>
         </div>
         <span class="px-2.5 py-1 bg-purple-950 text-purple-300 text-xs font-bold rounded border border-purple-800">
-          Landscape-Specific Architecture
+          Non-Overflow Compact Architecture
         </span>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
-        <!-- 3A: IN-DRAWER SCOPE TOGGLE -->
+        <!-- 3A: IN-DRAWER SCOPE TOGGLE WITH COMPACT TOOLBAR -->
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
           <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
-            <span class="font-bold text-purple-300">🖥️ View 3A: In-Drawer Scope Switcher</span>
-            <span class="text-gray-400">This Video ⇄ All Bookmarks</span>
+            <span class="font-bold text-purple-300">🖥️ View 3A: In-Drawer Scope Switcher (25% Width)</span>
+            <span class="text-green-400 font-bold">Zero Overlap • Compact 2-Tier</span>
           </div>
 
           <div class="phone-landscape mx-auto bg-black rounded-2xl border-2 border-gray-700 flex overflow-hidden shadow-2xl">
-            <!-- Video Surface (75% when 25% sidebar chosen) -->
+            <!-- Video Surface (75% width) -->
             <div class="w-[75%] bg-[#1a1329] flex flex-col justify-between p-3 border-r border-gray-800">
-              <span class="text-xs text-gray-400">Video Playing (75% width)</span>
+              <div class="flex justify-between text-xs text-gray-400">
+                <span>Video Surface (75% Width)</span>
+                <span class="text-purple-300">1080p</span>
+              </div>
               <div class="self-center text-2xl text-purple-300">▶</div>
               <div class="h-1 bg-purple-900 rounded"><div class="w-1/2 h-full bg-purple-400"></div></div>
             </div>
 
-            <!-- Bookmark Sidebar (25% width) -->
+            <!-- Bookmark Sidebar (25% width = 145px) -->
             <div class="w-[25%] bg-[#140f21] flex flex-col justify-between text-xs">
-              <!-- Tier 1: Action Icons -->
-              <div class="p-2 border-b border-gray-800 flex items-center justify-between">
-                <span class="font-bold text-white text-[10px]">Bookmarks</span>
-                <div class="flex gap-1 text-[9px]">
-                  <span class="px-1 bg-gray-800 rounded">🏷️</span>
-                  <span class="px-1 bg-gray-800 rounded">+</span>
-                  <span class="px-1 bg-gray-800 rounded">✕</span>
+              
+              <!-- Tier 1: Compact Action Icons (Never clips!) -->
+              <div class="px-2 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between">
+                <span class="font-bold text-white text-[9px] truncate">Bookmarks</span>
+                <div class="flex items-center gap-1 text-[9px]">
+                  <!-- Tag Filter Icon Button -->
+                  <button class="w-5 h-5 bg-[#2b2244] hover:bg-purple-800 text-purple-200 rounded flex items-center justify-center border border-purple-800/60" title="Filter by Tag">🏷️</button>
+                  <!-- Add Bookmark Icon -->
+                  <button class="w-5 h-5 bg-[#2b2244] hover:bg-purple-800 text-purple-200 rounded flex items-center justify-center border border-purple-800/60" title="Add Bookmark">+</button>
+                  <!-- Full Gallery Icon -->
+                  <button class="w-5 h-5 bg-[#2b2244] hover:bg-purple-800 text-purple-200 rounded flex items-center justify-center border border-purple-800/60" title="Open Fullscreen Gallery">↗</button>
+                  <!-- Close Drawer Icon -->
+                  <button class="w-5 h-5 bg-gray-800 hover:bg-red-900 text-gray-300 rounded flex items-center justify-center" title="Close Drawer">✕</button>
                 </div>
               </div>
 
-              <!-- Tier 2: Configuration Chips including NEW Scope Switcher -->
-              <div class="px-2 py-1 bg-[#1a142c] border-b border-gray-800 flex flex-wrap gap-1 text-[8px]">
-                <span class="px-1.5 py-0.5 bg-purple-600 text-white font-bold rounded">25%</span>
-                <!-- NEW SCOPE SWITCHER BUTTON -->
-                <span class="px-1.5 py-0.5 bg-amber-500 text-black font-extrabold rounded flex items-center gap-0.5">
+              <!-- Tier 2: Compact Toggle Chips (Short strings, zero wrap!) -->
+              <div class="px-2 py-1 bg-[#181126] border-b border-gray-800 flex items-center justify-between text-[8px]">
+                <!-- NEW SCOPE SWITCHER: Compact Toggle Chip -->
+                <button class="px-1.5 py-0.5 bg-amber-500 text-black font-extrabold rounded flex items-center gap-0.5 tracking-tight" title="Toggle between This Video and Global Bookmarks">
                   <span>🌐</span> Global
-                </span>
-                <span class="px-1.5 py-0.5 bg-[#2b2244] text-purple-200 rounded">FP</span>
+                </button>
+                <!-- Width Chip (Cycles 20, 25, 30, 35) -->
+                <button class="px-1.5 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60" title="Cycle Panel Width">
+                  25%
+                </button>
+                <!-- Column Chip (1 or 2 Cols) -->
+                <button class="px-1.5 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60" title="Toggle Columns">
+                  1 Col
+                </button>
               </div>
 
               <!-- List displaying global bookmarks from all media -->
@@ -516,11 +542,15 @@
                   <span class="font-bold text-white truncate">Show B • Intro</span>
                   <span class="text-amber-300 font-mono text-[7px]">00:01:30</span>
                 </div>
+                <div class="bg-gray-800 p-1 rounded border border-gray-700 flex flex-col">
+                  <span class="font-bold text-white truncate">Documentary C • Stunt</span>
+                  <span class="text-amber-300 font-mono text-[7px]">00:28:40</span>
+                </div>
               </div>
             </div>
           </div>
           <p class="text-[11px] text-gray-300">
-            <strong>In-Drawer Scope Toggle:</strong> Clicking the <code class="text-amber-400 font-bold">🌐 Global / 🎬 Video</code> button immediately swaps the list between this video's bookmarks and all bookmarks across the library.
+            <strong>Non-Overflow Toolbar:</strong> Buttons use icon glyphs (Tier 1) and short chips (Tier 2). Fits perfectly in a 145px width without clipping or overflowing.
           </p>
         </div>
 
@@ -569,29 +599,29 @@
     </section>
 
     <!-- ========================================================================= -->
-    <!-- FEATURE 4: MUSIC PLAYER - 2-LINE/3-LINE LYRICS & 144DP ARTWORK            -->
+    <!-- FEATURE 4: MUSIC PLAYER - 2/3-LINE LYRICS & LANDSCAPE SPLIT RATIOS        -->
     <!-- ========================================================================= -->
     <section id="feature-4" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
           <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [4]</span>
-          <h2 class="text-xl font-bold text-white mt-1">Music Player: 2-Line/3-Line Lyrics & Dynamic 144dp Artwork Scaling</h2>
+          <h2 class="text-xl font-bold text-white mt-1">Music Player: Multi-Line Lyrics (2/3-Line) & Landscape Split Ratios (50/50 & 40/60)</h2>
           <p class="text-xs text-[var(--text-med)] mt-1">
-            Implements the missing music specifications. Defaults to 2-line synchronized lyrics with automatic artwork scaling to prevent transport button clipping.
+            Portrait mode scales artwork dynamically (144dp for 2-line, 112dp for 3-line) to eliminate transport button clipping. Landscape mode provides toggleable area splits between artwork/video and scrolling lyrics.
           </p>
         </div>
-        <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
-          Ready for Implementation
-        </span>
+        <a href="music_customization_preview.html" class="px-2.5 py-1 bg-purple-600 text-white text-xs font-bold rounded shadow hover:bg-purple-500">
+          View Complete Music Customization Suite →
+        </a>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
-        <!-- 4A: PORTRAIT MUSIC PLAYER -->
+        <!-- 4A: PORTRAIT MUSIC PLAYER (2-LINE DEFAULT) -->
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
           <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
-            <span class="font-bold text-purple-300">📱 View 4A: Portrait Music Player (2-Line Mode)</span>
-            <span class="text-gray-400">144dp Art • 2-Line Lyrics</span>
+            <span class="font-bold text-purple-300">📱 View 4A: Portrait (144dp Art • 2-Line Synced Lyrics)</span>
+            <span class="text-gray-400">Toggleable to 3-Line</span>
           </div>
 
           <div class="phone-portrait mx-auto bg-[#130e21] rounded-2xl border-2 border-gray-700 flex flex-col justify-between p-4 shadow-2xl">
@@ -599,25 +629,28 @@
             <div class="flex justify-between items-center text-xs text-gray-400">
               <span>⌄</span>
               <span class="font-bold text-white">Now Playing</span>
-              <span>⋮</span>
+              <span class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 bg-[#251d3b] text-purple-300 rounded text-[9px] border border-purple-800">✏️ Tags</span>
+                <span class="px-1.5 py-0.5 bg-[#251d3b] text-purple-300 rounded text-[9px] border border-purple-800">🎬 Video</span>
+              </span>
             </div>
 
-            <!-- Album Artwork Scaled down to 144dp (36x36 in tailwind) -->
-            <div class="w-36 h-36 bg-[#251d3b] rounded-xl self-center flex flex-col items-center justify-center border border-purple-800/40 shadow-lg my-2">
+            <!-- Album Artwork Scaled to 144dp (36x36 tailwind) -->
+            <div class="w-36 h-36 bg-[#251d3b] rounded-xl self-center flex flex-col items-center justify-center border border-purple-800/40 shadow-lg my-1 relative overflow-hidden">
               <span class="text-3xl">🎵</span>
               <span class="text-[9px] text-purple-300 font-mono mt-1">144dp x 144dp</span>
             </div>
 
             <!-- Song Info -->
             <div class="text-center space-y-0.5">
-              <div class="text-sm font-bold text-white">Midnight Drive</div>
-              <div class="text-xs text-purple-300">Synthwave Collective • FLAC</div>
+              <div class="text-sm font-bold text-white">Midnight City Echoes</div>
+              <div class="text-xs text-purple-300">Synthwave Collective • FLAC 24-bit</div>
             </div>
 
             <!-- 2-Line Synchronized Lyrics Display -->
             <div class="bg-[#1b152d] p-2.5 rounded-xl border border-purple-900/60 text-center space-y-1">
-              <div class="text-[11px] text-purple-200 font-semibold">"Neon lights reflecting in the rearview mirror"</div>
-              <div class="text-xs text-white font-extrabold text-amber-300">"Accelerating through the quiet city streets"</div>
+              <div class="text-[11px] text-purple-300/70">"Neon lights reflecting in the rearview mirror"</div>
+              <div class="text-xs text-amber-300 font-extrabold">"Accelerating through the quiet city streets"</div>
             </div>
 
             <!-- Progress Bar -->
@@ -631,7 +664,7 @@
               </div>
             </div>
 
-            <!-- Media Transport Controls (Never pushed off screen!) -->
+            <!-- Transport Controls -->
             <div class="flex items-center justify-center gap-6 text-white text-base">
               <span>⏮</span>
               <span class="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg font-bold">⏸</span>
@@ -639,65 +672,76 @@
             </div>
 
             <!-- Bottom Customization Row -->
-            <div class="flex justify-between text-[10px] text-gray-400 border-t border-gray-800 pt-2">
-              <span>Lyrics: 2 Lines (Default)</span>
-              <span>Font: 14sp</span>
+            <div class="flex justify-between text-[10px] text-gray-400 border-t border-gray-800 pt-1.5">
+              <span class="text-purple-300 font-bold">Lyrics: 2 Lines</span>
+              <span class="text-gray-400">±100ms Sync Offset</span>
             </div>
           </div>
           <p class="text-[11px] text-gray-300">
-            <strong>Portrait Geometry:</strong> Album art scaled from 176dp to 144dp guarantees lyrics and transport buttons never collide or push off screen on phones.
+            <strong>Portrait Geometry:</strong> 144dp artwork guarantees lyrics and transport buttons never collide or push off screen on phones.
           </p>
         </div>
 
-        <!-- 4B: LANDSCAPE MUSIC PLAYER -->
+        <!-- 4B: LANDSCAPE MUSIC PLAYER (50/50 vs 40/60 SPLIT) -->
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
           <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
-            <span class="font-bold text-purple-300">🖥️ View 4B: Landscape Music Player (Horizontal Split)</span>
-            <span class="text-gray-400">Side-by-Side Art & Lyrics</span>
+            <span class="font-bold text-purple-300">🖥️ View 4B: Landscape Mode (Toggleable Split)</span>
+            <div class="flex gap-1 text-[9px]">
+              <span class="px-1.5 py-0.5 bg-purple-600 text-white rounded font-bold">50/50 Split</span>
+              <span class="px-1.5 py-0.5 bg-[#251d38] text-purple-300 rounded border border-purple-800">40/60 Split</span>
+            </div>
           </div>
 
-          <div class="phone-landscape mx-auto bg-[#130e21] rounded-2xl border-2 border-gray-700 flex p-4 gap-4 shadow-2xl">
-            <!-- Left Side: Album Art & Track Info -->
-            <div class="w-48 flex flex-col items-center justify-center space-y-2 border-r border-gray-800 pr-3">
-              <div class="w-28 h-28 bg-[#251d3b] rounded-xl flex items-center justify-center border border-purple-800/40">
+          <div class="phone-landscape mx-auto bg-[#130e21] rounded-2xl border-2 border-gray-700 flex p-3 gap-3 shadow-2xl">
+            <!-- Left Side: Artwork (or Music Video) - 50% split -->
+            <div class="w-1/2 flex flex-col items-center justify-between border-r border-gray-800 pr-2">
+              <div class="w-full flex justify-between text-[9px] text-gray-400">
+                <span class="text-purple-300 font-bold">Cover Art</span>
+                <span class="px-1 bg-[#251d3b] rounded text-[8px] text-purple-300 cursor-pointer">Switch to 🎬 Video</span>
+              </div>
+              <div class="w-28 h-28 bg-[#251d3b] rounded-xl flex items-center justify-center border border-purple-800/40 my-1">
                 <span class="text-3xl">🎵</span>
               </div>
               <div class="text-center">
-                <div class="text-xs font-bold text-white truncate w-36">Midnight Drive</div>
-                <div class="text-[10px] text-purple-300">Synthwave Collective</div>
+                <div class="text-xs font-bold text-white truncate w-40">Midnight City Echoes</div>
+                <div class="text-[9px] text-purple-300">Synthwave Collective</div>
+              </div>
+              <div class="flex gap-1 text-[8px] pt-1">
+                <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">✏️ Edit Tags</span>
+                <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">⬇️ Download</span>
               </div>
             </div>
 
-            <!-- Right Side: 3-Line Lyrics & Transport Controls -->
-            <div class="flex-1 flex flex-col justify-between space-y-2">
-              <!-- 3-Line Lyrics Box in Landscape -->
-              <div class="bg-[#1b152d] p-2 rounded-xl border border-purple-900/60 text-center space-y-0.5 text-[10px]">
+            <!-- Right Side: Multi-Line Lyrics & Transport Controls - 50% split -->
+            <div class="w-1/2 flex flex-col justify-between space-y-1">
+              <!-- Multi-line Scrolling Lyrics -->
+              <div class="bg-[#1b152d] p-2 rounded-xl border border-purple-900/60 text-center space-y-0.5 text-[9px]">
                 <div class="text-gray-400">"The night is calling out our names"</div>
-                <div class="text-amber-300 font-bold text-xs">"Neon lights reflecting in the rearview mirror"</div>
+                <div class="text-amber-300 font-bold text-[10px]">"Neon lights reflecting in the rearview mirror"</div>
                 <div class="text-purple-200">"Accelerating through the quiet city streets"</div>
               </div>
 
               <!-- Seekbar -->
               <div class="space-y-0.5">
                 <div class="h-1 bg-gray-800 rounded"><div class="w-1/2 h-full bg-purple-400"></div></div>
-                <div class="flex justify-between text-[8px] text-gray-400 font-mono">
+                <div class="flex justify-between text-[7px] text-gray-400 font-mono">
                   <span>02:06</span>
                   <span>04:12</span>
                 </div>
               </div>
 
               <!-- Transport Controls -->
-              <div class="flex items-center justify-center gap-6 text-white text-sm">
+              <div class="flex items-center justify-center gap-4 text-white text-xs">
                 <span>🔀</span>
                 <span>⏮</span>
-                <span class="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center font-bold">⏸</span>
+                <span class="w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center font-bold">⏸</span>
                 <span>⏭</span>
                 <span>🔁</span>
               </div>
             </div>
           </div>
           <p class="text-[11px] text-gray-300">
-            <strong>Landscape Geometry:</strong> Left-to-right split ensures 3 full lines of lyrics display alongside playback controls without vertical crowding.
+            <strong>Landscape Geometry:</strong> User can toggle split ratio (<code class="text-purple-300">50/50</code>, <code class="text-purple-300">40/60</code>, or <code class="text-purple-300">60/40</code>) to prioritize lyrics or artwork/music video.
           </p>
         </div>
 
@@ -705,19 +749,19 @@
     </section>
 
     <!-- ========================================================================= -->
-    <!-- FEATURE 5: SECURITY & PERSISTENCE ARCHITECTURE                            -->
+    <!-- FEATURE 5: SECURITY & PERSISTENT STORAGE (/sdcard/Documents/mpvRx/)       -->
     <!-- ========================================================================= -->
     <section id="feature-5" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
           <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [5]</span>
-          <h2 class="text-xl font-bold text-white mt-1">Security & Persistence: Secure Folder PIN Gate & Uninstall Survival</h2>
+          <h2 class="text-xl font-bold text-white mt-1">Security & Persistence: Direct Secure PIN & Persistent Storage</h2>
           <p class="text-xs text-[var(--text-med)] mt-1">
-            Fixes double PIN prompts by querying Secure Folder's own credentials. Establishes persistent vault storage so uninstalling the app never destroys private media.
+            Direct playback challenges for the Secure Folder PIN directly, eliminating double prompts. Moves private files, thumbnails, Room DB backups, and PIN salts to `/sdcard/Documents/mpvRx/` so uninstallation never deletes data.
           </p>
         </div>
         <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
-          Architecture Solution
+          Uninstall Survival Architecture
         </span>
       </div>
 
@@ -727,22 +771,22 @@
             <span>🔑</span> Fix: Single Secure Folder PIN Challenge
           </div>
           <p class="text-gray-300">
-            <strong>Root Cause of Double Prompt:</strong> In 3.1.0, direct playback used system <code class="text-white">DeviceCredentialPrompt</code> (phone lock PIN) while the vault used its own internal password/PIN.
+            <strong>Root Cause of Double Prompt:</strong> In 3.1.0, direct playback routed through system <code class="text-white">DeviceCredentialPrompt</code> (phone lock PIN) while the vault used its own internal password/PIN.
           </p>
           <p class="text-green-300">
-            <strong>Solution:</strong> Unify the challenge to check if <code class="text-white">SecureFolderRepository</code> is unlocked. If not, challenge with the Secure Folder PIN directly, completely eliminating double prompts.
+            <strong>Solution:</strong> Check if <code class="text-white">SecureFolderRepository</code> is already unlocked. If not, prompt with the Secure Folder PIN directly, completely eliminating duplicate device PIN requests.
           </p>
         </div>
 
         <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-2">
           <div class="font-bold text-purple-300 flex items-center gap-1.5 border-b border-gray-800 pb-2">
-            <span>🛡️</span> Fix: Vault Storage Persistence (Survive Uninstall)
+            <span>🛡️</span> Fix: Persistent Storage at `/sdcard/Documents/mpvRx/`
           </div>
           <p class="text-gray-300">
-            <strong>Root Cause of Data Loss:</strong> Storing vault files in <code class="text-red-400">context.filesDir</code> causes Android to wipe all private videos and SQLite databases on app uninstallation.
+            <strong>Root Cause of Data Loss:</strong> Storing in <code class="text-red-400">context.filesDir</code> causes Android to destroy private videos, database, and settings on app uninstallation.
           </p>
           <p class="text-green-300">
-            <strong>Solution:</strong> Store vault media and database backups in persistent app-external directory (e.g. <code class="text-white">/Android/media/app.gyrolet.mpvrx/vault/</code> or user-selected SAF folder with <code class="text-white">.nomedia</code>).
+            <strong>Solution:</strong> Store in <code class="text-white">/sdcard/Documents/mpvRx/</code> with <code class="text-white">.nomedia</code>. Holds vault media, thumbnails, Room SQLite snapshots, and salted PIN verifiers across uninstalls.
           </p>
         </div>
       </div>
