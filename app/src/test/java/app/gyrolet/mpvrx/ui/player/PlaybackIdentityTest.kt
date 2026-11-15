@@ -114,15 +114,12 @@ class PlaybackIdentityTest {
     val originalPath = "/storage/emulated/0/Download/secret.mp4"
     val entity = SecureMediaEntity(
       id = 1,
-      secureFilePath = securePath,
       originalPath = originalPath,
+      secureFilePath = securePath,
       fileName = "secret.mp4",
       fileSize = 1024L,
-      duration = 60L,
-      width = 1920,
-      height = 1080,
       mimeType = "video/mp4",
-      addedTimestamp = 1000L,
+      dateHidden = 1000L,
     )
 
     SecureMediaRegistry.update(listOf(entity))
