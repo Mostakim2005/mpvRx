@@ -174,6 +174,8 @@ enum class Sheets {
   LyricsProvider,
   LyricsEditor,
   LyricsTranslate,
+  MetadataEditor,
+  LyricAnchorCalibration,
   Scopes,
   PostProcessingConfig,
   MotionInterpolation,

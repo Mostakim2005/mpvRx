@@ -288,6 +288,18 @@ fun LyricsView(
             ),
           )
 
+          FilterChip(
+            selected = false,
+            onClick = { viewModel.sheetShown = app.gyrolet.mpvrx.ui.player.Sheets.LyricAnchorCalibration },
+            label = {
+              Text("⏱️ Anchor Match", fontWeight = FontWeight.Bold)
+            },
+            colors = FilterChipDefaults.filterChipColors(
+              containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
+              labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            ),
+          )
+
           if (state.isLoading) {
             Spacer(modifier = Modifier.width(6.dp))
             CircularProgressIndicator(

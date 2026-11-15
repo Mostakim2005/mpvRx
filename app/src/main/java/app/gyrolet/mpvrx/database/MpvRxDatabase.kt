@@ -18,6 +18,7 @@ import app.gyrolet.mpvrx.database.dao.AudiobookDao
 import app.gyrolet.mpvrx.database.dao.AudiobookshelfServerDao
 import app.gyrolet.mpvrx.database.dao.BookmarkTagDao
 import app.gyrolet.mpvrx.database.dao.DirectoryScanDao
+import app.gyrolet.mpvrx.database.dao.MusicCompanionDao
 import app.gyrolet.mpvrx.database.dao.DownloadItemDao
 import app.gyrolet.mpvrx.database.dao.FrameCaptureDao
 import app.gyrolet.mpvrx.database.dao.NetworkConnectionDao
@@ -80,8 +81,9 @@ import app.gyrolet.mpvrx.domain.network.NetworkConnection
     BookmarkTagEntity::class,
     BookmarkTagMemoryEntity::class,
     BookmarkMediaRefEntity::class,
+    app.gyrolet.mpvrx.database.entities.MusicCompanionEntity::class,
   ],
-  version = 34,
+  version = 35,
   exportSchema = true,
 )
 @TypeConverters(NetworkProtocolConverter::class, NetworkStreamEntryTypeConverter::class)
@@ -119,4 +121,6 @@ abstract class MpvRxDatabase : RoomDatabase() {
   abstract fun snapshotFolderDao(): SnapshotFolderDao
 
   abstract fun bookmarkTagDao(): BookmarkTagDao
+
+  abstract fun musicCompanionDao(): MusicCompanionDao
 }

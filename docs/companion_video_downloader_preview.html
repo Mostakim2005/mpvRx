@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mpvRx: Comprehensive Visual Implementation Blueprint (All Features & Feedback)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg-base: #090614;
+      --bg-surface: #130d24;
+      --bg-surface-elevated: #1e1538;
+      --bg-surface-highest: #2b1f4d;
+      --primary: #c9bfff;
+      --primary-container: #493b8f;
+      --accent-gold: #ffba28;
+      --accent-green: #7adc8c;
+      --accent-red: #ff5449;
+      --accent-cyan: #70d2ff;
+      --border-subtle: rgba(201, 191, 255, 0.15);
+      --text-high: #f1edfa;
+      --text-med: #cac3d6;
+      --text-low: #8f889c;
+    }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-high);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: var(--bg-surface-highest); border-radius: 4px; }
+    .phone-portrait { width: 330px; height: 650px; }
+    .phone-landscape { width: 600px; height: 330px; }
+  </style>
+</head>
+<body class="p-4 md:p-8 custom-scroll">
+
+  <!-- Master Container -->
+  <div class="max-w-6xl mx-auto space-y-12">
+
+    <!-- Header & Navigation -->
+    <header class="bg-[var(--bg-surface)] p-6 rounded-2xl border border-[var(--border-subtle)] shadow-2xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <span class="inline-block px-3 py-1 bg-purple-950 text-purple-300 rounded-full text-xs font-semibold tracking-wide uppercase mb-2 border border-purple-800">
+            Complete Visual Specification • Incorporating All User Feedback
+          </span>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+            <span>🎵</span> mpvRx: Music Player Extension & Triad Suite Blueprint
+          </h1>
+          <p class="text-sm text-[var(--text-med)] mt-1">
+            Visual implementation blueprint incorporating every requested feature, both in <strong>Portrait</strong> and <strong>Landscape</strong> modes.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <a href="music_customization_preview.html" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] text-purple-300 rounded-lg hover:bg-purple-900/40 transition text-xs border border-[var(--border-subtle)]">
+            ← Music Customization
+          </a>
+          <a href="visual_preview.html" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] text-purple-300 rounded-lg hover:bg-purple-900/40 transition text-xs border border-[var(--border-subtle)]">
+            ← Main Blueprint
+          </a>
+          <span class="text-xs bg-green-950 text-green-300 px-3 py-1.5 rounded-lg border border-green-800 font-bold">
+            Dual-Orientation Enforced
+          </span>
+        </div>
+      </div>
+
+      <!-- Quick Nav Chips -->
+      <div class="flex flex-wrap gap-2 text-xs pt-3 border-t border-[var(--border-subtle)]">
+        <a href="#feature-pencil" class="px-3 py-1 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-800/40 border border-[var(--border-subtle)]">
+          <span class="text-amber-400 font-bold">[1]</span> Pencil Tag Editor & Auto-Fetch
+        </a>
+        <a href="#feature-lyrics-art" class="px-3 py-1 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-800/40 border border-[var(--border-subtle)]">
+          <span class="text-purple-300 font-bold">[2]</span> Full Lyrics over Artwork Background
+        </a>
+        <a href="#feature-quality" class="px-3 py-1 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-800/40 border border-[var(--border-subtle)]">
+          <span class="text-red-400 font-bold">[3]</span> Resolution Spectrum & Audio Replacement
+        </a>
+        <a href="#feature-anchor" class="px-3 py-1 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-800/40 border border-[var(--border-subtle)]">
+          <span class="text-cyan-400 font-bold">[4]</span> 1-Point Lyric Anchor & Musicolet Tagging
+        </a>
+        <a href="#feature-single-folder" class="px-3 py-1 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-800/40 border border-[var(--border-subtle)]">
+          <span class="text-green-400 font-bold">[5]</span> Zero-Bloat Single Root Folder (Delete-Proof)
+        </a>
+      </div>
+    </header>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 1: PENCIL TAG EDITOR & ONLINE SCRAPER                              -->
+    <!-- ========================================================================= -->
+    <section id="feature-pencil" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE [1] (FEEDBACK 1)</span>
+          <h2 class="text-xl font-bold text-white mt-1">Player Controls: Pencil (✏️) Tag Editor & Auto-Fetch</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Dedicated pencil icon in player controls opening an in-app metadata editor with automated online cover art/tag fetching and automatic physical file renaming.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-amber-950 text-amber-300 text-xs font-bold rounded border border-amber-800">
+          In-Player Pencil Trigger
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- Portrait: Player Controls with Fullscreen Pencil Tag Editor (Matching User Markup Image 1) -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 Portrait: Fullscreen Tag & Artwork/Metadata Browser</span>
+            <span class="text-amber-400 font-bold text-[10px]">Matches User Markup 1</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-[#100a1c] rounded-2xl border-2 border-gray-700 flex flex-col justify-between p-3.5 shadow-2xl relative">
+            
+            <!-- In-App Fullscreen Metadata Edit Sheet -->
+            <div class="bg-[#181126] p-3 rounded-xl border-2 border-amber-500 shadow-2xl space-y-2.5 my-auto flex flex-col justify-between h-full">
+              
+              <!-- Modal Top Bar -->
+              <div class="flex justify-between items-center pb-1 border-b border-gray-800">
+                <span class="text-xs font-bold text-white flex items-center gap-1">
+                  <span>✏️</span> Edit Song Metadata & Artwork
+                </span>
+                <span class="text-gray-400 text-xs cursor-pointer">✕ Close</span>
+              </div>
+
+              <!-- TOP SECTION: ARTWORK BROWSER CAROUSEL (User Markup Image 1) -->
+              <div class="bg-[#120a21] p-2 rounded-xl border border-red-500/70 space-y-1">
+                <div class="flex justify-between items-center text-[9px]">
+                  <span class="text-red-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <span>🖼️</span> Artwork Candidates (Swipe/Browse)
+                  </span>
+                  <span class="text-gray-400 text-[8px]">Selected: Art 1 (iTunes HD)</span>
+                </div>
+                <!-- Artwork Carousel Thumbnails -->
+                <div class="flex gap-2 overflow-x-auto py-1 custom-scroll">
+                  <div class="w-16 h-16 rounded-lg bg-gradient-to-tr from-purple-800 to-indigo-600 border-2 border-amber-400 flex-shrink-0 flex flex-col items-center justify-center p-1 relative shadow-md cursor-pointer">
+                    <span class="text-xs">🎵</span>
+                    <span class="text-[7px] text-white font-bold mt-1">Art 1 (HD)</span>
+                    <span class="absolute top-0.5 right-0.5 text-[8px] text-green-400">✓</span>
+                  </div>
+                  <div class="w-16 h-16 rounded-lg bg-gradient-to-tr from-indigo-900 to-blue-700 border border-gray-700 flex-shrink-0 flex flex-col items-center justify-center p-1 hover:border-purple-400 cursor-pointer">
+                    <span class="text-xs">💿</span>
+                    <span class="text-[7px] text-gray-300 mt-1">Art 2 (Vinyl)</span>
+                  </div>
+                  <div class="w-16 h-16 rounded-lg bg-gradient-to-tr from-purple-950 to-pink-900 border border-gray-700 flex-shrink-0 flex flex-col items-center justify-center p-1 hover:border-purple-400 cursor-pointer">
+                    <span class="text-xs">✨</span>
+                    <span class="text-[7px] text-gray-300 mt-1">Art 3 (Original)</span>
+                  </div>
+                  <div class="w-16 h-16 rounded-lg bg-[#201538] border border-dashed border-gray-600 flex-shrink-0 flex flex-col items-center justify-center p-1 cursor-pointer">
+                    <span class="text-xs text-gray-400">📁</span>
+                    <span class="text-[7px] text-gray-400 mt-1">Custom File</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Form Inputs -->
+              <div class="space-y-1 text-[8.5px]">
+                <div>
+                  <label class="text-gray-400">Title</label>
+                  <input type="text" value="Midnight City Echoes" class="w-full bg-[#110a1f] px-2 py-0.5 rounded border border-gray-700 text-white font-semibold" readonly>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <label class="text-gray-400">Artist</label>
+                    <input type="text" value="Synthwave Collective" class="w-full bg-[#110a1f] px-2 py-0.5 rounded border border-gray-700 text-purple-300" readonly>
+                  </div>
+                  <div>
+                    <label class="text-gray-400">Album</label>
+                    <input type="text" value="Neon Horizon (2026)" class="w-full bg-[#110a1f] px-2 py-0.5 rounded border border-gray-700 text-white" readonly>
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-1">
+                  <div>
+                    <label class="text-gray-400">Year</label>
+                    <input type="text" value="2026" class="w-full bg-[#110a1f] px-1 py-0.5 rounded border border-gray-700 text-white text-center" readonly>
+                  </div>
+                  <div>
+                    <label class="text-gray-400">Track #</label>
+                    <input type="text" value="03" class="w-full bg-[#110a1f] px-1 py-0.5 rounded border border-gray-700 text-white text-center" readonly>
+                  </div>
+                  <div>
+                    <label class="text-gray-400">Genre</label>
+                    <input type="text" value="Synthwave" class="w-full bg-[#110a1f] px-1 py-0.5 rounded border border-gray-700 text-white text-center" readonly>
+                  </div>
+                </div>
+              </div>
+
+              <!-- BOTTOM SECTION: METADATA 1 / METADATA 2 CARDS (User Markup Image 1) -->
+              <div class="bg-[#120a21] p-2 rounded-xl border border-red-500/70 space-y-1.5">
+                <div class="flex justify-between items-center text-[9px]">
+                  <span class="text-red-400 font-bold uppercase tracking-wider">
+                    📋 Online Metadata Matches
+                  </span>
+                  <span class="text-gray-400 text-[8px]">Tap to Auto-Fill</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 text-[8px]">
+                  <!-- Metadata 1 Match Card -->
+                  <div class="p-1.5 rounded-lg bg-purple-950/80 border-2 border-purple-500 cursor-pointer space-y-0.5">
+                    <div class="flex justify-between items-center font-bold text-white">
+                      <span>Metadata 1</span>
+                      <span class="text-green-400 text-[8px]">✓ Active</span>
+                    </div>
+                    <div class="text-[7.5px] text-purple-200">MusicBrainz Verified</div>
+                    <div class="text-[7px] text-gray-400 truncate">Album: Neon Horizon [10 tracks]</div>
+                  </div>
+                  <!-- Metadata 2 Match Card -->
+                  <div class="p-1.5 rounded-lg bg-[#181126] border border-gray-700 hover:border-purple-400 cursor-pointer space-y-0.5">
+                    <div class="flex justify-between items-center font-bold text-gray-300">
+                      <span>Metadata 2</span>
+                      <span class="text-gray-500 text-[8px]">Select</span>
+                    </div>
+                    <div class="text-[7.5px] text-gray-400">Apple Music / iTunes</div>
+                    <div class="text-[7px] text-gray-400 truncate">Album: Midnight City - Single</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Auto-Rename File Toggle & Save -->
+              <div class="space-y-1.5">
+                <div class="bg-[#120b1f] p-1.5 rounded-lg border border-purple-900/60 flex items-center justify-between text-[8px]">
+                  <div>
+                    <div class="text-white font-bold">Auto-Rename File on Disk</div>
+                    <div class="text-gray-400 font-mono text-[7px]">Synthwave Collective - Midnight City Echoes.opus</div>
+                  </div>
+                  <div class="w-5 h-2.5 bg-purple-600 rounded-full flex items-center justify-end px-0.5">
+                    <div class="w-2 h-2 bg-white rounded-full"></div>
+                  </div>
+                </div>
+
+                <button class="w-full py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-lg text-[10px] shadow">
+                  💾 Save Tags & Inject into Audio File
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Landscape: Controls Bar with Integrated Pencil Button -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">🖥️ Landscape: Integrated Pencil Action</span>
+            <span class="text-green-400 font-bold text-[10px]">Side-by-Side View</span>
+          </div>
+
+          <div class="phone-landscape mx-auto bg-[#100a1c] rounded-2xl border-2 border-gray-700 flex p-3 gap-3 shadow-2xl">
+            <!-- Left Panel: Album Art (40%) -->
+            <div class="w-[45%] bg-black rounded-xl border border-purple-600 relative overflow-hidden flex flex-col items-center justify-center p-2">
+              <div class="w-24 h-24 bg-gradient-to-tr from-purple-900 to-indigo-700 rounded-lg flex items-center justify-center text-3xl shadow-xl">
+                🎵
+              </div>
+              <span class="text-[9px] text-purple-300 mt-2 font-bold">Neon Horizon (2026)</span>
+            </div>
+
+            <!-- Right Panel: Metadata & Integrated Pencil in Toolbar (55%) -->
+            <div class="w-[55%] flex flex-col justify-between space-y-1">
+              <div class="flex justify-between items-start border-b border-gray-800 pb-1">
+                <div>
+                  <div class="text-xs font-bold text-white truncate">Midnight City Echoes</div>
+                  <div class="text-[9px] text-purple-300">Synthwave Collective</div>
+                </div>
+                
+                <!-- Landscape Toolbar with Pencil Button -->
+                <div class="flex items-center gap-1">
+                  <button title="Edit Metadata" class="px-2 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/80 rounded-lg text-[9px] font-bold flex items-center gap-1">
+                    <span>✏️</span> <span>Edit</span>
+                  </button>
+                  <button class="px-2 py-1 bg-red-900/60 text-red-200 border border-red-500 rounded-lg text-[9px] font-bold">
+                    ▶️ YT Link
+                  </button>
+                </div>
+              </div>
+
+              <!-- 2-Line Synced Lyrics -->
+              <div class="bg-[#181126] p-2 rounded-xl border border-purple-900/60 text-center space-y-0.5 text-[9px]">
+                <div class="text-amber-300 font-bold">"Neon lights reflecting in the rearview mirror"</div>
+                <div class="text-purple-300">"Accelerating through the quiet city streets"</div>
+              </div>
+
+              <!-- Seekbar & Controls -->
+              <div class="space-y-1">
+                <div class="h-1 bg-gray-800 rounded"><div class="w-2/5 h-full bg-purple-400"></div></div>
+                <div class="flex justify-between text-[7px] text-gray-400 font-mono"><span>01:45</span><span>04:12</span></div>
+                <div class="flex items-center justify-center gap-4 text-white text-xs">
+                  <span>⏮</span>
+                  <span class="w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center font-bold">⏸</span>
+                  <span>⏭</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 2: PORTRAIT FULL LYRICS OVER ARTWORK BACKGROUND (NO BLANK CANVAS) -->
+    <!-- ========================================================================= -->
+    <section id="feature-lyrics-art" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-purple-500/20 text-purple-300 font-mono font-bold rounded text-xs">FEATURE [2] (FEEDBACK 1)</span>
+          <h2 class="text-xl font-bold text-white mt-1">Portrait Art Mode: Full Lyrics over Artwork Background</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Replaces the lifeless blank black background in full lyric view with blurred, dimmed album artwork behind the scrolling lyrics.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-purple-950 text-purple-300 text-xs font-bold rounded border border-purple-800">
+          Immersive Artwork Scrim
+        </span>
+      </div>
+
+      <!-- Before vs After Comparison -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- BEFORE: Blank Black Canvas (Rejected) -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-red-900/60 space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-red-900/40 pb-2">
+            <span class="font-bold text-red-400">❌ Before: Blank Black Background (Old View)</span>
+            <span class="text-red-300 text-[9px] bg-red-950 px-1.5 py-0.5 rounded">No Artwork Visible</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-red-900/60 flex flex-col justify-between p-3.5 shadow-2xl">
+            <div class="flex justify-between text-xs text-gray-500 border-b border-gray-900 pb-1">
+              <span>Full Lyrics View</span>
+              <span>✕</span>
+            </div>
+
+            <!-- Solid Black Screen with plain text -->
+            <div class="space-y-4 text-center my-auto py-8">
+              <div class="text-gray-600 text-xs">Midnight calls, the engine roars</div>
+              <div class="text-gray-500 text-xs">Shadows dancing on the boulevard floors</div>
+              <div class="text-white font-bold text-sm bg-gray-900 py-1.5 rounded-lg border border-gray-800">
+                "Neon lights reflecting in the rearview mirror"
+              </div>
+              <div class="text-purple-400 text-xs">Accelerating through the quiet city streets</div>
+              <div class="text-gray-600 text-xs">Electric dreams under violet skies</div>
+            </div>
+
+            <div class="text-center text-[9px] text-gray-600 pb-2">
+              (Solid black canvas isolates lyrics from album aesthetic)
+            </div>
+          </div>
+        </div>
+
+        <!-- AFTER: Immersive Album Artwork Background (New View) -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-green-800/80 space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-green-800/60 pb-2">
+            <span class="font-bold text-green-300">✅ After: Immersive Album Art Scrim (Requested)</span>
+            <span class="text-green-300 text-[9px] bg-green-950 px-1.5 py-0.5 rounded">Artwork + Lyrics Unified</span>
+          </div>
+
+          <div class="phone-portrait mx-auto rounded-2xl border-2 border-purple-500 flex flex-col justify-between p-3.5 shadow-2xl relative overflow-hidden">
+            
+            <!-- Background Artwork with Blur & Dark Scrim -->
+            <div class="absolute inset-0 bg-gradient-to-b from-purple-900/90 via-indigo-950/95 to-[#0a0614] z-0"></div>
+            <div class="absolute inset-0 opacity-25 filter blur-lg scale-110 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-amber-400 via-purple-600 to-indigo-950 z-0 pointer-events-none"></div>
+
+            <!-- Foreground Content -->
+            <div class="relative z-10 flex justify-between items-center text-xs pb-1 border-b border-white/10">
+              <div class="flex items-center gap-1.5">
+                <span class="w-4 h-4 bg-purple-600 rounded flex items-center justify-center text-[9px]">🎵</span>
+                <span class="text-white font-bold text-[11px] truncate w-40">Midnight City Echoes</span>
+              </div>
+              <span class="text-gray-300 hover:text-white cursor-pointer text-xs">✕ Close</span>
+            </div>
+
+            <!-- Full Scrolling Lyrics floating over dimmed Artwork -->
+            <div class="relative z-10 space-y-4 text-center my-auto py-6">
+              <div class="text-white/40 text-xs">Midnight calls, the engine roars</div>
+              <div class="text-white/60 text-xs">Shadows dancing on the boulevard floors</div>
+              
+              <!-- Active Highlighted Vocal Line -->
+              <div class="bg-black/40 backdrop-blur-md py-2 px-3 rounded-xl border border-amber-400/80 shadow-lg">
+                <div class="text-amber-300 font-extrabold text-sm drop-shadow">
+                  "Neon lights reflecting in the rearview mirror"
+                </div>
+                <div class="text-[8px] text-amber-200/80 font-mono mt-0.5">01:45.32 • Active Vocal</div>
+              </div>
+
+              <div class="text-purple-200 text-xs drop-shadow">Accelerating through the quiet city streets</div>
+              <div class="text-white/50 text-xs">Electric dreams under violet skies</div>
+            </div>
+
+            <!-- Bottom Floating Mini-Player -->
+            <div class="relative z-10 bg-black/60 backdrop-blur-md p-2 rounded-xl border border-white/10 flex items-center justify-between text-xs">
+              <span class="text-gray-300 font-mono text-[9px]">01:45 / 04:12</span>
+              <div class="flex items-center gap-3 text-white">
+                <button>⏮</button>
+                <button class="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center font-bold text-[10px]">⏸</button>
+                <button>⏭</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 3: RESOLUTION SPECTRUM & SMART AUDIO REPLACEMENT                  -->
+    <!-- ========================================================================= -->
+    <section id="feature-quality" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-red-500/20 text-red-300 font-mono font-bold rounded text-xs">FEATURE [3] (FEEDBACK 2)</span>
+          <h2 class="text-xl font-bold text-white mt-1">yt-dlp Resolution Spectrum & Smart Audio Replacement</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Support for 1080p, 720p, 480p, 360p, 240p with file sizes, configurable setting toggles, and safe prompt to replace old audio.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-red-950 text-red-300 text-xs font-bold rounded border border-red-800">
+          Clean Storage Flow
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- Quality Selector with Full Spectrum -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 Full Resolution Spectrum (1080p down to 240p)</span>
+            <span class="text-amber-400 font-bold text-[10px]">yt-dlp Formats</span>
+          </div>
+
+          <!-- Downloader Sheet with Granular Spectrum -->
+          <div class="phone-portrait mx-auto bg-[#100a1c] rounded-2xl border-2 border-gray-700 flex flex-col justify-between p-3.5 shadow-2xl">
+            <div class="flex justify-between items-center text-xs pb-1 border-b border-gray-800">
+              <span class="font-bold text-white flex items-center gap-1.5">
+                <span class="text-red-400">⬇️</span> Download Companion Stream
+              </span>
+              <span class="text-gray-400">✕</span>
+            </div>
+
+            <!-- Audio-less Video (Recommended) -->
+            <div class="bg-purple-950/80 border-2 border-purple-500 p-2.5 rounded-xl space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-bold text-white text-xs flex items-center gap-1">
+                  <span>🎬</span> Audio-less Video Stream
+                </span>
+                <span class="text-[8px] bg-green-900 text-green-300 px-1.5 py-0.2 rounded font-bold">Zero Audio Collision</span>
+              </div>
+              <p class="text-[8px] text-purple-200">
+                Downloads pure video stream. Local high-res audio plays continuously without double sound or desync.
+              </p>
+
+              <!-- Resolution Spectrum Grid (User's requested sizes) -->
+              <div class="grid grid-cols-5 gap-1 text-[8px] text-center">
+                <div class="bg-purple-600 text-white font-bold p-1 rounded border border-purple-400 cursor-pointer">
+                  <div>1080p</div>
+                  <div class="text-[7px] text-purple-200">~45 MB</div>
+                </div>
+                <div class="bg-[#181126] text-gray-300 p-1 rounded border border-gray-700 cursor-pointer hover:border-purple-500">
+                  <div>720p</div>
+                  <div class="text-[7px] text-gray-400">~22 MB</div>
+                </div>
+                <div class="bg-[#181126] text-gray-300 p-1 rounded border border-gray-700 cursor-pointer hover:border-purple-500">
+                  <div>480p</div>
+                  <div class="text-[7px] text-gray-400">~12 MB</div>
+                </div>
+                <div class="bg-[#181126] text-gray-300 p-1 rounded border border-gray-700 cursor-pointer hover:border-purple-500">
+                  <div>360p</div>
+                  <div class="text-[7px] text-gray-400">~6.0 MB</div>
+                </div>
+                <div class="bg-[#181126] text-gray-300 p-1 rounded border border-gray-700 cursor-pointer hover:border-purple-500">
+                  <div>240p</div>
+                  <div class="text-[7px] text-gray-400">~3.5 MB</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Preferences Config Preview -->
+            <div class="bg-[#160d26] p-2 rounded-xl border border-gray-800 space-y-1 text-[8px]">
+              <div class="text-purple-300 font-bold flex justify-between">
+                <span>⚙️ Quality Preferences Configuration</span>
+                <span class="text-gray-400">App Settings</span>
+              </div>
+              <div class="flex justify-between items-center text-gray-300">
+                <span>Show 1080p / 720p</span> <span class="text-green-400 font-bold">Enabled</span>
+              </div>
+              <div class="flex justify-between items-center text-gray-300">
+                <span>Show 480p / 360p</span> <span class="text-green-400 font-bold">Enabled</span>
+              </div>
+              <div class="flex justify-between items-center text-gray-300">
+                <span>Show Ultra-Compact 240p</span> <span class="text-green-400 font-bold">Enabled</span>
+              </div>
+            </div>
+
+            <!-- Smart Full Video Option with Audio Replacement Trigger -->
+            <div class="bg-[#150d24] p-2 rounded-xl border border-amber-600/70 space-y-1">
+              <div class="flex justify-between items-center text-[9px] font-bold text-amber-300">
+                <span>🎬 Full Video with Audio (Single File)</span>
+                <span class="text-amber-400 text-[8px]">~68 MB</span>
+              </div>
+              <p class="text-[7px] text-gray-400">
+                Triggers smart cleanup pop-up to replace old standalone audio and keep library clean.
+              </p>
+            </div>
+
+            <button class="w-full py-2 bg-gradient-to-r from-red-600 to-purple-600 text-white font-bold rounded-xl text-xs shadow">
+              Download Selected Stream
+            </button>
+          </div>
+        </div>
+
+        <!-- Smart "Replace Old Audio" Confirmation Pop-up -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-amber-400">⚠️ Smart "Replace Old Audio" Cleanup Dialog</span>
+            <span class="text-green-400 font-bold text-[10px]">Prevents File Duplication</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-[#100a1c] rounded-2xl border-2 border-gray-700 flex flex-col justify-center p-4 shadow-2xl relative">
+            
+            <!-- Dimmed background hint -->
+            <div class="bg-[#1c1333] border-2 border-amber-500 rounded-2xl p-4 shadow-2xl space-y-3 text-center">
+              <div class="w-10 h-10 bg-amber-500/20 text-amber-300 rounded-full flex items-center justify-center text-xl mx-auto border border-amber-500/60">
+                🔄
+              </div>
+              
+              <div>
+                <h4 class="text-white font-bold text-xs">Replace Old Standalone Audio?</h4>
+                <p class="text-[9px] text-gray-300 mt-1 leading-relaxed">
+                  You already have <code class="text-purple-300 font-mono">Midnight_City.opus</code> saved. Downloading the full video will include the entire audio track.
+                </p>
+              </div>
+
+              <div class="bg-[#120a21] p-2 rounded-lg border border-purple-900/60 text-left text-[8px] space-y-1">
+                <div class="text-green-300 font-bold">✓ Automatic Library Cleanup:</div>
+                <div class="text-gray-300">• Safely deletes old audio to free up storage space</div>
+                <div class="text-gray-300">• Migrates your synced lyrics (.lrc) to the new video</div>
+                <div class="text-gray-300">• Audio mode will play audio from the video with screen off</div>
+              </div>
+
+              <!-- Action Choices -->
+              <div class="space-y-1.5 pt-1">
+                <button class="w-full py-1.5 bg-gradient-to-r from-amber-600 to-red-600 hover:from-amber-500 hover:to-red-500 text-white font-bold rounded-lg text-[10px] shadow">
+                  🗑️ Replace Old Audio & Save Storage
+                </button>
+                <button class="w-full py-1.5 bg-[#251942] text-gray-300 hover:text-white rounded-lg text-[10px] border border-gray-700">
+                  Keep Both (Do Not Delete Old Audio)
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 4: 1-POINT LYRIC ANCHOR & MUSICOLET TAG INJECTION                 -->
+    <!-- ========================================================================= -->
+    <section id="feature-anchor" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-cyan-500/20 text-cyan-300 font-mono font-bold rounded text-xs">FEATURE [4] (FEEDBACK 3 & 4)</span>
+          <h2 class="text-xl font-bold text-white mt-1">1-Point Lyric Anchor Calibration & Musicolet-Style Tag Embedding</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Fix song-to-lyric offsets in a single tap by anchoring one lyric line to the playhead, and embed lyrics directly into the audio file container.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-cyan-950 text-cyan-300 text-xs font-bold rounded border border-cyan-800">
+          Single-Tap Calibration
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- 1-Point Anchor Calibration Tool (Matching User Markup Image 2) -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 Full-Body Lyric 1-Point Anchor Calibration</span>
+            <span class="text-cyan-400 font-bold text-[10px]">Matches User Markup 2</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-[#100a1c] rounded-2xl border-2 border-cyan-500 flex flex-col justify-between p-3.5 shadow-2xl relative">
+            
+            <!-- Modal Header -->
+            <div class="flex justify-between items-center text-xs pb-1 border-b border-gray-800">
+              <span class="font-bold text-white flex items-center gap-1">
+                <span>⏱️</span> 1-Point Lyric Anchor Calibration
+              </span>
+              <span class="text-gray-400 text-xs cursor-pointer">✕</span>
+            </div>
+
+            <!-- Active Playhead Monitor -->
+            <div class="bg-[#181126] p-2 rounded-xl border border-purple-900/60 text-center space-y-0.5">
+              <div class="text-[8px] text-gray-400 uppercase tracking-wide font-bold">Active Music Playhead Time</div>
+              <div class="text-2xl font-mono font-bold text-amber-300">00:18.20</div>
+              <div class="text-[7.5px] text-green-400">Song is currently playing</div>
+            </div>
+
+            <!-- User Selected Anchor Line (User Image 2: "Let's Go") -->
+            <div class="bg-[#1c1233] p-2.5 rounded-xl border-2 border-cyan-500 space-y-1">
+              <div class="flex justify-between items-center text-[8px]">
+                <span class="text-cyan-300 font-bold uppercase">1. Selected Line in Full Lyrics</span>
+                <span class="text-gray-400 font-mono text-[7.5px]">Original Stamp: [00:15.50]</span>
+              </div>
+              <div class="text-xs font-bold text-white bg-black/50 p-2 rounded-lg border border-cyan-500/80 text-center flex items-center justify-between px-3">
+                <span>"Let's Go"</span>
+                <span class="text-[8px] text-cyan-300 bg-cyan-950 px-1.5 py-0.5 rounded">Selected Anchor</span>
+              </div>
+              <p class="text-[7.5px] text-gray-300 text-center">
+                When you hear "Let's Go" sung in the song, tap the Anchor Match button below.
+              </p>
+            </div>
+
+            <!-- The Anchor Match Trigger (User Image 2) -->
+            <div class="space-y-1.5">
+              <button class="w-full py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1.5 animate-pulse">
+                <span>📍</span> <span>Anchor Match ("Let's Go" → 00:18.20)</span>
+              </button>
+
+              <!-- Calculated Delta Notification -->
+              <div class="bg-green-950/70 p-2 rounded-lg border border-green-700/80 text-[8px] text-green-300 space-y-0.5">
+                <div class="font-bold flex items-center gap-1">
+                  <span>✓</span> Offset Delta: +2.70 seconds (All 42 lines auto-shifted!)
+                </div>
+              </div>
+            </div>
+
+            <!-- SQLite Database Mapping Banner (User Image 2 Markup) -->
+            <div class="bg-[#120a21] p-2 rounded-lg border border-red-500/70 text-[8px] space-y-1">
+              <div class="text-red-400 font-bold flex items-center gap-1 text-[8.5px]">
+                <span>💾</span> DB Mapping: Artist + Song ↔ YouTube Link ↔ Audio ↔ LRC
+              </div>
+              <div class="font-mono text-gray-300 text-[7px] space-y-0.5 pl-1">
+                <div>• <span class="text-purple-300">UID:</span> 84920194821</div>
+                <div>• <span class="text-purple-300">Track:</span> Synthwave Collective - Midnight City Echoes</div>
+                <div>• <span class="text-purple-300">YT Link:</span> https://youtube.com/watch?v=s8Yd_f...</div>
+                <div>• <span class="text-purple-300">Embedded:</span> ID3v2 USLT / Vorbis LYRICS synced tag</div>
+              </div>
+            </div>
+
+            <!-- Apply & Close Button with red arrow mapping from User Image 2 -->
+            <button class="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11px] font-bold rounded-xl shadow-lg flex items-center justify-center gap-1">
+              <span>✓</span> <span>Apply & Close (Save to SQLite DB & Embed in File)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Musicolet-Style In-Container Tag Embedding -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-green-300">🎵 Musicolet-Style Direct Container Embedding</span>
+            <span class="text-purple-300 font-bold text-[10px]">Universal Portability</span>
+          </div>
+
+          <div class="bg-[#100a1c] p-4 rounded-xl border border-gray-800 space-y-4 text-xs text-gray-300">
+            <div class="space-y-1">
+              <h4 class="text-white font-bold text-sm flex items-center gap-1.5">
+                <span>❓</span> How Musicolet Embeds Lyrics & How mpvRx Does It
+              </h4>
+              <p class="text-[11px] leading-relaxed">
+                Musicolet writes timestamped LRC strings directly into standard audio container frames without touching or re-encoding audio bytes. mpvRx implements this exact mechanism:
+              </p>
+            </div>
+
+            <!-- Audio Format Tag Map -->
+            <div class="space-y-2 text-[10px]">
+              <div class="bg-[#181126] p-2.5 rounded-lg border border-purple-800 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-white">MP3 Files (ID3v2.3 / ID3v2.4)</span>
+                  <div class="text-[8px] text-gray-400">Written into <code class="text-amber-300">USLT</code> & <code class="text-amber-300">SYLT</code> frames</div>
+                </div>
+                <span class="text-green-400 font-bold text-[9px] bg-green-950 px-2 py-0.5 rounded">Native Tag</span>
+              </div>
+
+              <div class="bg-[#181126] p-2.5 rounded-lg border border-purple-800 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-white">Opus, FLAC & Ogg Vorbis</span>
+                  <div class="text-[8px] text-gray-400">Written into <code class="text-cyan-300">LYRICS</code> & <code class="text-cyan-300">UNSYNCEDLYRICS</code> comments</div>
+                </div>
+                <span class="text-green-400 font-bold text-[9px] bg-green-950 px-2 py-0.5 rounded">Native Tag</span>
+              </div>
+
+              <div class="bg-[#181126] p-2.5 rounded-lg border border-purple-800 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-white">M4A / MP4 (AAC / ALAC)</span>
+                  <div class="text-[8px] text-gray-400">Written into Apple <code class="text-purple-300">©lyr</code> atom box</div>
+                </div>
+                <span class="text-green-400 font-bold text-[9px] bg-green-950 px-2 py-0.5 rounded">Native Tag</span>
+              </div>
+            </div>
+
+            <div class="bg-green-950/40 p-3 rounded-lg border border-green-800 text-[11px] text-green-200 space-y-1">
+              <span class="font-bold flex items-center gap-1">
+                <span>🌟</span> Why Direct Embedding Matters:
+              </span>
+              <p class="text-[10px] text-gray-300">
+                You can copy the audio file to your car, another phone, a flash drive, or any audio player—the lyrics travel inside the file itself. No sidecar files can be lost!
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 5: ZERO-BLOAT SINGLE FOLDER STORAGE (DELETE-PROOF)                -->
+    <!-- ========================================================================= -->
+    <section id="feature-single-folder" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-green-500/20 text-green-300 font-mono font-bold rounded text-xs">FEATURE [5] (LATEST FEEDBACK)</span>
+          <h2 class="text-xl font-bold text-white mt-1">Zero-Bloat Single Root Folder (Delete-Proof & Uninstall-Proof)</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Live Room SQLite database, Secure Folder, thumbnails, config, and media hosted directly in a single user-selected folder—no duplicate backup files.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
+          Zero Storage Duplication
+        </span>
+      </div>
+
+      <div class="bg-[var(--bg-surface-elevated)] p-6 rounded-xl border border-[var(--border-subtle)] space-y-6">
+        
+        <div class="max-w-2xl space-y-1">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <span>📁</span> Selected Directory: <code class="text-amber-300 font-mono">/sdcard/Documents/mpvRx/</code>
+          </h3>
+          <p class="text-xs text-gray-300 leading-relaxed">
+            By pointing the live Room SQLite database engine directly to the external root folder, mpvRx eliminates the need for separate backup exports. The active database lives permanently in basic storage and is never wiped on uninstallation.
+          </p>
+        </div>
+
+        <!-- Directory Architecture Grid -->
+        <div class="bg-[#100a1c] p-4 rounded-xl border border-gray-800 font-mono text-xs space-y-2 text-gray-300">
+          <div class="text-amber-300 font-bold flex items-center justify-between">
+            <span>📁 /sdcard/Documents/mpvRx/</span>
+            <span class="text-[9px] text-green-400 bg-green-950 px-2 py-0.5 rounded font-sans font-bold">100% Uninstall-Proof</span>
+          </div>
+          
+          <div class="pl-4">├── 📄 <span class="text-gray-400">.nomedia</span> <span class="text-gray-500 text-[10px]">(Blocks gallery from indexing private assets)</span></div>
+          
+          <!-- LIVE DATABASE (Zero duplicate backups) -->
+          <div class="pl-4">
+            ├── 📁 <span class="text-green-300 font-bold">database/</span> <span class="text-green-400 text-[10px] font-sans font-bold">[LIVE Active Database — Not a Duplicate Backup]</span>
+            <div class="pl-6 text-gray-400">├── 💾 mpvrx.db <span class="text-gray-500">(Active Room SQLite File)</span></div>
+            <div class="pl-6 text-gray-400">├── 💾 mpvrx.db-wal <span class="text-gray-500">(Active Write-Ahead Log)</span></div>
+            <div class="pl-6 text-gray-400">└── 💾 mpvrx.db-shm <span class="text-gray-500">(Active Shared Memory)</span></div>
+          </div>
+
+          <!-- SECURE VAULT -->
+          <div class="pl-4">
+            ├── 📁 <span class="text-red-300 font-bold">vault/</span> <span class="text-gray-500 text-[10px]">(Secure Folder encrypted private videos)</span>
+          </div>
+
+          <!-- THUMBNAILS -->
+          <div class="pl-4">
+            ├── 📁 <span class="text-amber-300 font-bold">thumbnails/</span> <span class="text-gray-500 text-[10px]">(16:9 bookmark thumbnail previews)</span>
+          </div>
+
+          <!-- CONFIG -->
+          <div class="pl-4">
+            ├── 📁 <span class="text-purple-300 font-bold">config/</span> <span class="text-gray-500 text-[10px]">(PIN verification salt & player preferences)</span>
+          </div>
+
+          <!-- MEDIA -->
+          <div class="pl-4">
+            ├── 📁 <span class="text-blue-300 font-bold">music/</span> <span class="text-gray-500 text-[10px]">(Local music tracks with clean metadata filenames)</span>
+          </div>
+          <div class="pl-4">
+            ├── 📁 <span class="text-pink-300 font-bold">companion_videos/</span> <span class="text-gray-500 text-[10px]">(Audio-less & full companion MP4s)</span>
+          </div>
+          <div class="pl-4">
+            └── 📁 <span class="text-cyan-300 font-bold">lyrics/</span> <span class="text-gray-500 text-[10px]">(Dedicated .lrc files)</span>
+          </div>
+        </div>
+
+        <!-- 3 Pillars of Zero-Bloat Storage -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div class="bg-green-950/30 p-3 rounded-lg border border-green-800 space-y-1">
+            <span class="font-bold text-green-300">1. No Duplicate Backups</span>
+            <p class="text-gray-400 text-[11px]">
+              No secondary copies or zip snapshots. The app reads and writes the live database directly in this folder.
+            </p>
+          </div>
+
+          <div class="bg-purple-950/30 p-3 rounded-lg border border-purple-800 space-y-1">
+            <span class="font-bold text-purple-300">2. Survives App Uninstall</span>
+            <p class="text-gray-400 text-[11px]">
+              Because Android never deletes public basic storage on uninstall, your entire library and setup remain 100% intact.
+            </p>
+          </div>
+
+          <div class="bg-amber-950/30 p-3 rounded-lg border border-amber-800 space-y-1">
+            <span class="font-bold text-amber-300">3. Zero Storage Bloat</span>
+            <p class="text-gray-400 text-[11px]">
+              One single file per asset. Companion videos are audio-less to save bandwidth, and audio replacement prevents duplicates.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Footer Summary -->
+    <footer class="text-center text-xs text-gray-500 py-6 border-t border-[var(--border-subtle)] space-y-2">
+      <div>mpvRx Music Player Extension & Triad Suite • Comprehensive Visual Blueprint</div>
+      <div class="text-[10px] text-gray-600">Dual-Orientation Configurations • All User Feedback Incorporated</div>
+    </footer>
+
+  </div>
+
+</body>
+</html>

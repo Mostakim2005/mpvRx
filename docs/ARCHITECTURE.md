@@ -32,9 +32,9 @@ flowchart TB
     end
 
     subgraph Data["💾 Storage & Persistence Layer"]
-        RoomDB[("MpvRx Room Database (Bookmarks, Tags, Links, Music)")]
+        RoomDB[("Live MpvRx Room Database (<UserFolder>/database/mpvrx.db)")]
         WatchStats[("Watch Stats JSON (Public & Quarantined Files)")]
-        DurableVault["Durable Storage /sdcard/Documents/mpvRx/ (.nomedia, vault, backups, verifier)"]
+        DurableVault["Durable Root <UserRoot>/ (.nomedia, database/, vault/, thumbnails/, music/, lyrics/)"]
     end
 
     PlayerView --> PlayerVM
@@ -180,6 +180,96 @@ sequenceDiagram
   * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `isProtectedReference`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `launch`
   * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
+
+---
+
+### [SUBSYSTEM: Zero-Bloat-Single-Folder-Direct-Hosting-Engine] | Aliases: single folder storage, zero bloat, live room db external, no duplicate backups
+> **1-Line Summary:** Points the live Room SQLite database instance directly to `<UserRoot>/database/mpvrx.db` alongside the secure vault, thumbnails, config, and media, eliminating duplicate backup file bloat.
+* **How It Works (Plain English):**
+  * Android apps typically put their SQLite database in internal private storage (`/data/data/...`) and require an export/backup mechanism to survive uninstall.
+  * In mpvRx, the user picks a primary directory (e.g., `/sdcard/Documents/mpvRx/`). Using `Room.databaseBuilder(context, AppDatabase::class.java, File(userRoot, "database/mpvrx.db").absolutePath)`, the **live SQLite database runs directly from that external directory**.
+  * Vault files, thumbnails, configurations, music, companion videos, and `.lrc` lyrics are colocated under `<UserRoot>/`.
+  * **Result:** Zero duplicate backup files, zero storage bloat, zero danger of stale backups. Reinstalling mpvRx and pointing to this folder instantly restores 100% of state.
+* **Data Flow Diagram:**
+```mermaid
+flowchart TD
+    UserPickedRoot["User-Selected Storage Root (/sdcard/Documents/mpvRx/)"] --> Nomedia[".nomedia file"]
+    UserPickedRoot --> LiveDB["Live Room SQLite DB (database/mpvrx.db + WAL)"]
+    UserPickedRoot --> Vault["Encrypted Vault Files (vault/)"]
+    UserPickedRoot --> Thumbnails["Bookmark Thumbnails (thumbnails/)"]
+    UserPickedRoot --> Config["PIN Salt & Settings (config/)"]
+    UserPickedRoot --> Media["Music, Companion Videos & Lyrics (music/, companion_videos/, lyrics/)"]
+    LiveDB --> App["mpvRx App Live Queries (Zero Backup Duplication)"]
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `resolveRootDirectory`
+
+---
+
+### [SUBSYSTEM: Musicolet-Style-Metadata-And-Lyrics-Tag-Injector] | Aliases: musicolet style, embed lyrics into audio, id3 uslt tag, vorbis comment lyrics
+> **1-Line Summary:** Directly injects synchronized LRC and unsynced plain text lyrics into audio container tags (`USLT`, `LYRICS`, `©lyr`) and updates metadata without re-encoding audio bytes.
+* **How It Works (Plain English):**
+  * Reads the physical audio container structure (MP3 ID3v2 header, FLAC/Vorbis comment block, MP4 atom box).
+  * Writes the LRC-formatted text block directly into the audio tag:
+    * **MP3:** Injects `USLT` (Unsynchronised Lyric/Text) and `SYLT` (Synchronised Lyric/Text) frames.
+    * **FLAC / OGG / Opus:** Injects `LYRICS` and `UNSYNCEDLYRICS` Vorbis comment fields.
+    * **M4A / MP4:** Injects `©lyr` atom.
+  * Execution takes less than 30ms and touches only header bytes, leaving audio streams unaltered and bit-perfect.
+* **Data Flow Diagram:**
+```mermaid
+sequenceDiagram
+    participant User
+    participant Editor as TagEditorUI
+    participant Engine as AudioTaggingEngine
+    participant AudioFile as Physical Audio File (.opus / .mp3)
+    participant LiveDB as Live Room DB
+
+    User->>Editor: Edits Lyrics / Anchors Timestamps
+    Editor->>Engine: embedLyrics(filePath, lrcString)
+    Engine->>AudioFile: Injects USLT / Vorbis LYRICS Tag (No Re-encoding)
+    Engine->>LiveDB: Updates hasEmbeddedLyrics flag
+    AudioFile-->>User: File now carries lyrics inside itself anywhere it is shared
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/AudioTaggingEngine.kt` -> `embedLyricsIntoAudioFile`, `extractEmbeddedLyrics`
+
+---
+
+### [SUBSYSTEM: Audio-less-Companion-Video-And-libmpv-Lockstep-Engine] | Aliases: audioless video, collision free sync, libmpv lockstep, video in artwork
+> **1-Line Summary:** Synchronizes pure video streams with local high-fidelity audio, attaching/detaching the video surface without audio restart, collision, or timestamp drift.
+* **How It Works (Plain English):**
+  * When local audio already exists, yt-dlp extracts the video-only stream (`bestvideo[ext=mp4]`), saving ~60% bandwidth.
+  * `libmpv` is instructed to mount the audio file as the primary master clock and slaves the companion video stream to the exact audio presentation timestamp (PTS).
+  * Toggling between **Art** and **Video** attaches the Android `SurfaceView` to the existing mpv instance without stopping or reloading the audio stream.
+  * When downloading a full video with audio, a smart prompt offers to delete redundant old audio files and unify playback.
+* **Data Flow Diagram:**
+```mermaid
+flowchart LR
+    LocalAudio["Local Audio File (Opus/MP3) [Master Clock]"] --> mpvCore["libmpv Core Engine"]
+    CompanionVideo["Audio-less Companion Video (MP4) [Slaved PTS]"] --> mpvCore
+    mpvCore --> AudioOut["Audio Output Track (Collision-Free)"]
+    mpvCore --> SurfaceToggle{"Art vs Video Viewport"}
+    SurfaceToggle -->|Art Mode| AlbumArtView["Render Album Artwork + Lyrics"]
+    SurfaceToggle -->|Video Mode| SurfaceView["Attach SurfaceView Frame"]
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `attachCompanionVideo`, `toggleArtworkVideoSurface`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/download/CompanionVideoDownloader.kt` -> `downloadAudiolessStream`
+
+---
+
+### [SUBSYSTEM: Single-Point-Anchor-Lyric-Offset-Calibrator] | Aliases: 1-point lyric sync, anchor line to playhead, uniform offset shift
+> **1-Line Summary:** Offsets an entire song's synchronized lyrics in a single tap by anchoring any selected lyric line to the active playhead, persisting changes to both disk and embedded tags.
+* **How It Works (Plain English):**
+  * Lyric files often have intro delays or slight differences across album/MV versions.
+  * User selects a lyric line (e.g. line at timestamp $T_{\text{lyric}}$) and listens to the track.
+  * At the exact second the line is vocalized, user taps "Anchor to Current Time" ($T_{\text{current}}$).
+  * Calculates $\Delta t = T_{\text{current}} - T_{\text{lyric}}$.
+  * Iterates through all lines in the LRC dataset and applies: $T'_{\text{line}} = \max(0, T_{\text{line}} + \Delta t)$.
+  * Immediately writes updated lyrics to `<UserRoot>/lyrics/[Title].lrc` and embeds into audio container metadata.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/lyrics/LyricsOffsetCalibrator.kt` -> `anchorLineToPlayhead`, `shiftAllTimestamps`
 
 ---
 

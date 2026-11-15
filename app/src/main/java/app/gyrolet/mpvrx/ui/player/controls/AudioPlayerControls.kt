@@ -1540,13 +1540,34 @@ fun AudioPlayerControls(
           val currentOffset = animatableOffsetX.value
 
           if (showInPlaceLyrics && !showLandscapeSidePanel) {
-            app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(
-              viewModel = viewModel,
-              modifier = Modifier.fillMaxSize(),
-              isLyricsFullscreen = isLyricsFullscreen,
-              onTap = resetInactivityTimer,
-              onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+              if (activeCoverOverride != null || albumArtBitmap != null || currentArtworkUri != null) {
+                CoverArtCardImage(
+                  bitmap = activeCoverOverride ?: albumArtBitmap,
+                  artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
+                  contentScale = ContentScale.Crop,
+                  motionArtwork = null,
+                  isPlaying = false,
+                  remoteMotionQuery = null,
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .blur(24.dp)
+                    .graphicsLayer(alpha = 0.28f),
+                )
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.65f))
+                )
+              }
+              app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(
+                viewModel = viewModel,
+                modifier = Modifier.fillMaxSize(),
+                isLyricsFullscreen = isLyricsFullscreen,
+                onTap = resetInactivityTimer,
+                onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
+              )
+            }
           } else {
             AnimatedContent(
               targetState = showVisualizer,
@@ -2525,7 +2546,7 @@ fun AudioPlayerControls(
         val isLyricsActive = if (showLandscapeSidePanel) tabletDualPaneTab == 1 else showInPlaceLyrics
         val isQueueActive = if (showLandscapeSidePanel) tabletDualPaneTab == 0 else sheetShown == Sheets.Playlist
         val barHeight = if (isShortLandscape) 38.dp else if (isCompactLandscape) 42.dp else 50.dp
-        val centerCount = if (isAudiobook) 4 else 5
+        val centerCount = if (isAudiobook) 5 else 6
         BoxWithConstraints(Modifier.fillMaxWidth()) {
           val endWidth = minOf(barHeight, maxWidth * 0.15f)
           val outerSpacing = if (maxWidth < 280.dp) 4.dp else 8.dp
@@ -2663,9 +2684,23 @@ fun AudioPlayerControls(
                     reduceMotion = AppMotion.playerReducedMotion(),
                   )
                 }
+                ExpressiveConnectedBarButton(
+                  index = 4, itemCount = centerCount, height = barHeight, selected = sheetShown == Sheets.MetadataEditor,
+                  onClick = {
+                    onOpenSheet(Sheets.MetadataEditor)
+                    actionHaptics.confirm()
+                  },
+                ) { tint ->
+                  Icon(
+                    Icons.RoundedFilled.Edit,
+                    contentDescription = "Edit Tags & Metadata",
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                  )
+                }
                 if (!isAudiobook) {
                   ExpressiveConnectedBarButton(
-                    index = 4, itemCount = centerCount, height = barHeight, selected = backgroundPlaybackEnabled,
+                    index = 5, itemCount = centerCount, height = barHeight, selected = backgroundPlaybackEnabled,
                     onClick = {
                       val enabled = !audioPreferences.audioBackgroundPlayback.get()
                       val activity = context as? PlayerActivity

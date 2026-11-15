@@ -733,6 +733,49 @@ fun PlayerSheets(
       )
     }
 
+    Sheets.MetadataEditor -> {
+      val taggingEngine = org.koin.compose.koinInject<app.gyrolet.mpvrx.domain.metadata.AudioTaggingEngine>()
+      val currentItem = playback.currentItem
+      val title = currentItem?.title.orEmpty().ifBlank { "Unknown Title" }
+      val artist = currentItem?.artist.orEmpty().ifBlank { "Unknown Artist" }
+      val path = currentItem?.originalUri.orEmpty()
+      app.gyrolet.mpvrx.ui.player.controls.components.sheets.FullscreenMetadataEditorSheet(
+        viewModel = viewModel,
+        currentTitle = title,
+        currentArtist = artist,
+        currentAudioPath = path,
+        taggingEngine = taggingEngine,
+        onDismiss = onDismissRequest,
+      )
+    }
+
+    Sheets.LyricAnchorCalibration -> {
+      val taggingEngine = org.koin.compose.koinInject<app.gyrolet.mpvrx.domain.metadata.AudioTaggingEngine>()
+      val musicCompanionDao = org.koin.compose.koinInject<app.gyrolet.mpvrx.database.dao.MusicCompanionDao>()
+      val currentItem = playback.currentItem
+      val title = currentItem?.title.orEmpty().ifBlank { "Unknown Title" }
+      val artist = currentItem?.artist.orEmpty().ifBlank { "Unknown Artist" }
+      val path = currentItem?.originalUri.orEmpty()
+      val lines = viewModel.lyrics.synced.orEmpty()
+      val selectedLine = lines.firstOrNull() ?: app.gyrolet.mpvrx.domain.lyrics.SyncedLine(time = 0, line = "Intro")
+
+      app.gyrolet.mpvrx.ui.player.controls.components.sheets.LyricAnchorDialog(
+        artist = artist,
+        songName = title,
+        audioPath = path,
+        youtubeUrl = null,
+        currentPlayheadMs = playback.position,
+        selectedLine = selectedLine,
+        allLines = lines,
+        taggingEngine = taggingEngine,
+        musicCompanionDao = musicCompanionDao,
+        onDismiss = onDismissRequest,
+        onApplied = {
+          onDismissRequest()
+        },
+      )
+    }
+
     Sheets.Scopes -> {
       ScopesSheet(
         viewModel = viewModel,

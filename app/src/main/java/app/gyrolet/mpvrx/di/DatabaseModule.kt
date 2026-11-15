@@ -1058,6 +1058,34 @@ val MIGRATION_24_25 =
     }
   }
 
+val MIGRATION_34_35 =
+  object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL(
+        """CREATE TABLE IF NOT EXISTS `music_companion` (
+        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        `artist` TEXT NOT NULL,
+        `song_name` TEXT NOT NULL,
+        `audio_path` TEXT NOT NULL,
+        `youtube_url` TEXT,
+        `companion_video_path` TEXT,
+        `lyrics_path` TEXT,
+        `is_audioless_video` INTEGER NOT NULL,
+        `has_embedded_lyrics` INTEGER NOT NULL,
+        `lyric_offset_ms` INTEGER NOT NULL,
+        `artwork_path` TEXT,
+        `album` TEXT,
+        `year` TEXT,
+        `genre` TEXT,
+        `updated_at` INTEGER NOT NULL
+      )"""
+      )
+      db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_music_companion_audio_path` ON `music_companion` (`audio_path`)")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_music_companion_artist_song_name` ON `music_companion` (`artist`, `song_name`)")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_music_companion_youtube_url` ON `music_companion` (`youtube_url`)")
+    }
+  }
+
 val MIGRATION_25_26 =
   object : Migration(25, 26) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -1114,6 +1142,7 @@ val DatabaseModule =
           MIGRATION_31_32,
           MIGRATION_32_33,
           MIGRATION_33_34,
+          MIGRATION_34_35,
         ).build()
     }
 
@@ -1132,6 +1161,8 @@ val DatabaseModule =
     single { get<MpvRxDatabase>().bookmarkTagDao() }
     single { get<MpvRxDatabase>().frameCaptureDao() }
     single { get<MpvRxDatabase>().snapshotFolderDao() }
+    single { get<MpvRxDatabase>().musicCompanionDao() }
+    single { app.gyrolet.mpvrx.domain.metadata.AudioTaggingEngine(androidContext(), get()) }
 
     singleOf(::FrameCaptureRepositoryImpl).bind(FrameCaptureRepository::class)
 

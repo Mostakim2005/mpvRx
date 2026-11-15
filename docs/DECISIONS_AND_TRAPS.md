@@ -98,6 +98,88 @@ flowchart LR
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
 
+### [DECISION: Single-Folder-Live-Hosting-Vs-Duplicate-Backup-Files] | Aliases: single folder storage, zero bloat, live room db external, no duplicate backups
+> **1-Line Summary:** Live Room SQLite database and all media/vault assets are hosted directly in a single user-selected root folder, completely eliminating redundant backup files and storage bloat.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Original User Intention:** Avoid having a separate manual/scheduled backup file that can be forgotten, doubles storage space, or leads to desync. A single user-selected folder in basic storage must host everything directly, permanently surviving app uninstallation, updates, or wipes.
+* **Options Considered:**
+  * **Option A (Rejected):** Storing the live database in `/data/data/...` and periodically exporting snapshot copies to `/sdcard/Documents/mpvRx/backups/`. Rejected because users can forget to trigger backups, snapshot files double storage footprint, and background backup tasks cause overhead.
+  * **Option B (Chosen):** Instantiating the live Room SQLite database directly inside `<UserRoot>/database/mpvrx.db` via custom path builder. Vault files, thumbnails, configurations, music, companion videos, and lyrics live directly in subfolders under this single root. No duplicate backup file is needed.
+* **Visual Pivot Map (What Failed vs. What Works):**
+```mermaid
+flowchart LR
+    subgraph Failed["❌ Duplicate Backup Snapshots (Rejected)"]
+        A1["Internal DB in /data/data/"] --> A2["Separate Backup Exporter"]
+        A2 --> A3["Double Storage Bloat + Forgotten Backups"]
+    end
+    subgraph Active["✅ Single-Folder Live Hosting (Chosen)"]
+        B1["User-Selected Folder (<UserRoot>)"] --> B2["Live Room DB (database/mpvrx.db)"]
+        B2 --> B3["Zero Duplicate Files + 100% Uninstall-Proof"]
+    end
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `resolveRootDirectory`
+
+---
+
+### [DECISION: Audio-less-Companion-Video-Vs-Remuxed-Audio-Collision] | Aliases: audioless video download, collision free sync, companion video
+> **1-Line Summary:** Download audio-less video streams (`bestvideo[ext=mp4]`) when local audio exists to prevent dual-audio collisions and reduce download size by up to 60%.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Original User Intention:** Watch companion music videos while listening to pristine local audio without audio desync, phase cancellation, or echo.
+* **Options Considered:**
+  * **Option A (Rejected):** Downloading full video with audio and muting in software or playing both streams simultaneously. Rejected because it wastes bandwidth/storage, risks audio collisions, and causes timeline drift.
+  * **Option B (Chosen):** Downloading audio-less video streams via yt-dlp. When downloading full videos without existing audio, an intelligent confirmation prompt offers to replace old standalone audio to avoid duplicate file bloat.
+* **Visual Pivot Map (What Failed vs. What Works):**
+```mermaid
+flowchart LR
+    subgraph Failed["❌ Full Video + Software Mute (Rejected)"]
+        F1["Full Video Download (~80MB)"] --> F2["Dual Audio Streams"]
+        F2 --> F3["Echoes, Desync, Wasted Storage"]
+    end
+    subgraph Active["✅ Audio-less Stream + Single Clock (Chosen)"]
+        S1["Audio-less Video (~25MB)"] --> S2["Slaved to Local Audio PTS"]
+        S2 --> S3["Zero Collision + Crystal Audio Continuity"]
+    end
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/download/CompanionVideoDownloader.kt` -> `downloadAudiolessStream`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `attachCompanionVideo`
+
+---
+
+### [DECISION: Musicolet-Style-Direct-Tag-Embedding-Vs-Sidecar-Only] | Aliases: musicolet lyrics, embed in audio file, uslt tag, vorbis comments
+> **1-Line Summary:** Embeds synchronized and unsynchronized lyrics directly into audio container metadata tags (`USLT`, `LYRICS`, `©lyr`) alongside `.lrc` sidecars for universal player portability.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Original User Intention:** Match Musicolet's capability where lyrics travel permanently inside the audio file itself so they are never lost when sharing or transferring files.
+* **Options Considered:**
+  * **Option A (Rejected):** Storing lyrics exclusively in external `.lrc` files. Rejected because moving files or copying them to cars/external devices loses the lyric association.
+  * **Option B (Chosen):** Dual-layer persistence: update both the external `.lrc` file and embed the lyrics directly into the physical audio file container tags without re-encoding audio bytes.
+* **Visual Pivot Map (What Failed vs. What Works):**
+```mermaid
+flowchart LR
+    subgraph Failed["❌ Sidecar-Only Lyrics (Rejected)"]
+        X1["Separate .lrc File"] --> X2["Lost when sharing single audio file"]
+    end
+    subgraph Active["✅ Direct In-Container Tag Embedding (Chosen)"]
+        Y1["Tag Injection (USLT / LYRICS)"] --> Y2["Lyrics travel inside audio file permanently"]
+    end
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/AudioTaggingEngine.kt` -> `embedLyricsIntoAudioFile`
+
+---
+
+### [DECISION: Single-Point-Anchor-Alignment-Vs-Full-Manual-Lyric-Editing] | Aliases: 1-point lyric sync, anchor line, uniform shift
+> **1-Line Summary:** Replaces tedious line-by-line manual timestamp editing with 1-point anchor calibration that uniformly shifts all lines by the calculated playhead delta $\Delta t$.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Original User Intention:** Quickly fix song lyric offsets caused by intro dialogues or music video delays in one simple tap.
+* **Options Considered:**
+  * **Option A (Rejected):** Forcing the user to manually adjust timestamps on 50+ lines individually. Extremely tedious and error-prone.
+  * **Option B (Chosen):** User taps "Anchor to Current Time" on any single line as it plays. The app calculates $\Delta t = T_{\text{current}} - T_{\text{lyric}}$ and instantly shifts all lines across the song, saving changes permanently.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/lyrics/LyricsOffsetCalibrator.kt` -> `anchorLineToPlayhead`
+
 ---
 
 ## 2. Do-Not-Touch Engineering Landmines (Traps)
@@ -119,3 +201,11 @@ flowchart LR
 ### [TRAP: Prevent-Layout-Overflow-In-Compact-Sidebar-Drawers] | Aliases: toolbar collision, compact buttons, icon tooltips
 > **1-Line Summary:** At 20% sidebar width in landscape, horizontal space is under 180dp; never place text-heavy buttons or multi-word chips in the toolbar.
 * **Strict Rule:** Use compact icon buttons with accessible content descriptions/tooltips for actions. Keep toggle chips to 2-4 characters (e.g. `20%`, `1C`, `🌐/🎬`).
+
+---
+
+### [TRAP: Android-Scoped-Storage-Direct-Database-Path] | Aliases: external database wal, scoped storage sqlite, direct db path
+> **1-Line Summary:** On Android 11+ (API 30+), SQLite WAL mode requires direct filesystem access (`MANAGE_EXTERNAL_STORAGE` or direct POSIX `File` access), never content URI streams.
+* **Strict Rule:** **NEVER** attempt to run an active Room SQLite database through `ContentResolver` / `DocumentFile` stream wrappers. SQLite requires direct file descriptor locking (`fcntl` / flock) and SHM memory mapping. The user-selected directory must be located in standard external storage (`/sdcard/Documents/mpvRx/`) using direct `File` paths.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`

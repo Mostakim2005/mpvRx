@@ -85,24 +85,82 @@
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/PlayerControlsPreferencesScreen.kt`
 
-### [FEATURE: Secure-Vault-And-Bookmark-Uninstall-Persistence] | Aliases: persistent vault, external storage migration, survive uninstall, sdcard documents mpvrx
-> **1-Line Summary:** Stores Secure Folder media, bookmark thumbnails, database backups, settings, and PIN salts in persistent public storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) so uninstalling the app never destroys data.
-* **User Intention (Non-Negotiable):** Uninstalling mpvRx must not permanently delete the user's private media library, bookmarks, database setup, or PIN configuration. Upon reinstallation, mpvRx detects the existing vault folder, verifies the existing PIN, and restores the full library.
+### [FEATURE: Zero-Bloat-Single-Folder-Direct-Hosting] | Aliases: single folder storage, zero bloat, live room db on external storage, survive uninstall, no duplicate backups
+> **1-Line Summary:** Hosts the live Room SQLite database, Secure Vault, bookmark thumbnails, configurations, music, companion videos, and lyrics directly in a single user-selected root folder without duplicate backup bloat.
+* **User Intention (Non-Negotiable):** The user selects a single directory in basic storage (e.g. `/sdcard/Documents/mpvRx/`). The active Room database (`mpvrx.db`), private media vault, thumbnails, and settings live directly inside this folder. No separate or redundant backup files are created, avoiding storage duplication and bloat. If the app is uninstalled, updated, or wiped, reinstalling and pointing to this folder instantly restores the complete library and state.
 * **Directory Layout:**
-  * `/sdcard/Documents/mpvRx/.nomedia` (blocks media scanning by Android Gallery)
-  * `/sdcard/Documents/mpvRx/vault/` (encrypted private media files)
-  * `/sdcard/Documents/mpvRx/thumbnails/` (16:9 bookmark thumbnail image cache)
-  * `/sdcard/Documents/mpvRx/backups/mpvrx_database.db` (auto-synced Room database snapshot)
-  * `/sdcard/Documents/mpvRx/config/security_verifier.json` (Argon2id/PBKDF2 salted hash for PIN verification)
+  * `<UserRoot>/.nomedia` (blocks media scanner from indexing vault / internal assets)
+  * `<UserRoot>/database/mpvrx.db` (LIVE active Room database, WAL and SHM files)
+  * `<UserRoot>/vault/` (encrypted Secure Folder media)
+  * `<UserRoot>/thumbnails/` (16:9 bookmark thumbnail image cache)
+  * `<UserRoot>/config/` (PIN verification salt & user player settings)
+  * `<UserRoot>/music/` (audio files with clean metadata-matched filenames)
+  * `<UserRoot>/companion_videos/` (downloaded audio-less / full MP4 companion videos)
+  * `<UserRoot>/lyrics/` (dedicated `.lrc` files)
 * **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
   * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `BookmarkThumbnailStore`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `getLiveDatabasePath`, `resolveRootDirectory`
 
-### [FEATURE: Music-Player-Customization-Suite] | Aliases: music customization, tag editor, music video toggle, media downloader
-> **1-Line Summary:** Comprehensive music player customization suite: tag/metadata editor, lyrics search/sync engine, video-in-artwork toggle, and integrated yt-dlp media downloader.
-* **Detailed Blueprint:** See dedicated document [`docs/MUSIC_PLAYER_CUSTOMIZATION.md`](file:///c:/Users/kazir/Documents/Agentic Harness/mpvRx/docs/MUSIC_PLAYER_CUSTOMIZATION.md) and preview [`docs/music_customization_preview.html`](file:///c:/Users/kazir/Documents/Agentic Harness/mpvRx/docs/music_customization_preview.html).
-* **Key Components:**
-  * **Tag & Metadata Editor:** In-app editing for song title, artist, album, genre, year, track number, and embedded cover art directly into audio files (MP3, FLAC, M4A, OGG).
-  * **Multi-Source Lyrics Engine:** Sync lyrics from LRCLIB, Musixmatch, and local `.lrc` files with manual timestamp offset adjustments.
-  * **Audio/Video Toggle:** For songs with associated video files, toggle the artwork viewport to render native video playback (`🖼️ Artwork` ⇄ `🎬 Video`).
-  * **Integrated Downloader:** Download audio/video streams, embed metadata and cover art, and automatically register downloads into the mpvRx Room database.
+### [FEATURE: Player-Controls-Pencil-Tag-Editor-And-Auto-Fetch] | Aliases: pencil edit icon, metadata editor, auto fetch artwork, tag editor, id3 edit, fullscreen tag editor
+> **1-Line Summary:** Dedicated pencil icon in player controls opening an in-app fullscreen metadata editor with multi-artwork carousel and multi-source metadata candidate browsing.
+* **User Intention (Non-Negotiable):** Direct access from active playback controls to edit song title, artist, album, genre, year, and track number. When auto-fetching, user can swipe through multiple artwork options (Artwork 1, Artwork 2...) to pick their favorite, and select from multiple candidate metadata sets (Metadata 1, Metadata 2...) to 1-tap populate all fields cleanly. Includes automatic physical file renaming on disk and Musicolet-style container tag injection.
+* **Visual / UI Behavior:**
+  * **Pencil Button:** Rendered directly alongside player action controls in both portrait and landscape modes.
+  * **Fullscreen Tag Editor Modal:** Top area displays an artwork candidate carousel; middle provides form fields and auto-rename toggle; bottom provides candidate metadata selector cards.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/FullscreenMetadataEditorSheet.kt` -> `FullscreenMetadataEditorSheet`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/OnlineMetadataScraper.kt` -> `searchCandidates`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/AudioTaggingEngine.kt` -> `updateMetadataAndRename`
+
+### [FEATURE: Portrait-Art-Mode-Full-Lyrics-Artwork-Background] | Aliases: lyrics artwork background, immersive full lyrics, blurred album art lyrics, remove blank lyric background
+> **1-Line Summary:** In Portrait Art Mode, expanding to full-screen lyrics displays the active album artwork in the background with a soft dark blur scrim instead of a blank canvas.
+* **User Intention (Non-Negotiable):** In portrait mode when switching from the 2-line lyric preview to the full-screen scrolling lyric view, the background must no longer be solid black/blank. The album artwork remains rendered behind the lyrics, dimmed and subtly blurred, giving an immersive aesthetic while maintaining perfect text legibility. In landscape mode, the existing 60/40 and 50/50 dual-panel layout remains intact.
+* **Visual / UI Behavior:**
+  * **Portrait Mode:** Tapping the 2-line lyrics expands to full view where album cover art is scaled to fill the background (`blur(20px)` + 60% opacity dark overlay) with synced lyrics scrolling over it.
+  * **Landscape Mode:** Left panel displays artwork/video; right panel displays scrolling lyrics without change.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `FullLyricsOverlay`, `ImmersiveArtworkBackground`
+
+### [FEATURE: Granular-Quality-Downloader-And-Configurable-Presets] | Aliases: yt-dlp quality spectrum, 1080p 720p 480p 360p 240p, compact video sizes, download resolution settings
+> **1-Line Summary:** yt-dlp downloader offering a full resolution spectrum (1080p down to 240p) with estimated file sizes and user-configurable quick-selection toggles in app settings.
+* **User Intention (Non-Negotiable):** Users can download compact, low-size companion videos (e.g. 240p/360p for low storage usage) or full HD (720p/1080p). App preferences allow users to toggle which resolution presets appear in the quick download sheet.
+* **Visual / UI Behavior:**
+  * **Download Sheet:** Displays buttons for available streams (1080p, 720p, 480p, 360p, 240p) paired with estimated sizes (~45MB, ~22MB, ~12MB, ~6MB, ~3.5MB).
+  * **Preferences Screen:** Toggle switches allowing user to enable or disable specific resolution tiers in the quick picker.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/CompanionVideoDownloaderSheet.kt` -> `CompanionVideoDownloaderSheet`, `ResolutionOptionGrid`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/DownloadPreferencesScreen.kt` -> `QualityPresetsConfig`
+
+### [FEATURE: Smart-Audio-Replacement-And-Cleanup-Prompt] | Aliases: replace old audio, delete old audio file, full video with audio prompt, cleanup duplicate media
+> **1-Line Summary:** Prompts a confirmation dialog to delete redundant standalone audio files when downloading a full video with audio, automatically repointing database links.
+* **User Intention (Non-Negotiable):** When a user who already possesses a local audio file decides to download "Full Video with Audio", the app intercepts with a clean dialog: *"Replace old audio file to save storage?"* Selecting Replace safely deletes the standalone audio file, migrates metadata and lyric bindings to the new video container, and eliminates duplicate file bloat.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/CompanionVideoDownloaderSheet.kt` -> `AudioReplacementConfirmDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/MediaMigrationEngine.kt` -> `replaceAudioWithUnifiedVideo`
+
+### [FEATURE: Metadata-Driven-File-Renaming-And-Triad-Database] | Aliases: rename file to match metadata, clean file names, song and artist mapping db, auto rename on disk
+> **1-Line Summary:** Automatically renames physical audio and companion video files on disk to match updated metadata tags and maintains lock-step timestamp synchronization.
+* **User Intention (Non-Negotiable):** Gibberish or messy filenames (e.g. `download_8271.opus`) are automatically renamed to clean, standardized names (e.g. `Synthwave Collective - Midnight City Echoes.opus`) when metadata is updated, with the live Room database updating its URI pointers. Switching between audio and video maintains exact millisecond playback continuity ($T_{\text{video}} = T_{\text{audio}}$).
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/FileRenamingEngine.kt` -> `renameMediaFromMetadata`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/entity/MusicTrackEntity.kt` -> `updateFileUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `switchAudioVideoTrackPreservingPosition`
+
+### [FEATURE: Single-Point-Anchor-Lyric-Offset-Calibration] | Aliases: 1-point lyric sync, anchor lyric line, global lyric offset, match lyric to playhead, sqlite unique id mapping
+> **1-Line Summary:** Calibrates entire song lyric timing by anchoring a single lyric line to the active playhead, writing the offset permanently to the .lrc file, audio container tags, and Room database mapping.
+* **User Intention (Non-Negotiable):** Users do not need to manually edit every timestamp when a lyric file starts earlier or later due to video intro variations. Highlighting any line (e.g. *"Let's Go"*) in the full lyric view and tapping "Anchor Match" computes $\Delta t$ and uniformly shifts all timestamps across the track. Clicking "Apply & Close" permanently saves the adjusted lyrics to the `.lrc` file, embeds them into audio ID3/Vorbis tags, and saves the record in the local SQLite database mapping Artist + Song ↔ Audio Path ↔ YouTube Link ↔ LRC with a unique ID.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/LyricAnchorDialog.kt` -> `LyricAnchorDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/lyrics/LyricAnchorCalibrator.kt` -> `calibrate`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/MusicCompanionDao.kt` -> `insertOrReplace`
+
+### [FEATURE: Embedded-In-File-Lyrics-Tagging] | Aliases: musicolet style lyrics, embed lyrics in mp3, uslt frame, vorbis lyrics tag, direct tag injection
+> **1-Line Summary:** Embeds synchronized LRC lyrics and unsynced plain text directly into the physical audio file container tags (`USLT`, `LYRICS`, `©lyr`) without re-encoding audio.
+* **User Intention (Non-Negotiable):** Mirrors the Musicolet capability where lyrics travel inside the music file itself. Even if the track is copied to another device, flash drive, or music player without sidecar files, lyrics remain intact and readable.
+* **Supported Formats:**
+  * **MP3 (ID3v2):** `USLT` frame (with timestamped text) and `SYLT` frame.
+  * **FLAC / OGG / Opus:** Vorbis Comment `LYRICS` / `UNSYNCEDLYRICS` tags.
+  * **M4A / MP4:** `©lyr` atom.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/AudioTaggingEngine.kt` -> `embedLyricsIntoAudioFile`, `extractEmbeddedLyrics`
