@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mpvRx Calibrated Feature & UI Previews</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --bg-base: #0f0b18;
+      --bg-surface: #171224;
+      --bg-surface-elevated: #221c33;
+      --bg-surface-highest: #2f2746;
+      --primary: #c9bfff;
+      --on-primary: #322377;
+      --primary-container: #493b8f;
+      --on-primary-container: #e7e0ff;
+      --secondary-container: #474358;
+      --text-high: #e8e0ec;
+      --text-med: #cac3cf;
+      --text-low: #948e9c;
+    }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-high);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: var(--bg-surface-highest);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="p-3 md:p-6 text-sm custom-scroll">
+
+  <!-- Master Container -->
+  <div class="max-w-5xl mx-auto space-y-10">
+    
+    <!-- Top Sticky Navigation & Header -->
+    <div class="sticky top-0 z-50 bg-[var(--bg-base)]/95 backdrop-blur py-3 border-b border-[var(--bg-surface-highest)] flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-base md:text-lg font-bold text-white flex items-center gap-2">
+          <span>🎯</span> mpvRx: Final Calibrated Feature & UI Previews
+        </h1>
+        <p class="text-[11px] text-[var(--text-low)]">
+          Portrait 50%/25%/25% split + compact icon toolbar, Landscape multi-row zero-overflow toolbar (20%-35% variable width), 4-col land / 3-col port gallery, & universal 5+ tap stealth.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-1 text-xs">
+        <a href="#section-player-port" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">2A. Player Port (50% / 25% / 25%)</a>
+        <a href="#section-player-land" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">2B. Player Land (Multi-Row Toolbar)</a>
+        <a href="#section-gallery-land" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">1A. Gallery (Land 4-Col)</a>
+        <a href="#section-gallery-port" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">1B. Gallery (Port 3-Col)</a>
+        <a href="#section-music" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">3. Music (2-Line Default)</a>
+        <a href="#section-stealth" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface-elevated)] hover:bg-[var(--primary)] hover:text-[var(--on-primary)] transition font-medium border border-white/5">4. Universal 5-Tap Stealth</a>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 2A: IN-PLAYER BOOKMARKS - PORTRAIT (50% VIDEO / 25% ROW 1 / 25% ROW 2) -->
+    <!-- ========================================================================= -->
+    <section id="section-player-port" class="space-y-4 pt-2">
+      <div>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/40">Portrait Mode (50% Video / 25% Row 1 / 25% Row 2)</span>
+        <h2 class="text-base font-bold text-white mt-1">2A. In-Player Bookmark Section: 50% Video + 25% Row 1 + 25% Row 2 (Compact Toolbar)</h2>
+        <p class="text-xs text-[var(--text-low)]">
+          Video takes 50% height. The remaining 50% hosts the bookmark section: a compact icon toolbar with all auxiliary tools + a toggleable compact scope icon + two 25% thumbnail rows in a 2x2 grid.
+        </p>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="w-84 md:w-96 h-[560px] bg-[#120d1c] rounded-3xl border-2 border-[var(--bg-surface-highest)] shadow-2xl flex flex-col overflow-hidden">
+          
+          <!-- Top 50%: Video Playback Screen -->
+          <div class="h-[50%] bg-zinc-950 p-3 flex flex-col justify-between border-b-2 border-purple-500/40 relative">
+            <div class="flex items-center justify-between text-xs text-white/80">
+              <div class="flex items-center gap-1.5">
+                <span>←</span>
+                <span class="font-bold text-[11px] bg-black/60 px-2 py-0.5 rounded">MIMK-232 • 2/7</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] bg-purple-950/80 text-purple-200 px-1.5 py-0.2 rounded font-mono">Video: 50%</span>
+                <span>⋮</span>
+              </div>
+            </div>
+
+            <!-- Video Center -->
+            <div class="self-center text-center">
+              <span class="text-2xl opacity-20 block">🎬</span>
+              <div class="text-[9px] text-yellow-200 bg-black/70 px-2.5 py-1 rounded mt-1 border border-white/5">
+                "That means there's no time limit..."
+              </div>
+            </div>
+
+            <!-- Scrubber & Controls -->
+            <div class="space-y-1">
+              <div class="flex justify-between text-[9px] text-white/60 font-mono">
+                <span>25:17</span>
+                <span>2:01:55</span>
+              </div>
+              <div class="h-1 bg-white/20 rounded-full relative">
+                <div class="w-1/4 h-full bg-[var(--primary)] rounded-full"></div>
+                <div class="absolute left-1/4 top-1/2 -translate-y-1/2 w-1.5 h-3 bg-purple-300 rounded shadow"></div>
+              </div>
+              <div class="flex justify-between items-center pt-0.5 text-xs text-white/80">
+                <span class="text-xs">🔄</span>
+                <div class="flex gap-3 items-center">
+                  <span>⏮</span>
+                  <span class="bg-white/10 p-1 rounded-full text-xs">▶</span>
+                  <span>⏭</span>
+                </div>
+                <span class="text-purple-300 font-bold text-[10px]">📑 50% Bottom</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom 50%: In-Player Bookmark Section -->
+          <div class="h-[50%] bg-[var(--bg-surface-elevated)] p-2.5 flex flex-col justify-between text-xs space-y-1.5">
+            
+            <!-- Compact Auxiliary Toolbar (No big descriptive text! Includes FP, Row, Grid, Gallery, and Compact Toggle Scope Icon) -->
+            <div class="bg-[var(--bg-base)] p-1.5 rounded-xl border border-white/10 flex items-center justify-between gap-1 text-[11px]">
+              <!-- Live Clock Badge -->
+              <div class="flex items-center gap-1 bg-black/60 px-1.5 py-0.5 rounded border border-purple-500/30 text-[9px]">
+                <span>🕒</span>
+                <span class="font-mono font-bold text-purple-200" id="port-live-clock">18:45:01</span>
+              </div>
+
+              <!-- Tools strip -->
+              <div class="flex items-center gap-1">
+                <!-- Audio Fingerprint -->
+                <button class="p-1 hover:bg-white/10 rounded" title="Audio Fingerprint / Preset">🔲</button>
+                <!-- Row Selector -->
+                <button class="p-1 hover:bg-white/10 rounded font-bold text-purple-200 text-[10px]" title="Cycle Row Density">⊞ 2R</button>
+                <!-- Full Gallery Dialog -->
+                <button class="p-1 hover:bg-white/10 rounded" title="Open Full Window Gallery">↗</button>
+                <!-- Tag Filter Popup Button -->
+                <button onclick="togglePortTagPopup(true)" class="p-1 hover:bg-white/10 rounded text-purple-300" title="Filter By Tag">🏷️</button>
+                
+                <!-- COMPACT SINGLE TOGGLEABLE SCOPE ICON (Requested in feedback!) -->
+                <button id="btn-port-scope-icon" onclick="togglePortScopeIcon()" class="px-2 py-0.8 rounded-lg bg-[var(--primary)] text-[var(--on-primary)] font-bold text-[10px] flex items-center gap-1 transition" title="Toggle: This Video vs All by Tags">
+                  <span id="port-scope-icon-glyph">🎬</span>
+                  <span id="port-scope-icon-text">Vid</span>
+                </button>
+              </div>
+
+              <span class="text-white/60 hover:text-white cursor-pointer px-1">✕</span>
+            </div>
+
+            <!-- Floating Tag Filter Popup for Portrait Mode -->
+            <div id="port-tag-popup" class="hidden bg-black/90 border border-purple-500/60 rounded-xl p-2 space-y-1.5 z-20 text-[10px]">
+              <div class="flex justify-between items-center">
+                <span class="font-bold text-purple-200">Select Filter Tag:</span>
+                <button onclick="togglePortTagPopup(false)" class="text-white/60">✕</button>
+              </div>
+              <div class="flex flex-wrap gap-1">
+                <span class="px-1.5 py-0.5 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold cursor-pointer">#highlight (8)</span>
+                <span class="px-1.5 py-0.5 rounded bg-white/10 text-white cursor-pointer">+ scene (6)</span>
+                <span class="px-1.5 py-0.5 rounded bg-white/10 text-white cursor-pointer">+ dialogue (4)</span>
+              </div>
+            </div>
+
+            <!-- Thumbnail ROW 1 (Occupies exactly 25% of overall height) -->
+            <div class="flex-1 flex flex-col justify-center">
+              <div class="text-[8px] text-purple-300 font-bold mb-0.5 flex justify-between px-0.5">
+                <span>ROW 1 (25% Height Allocation)</span>
+                <span class="text-white/40 font-mono">Cards 1 & 2</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 h-full">
+                <!-- Card 1 -->
+                <div class="bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] p-1 rounded-lg border border-white/5 flex flex-col justify-between cursor-pointer">
+                  <div class="aspect-video bg-black rounded overflow-hidden relative">
+                    <div class="absolute inset-0 bg-purple-900/30"></div>
+                    <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">06:14</span>
+                    <span class="absolute top-0 left-0 bg-purple-700/80 px-1 text-[7px] font-bold text-white">#1</span>
+                  </div>
+                  <div class="text-[9px] font-bold text-white truncate mt-0.5">Opening Scene</div>
+                </div>
+                <!-- Card 2 -->
+                <div class="bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] p-1 rounded-lg border border-white/5 flex flex-col justify-between cursor-pointer">
+                  <div class="aspect-video bg-black rounded overflow-hidden relative">
+                    <div class="absolute inset-0 bg-purple-900/30"></div>
+                    <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">14:22</span>
+                    <span class="absolute top-0 left-0 bg-purple-700/80 px-1 text-[7px] font-bold text-white">#2</span>
+                  </div>
+                  <div class="text-[9px] font-bold text-white truncate mt-0.5">Key Conversation</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Thumbnail ROW 2 (Occupies exactly 25% of overall height) -->
+            <div class="flex-1 flex flex-col justify-center border-t border-white/5 pt-1">
+              <div class="text-[8px] text-emerald-300 font-bold mb-0.5 flex justify-between px-0.5">
+                <span>ROW 2 (25% Height Allocation)</span>
+                <span class="text-white/40 font-mono">Cards 3 & 4</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 h-full">
+                <!-- Card 3 -->
+                <div class="bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] p-1 rounded-lg border border-white/5 flex flex-col justify-between cursor-pointer">
+                  <div class="aspect-video bg-black rounded overflow-hidden relative">
+                    <div class="absolute inset-0 bg-purple-900/30"></div>
+                    <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">25:17</span>
+                    <span class="absolute top-0 left-0 bg-purple-700/80 px-1 text-[7px] font-bold text-white">#3</span>
+                  </div>
+                  <div class="text-[9px] font-bold text-white truncate mt-0.5">Dialogue Timestamp</div>
+                </div>
+                <!-- Card 4 -->
+                <div class="bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] p-1 rounded-lg border border-white/5 flex flex-col justify-between cursor-pointer">
+                  <div class="aspect-video bg-black rounded overflow-hidden relative">
+                    <div class="absolute inset-0 bg-purple-900/30"></div>
+                    <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">48:50</span>
+                    <span class="absolute top-0 left-0 bg-purple-700/80 px-1 text-[7px] font-bold text-white">#4</span>
+                  </div>
+                  <div class="text-[9px] font-bold text-white truncate mt-0.5">Climax Action</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="text-[8px] text-center text-emerald-300 font-mono bg-emerald-950/40 py-0.5 rounded border border-emerald-800/30">
+              ✓ Exact 50% Video / 25% Row 1 / 25% Row 2 breakdown. Zero clipping!
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 2B: IN-PLAYER BOOKMARKS - LANDSCAPE (MULTI-ROW NON-OVERFLOW TOOLBAR) -->
+    <!-- ========================================================================= -->
+    <section id="section-player-land" class="space-y-4 pt-4 border-t border-[var(--bg-surface-highest)]">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/40">Landscape Mode (Multi-Row Zero-Overflow Toolbar)</span>
+          <h2 class="text-base font-bold text-white mt-1">2B. Landscape Player: Multi-Row Arranged Toolbar (20% – 35% Variable Width)</h2>
+          <p class="text-xs text-[var(--text-low)]">
+            Row 1 (Header/Clock), Row 2 (Existing tools), and Row 3 (Scope & Tag filter). Cleanly organized so buttons NEVER overflow even at 20% width!
+          </p>
+        </div>
+        <!-- Variable width interactive buttons -->
+        <div class="flex items-center gap-1 bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-white/10 text-xs">
+          <span class="text-[10px] text-[var(--text-low)] pl-1">Sidebar Width:</span>
+          <button onclick="setPlayerWidth(20)" id="btn-w-20" class="px-2 py-0.5 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold transition">20%</button>
+          <button onclick="setPlayerWidth(25)" id="btn-w-25" class="px-2 py-0.5 rounded text-[var(--text-med)] hover:text-white transition">25%</button>
+          <button onclick="setPlayerWidth(30)" id="btn-w-30" class="px-2 py-0.5 rounded text-[var(--text-med)] hover:text-white transition">30%</button>
+          <button onclick="setPlayerWidth(35)" id="btn-w-35" class="px-2 py-0.5 rounded text-[var(--text-med)] hover:text-white transition">35%</button>
+        </div>
+      </div>
+
+      <!-- Landscape Frame with Dynamic Width Slider -->
+      <div class="bg-[var(--bg-surface)] p-4 rounded-3xl border border-[var(--bg-surface-highest)] shadow-2xl">
+        <div class="relative bg-black rounded-2xl overflow-hidden border border-white/10 flex h-[410px] transition-all duration-300">
+          
+          <!-- Video Playback Zone (Dynamically takes remaining width) -->
+          <div id="video-zone" class="bg-zinc-950 p-4 flex flex-col justify-between relative border-r border-white/10 transition-all duration-300" style="width: 80%;">
+            <!-- Header bar -->
+            <div class="flex items-center justify-between text-xs text-white/80">
+              <div class="flex items-center gap-2">
+                <span>←</span>
+                <span class="font-bold bg-black/60 px-2 py-1 rounded">MIMK-232 • 2/7</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span id="video-width-badge" class="bg-black/60 px-2 py-0.5 rounded text-[10px] font-mono text-purple-200">Video: 80%</span>
+                <span>⋮</span>
+              </div>
+            </div>
+
+            <!-- Subtitle -->
+            <div class="self-center text-center">
+              <div class="text-xs text-yellow-200 bg-black/70 px-3 py-1.5 rounded-lg border border-white/5 shadow">
+                "That means there's no time limit..."
+              </div>
+            </div>
+
+            <!-- Floating Tag Filter Popup (Triggered from Row 3) -->
+            <div id="tag-filter-popup" class="hidden absolute top-12 right-6 z-30 w-64 bg-[var(--bg-surface-elevated)] border-2 border-purple-500/70 rounded-2xl shadow-2xl p-3 space-y-2 backdrop-blur-md">
+              <div class="flex items-center justify-between pb-1 border-b border-white/10">
+                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>🏷️</span> Filter Bookmarks by Tag
+                </span>
+                <button onclick="toggleTagPopup(false)" class="text-xs text-white/60 hover:text-white">✕</button>
+              </div>
+              <div class="flex items-center gap-1.5 bg-black/60 px-2 py-1.5 rounded-lg border border-white/10 text-xs">
+                <span class="text-[11px] text-[var(--primary)]">🔍</span>
+                <input type="text" placeholder="Search tags..." class="bg-transparent border-none outline-none text-xs text-white placeholder-[var(--text-low)] w-full">
+              </div>
+              <div class="space-y-1 max-h-28 overflow-y-auto custom-scroll text-xs pr-1">
+                <label class="flex items-center justify-between p-1 rounded hover:bg-white/5 cursor-pointer">
+                  <span class="text-purple-200">#highlight (8)</span>
+                  <input type="checkbox" checked class="accent-[var(--primary)]">
+                </label>
+                <label class="flex items-center justify-between p-1 rounded hover:bg-white/5 cursor-pointer">
+                  <span class="text-[var(--text-med)]">#scene (6)</span>
+                  <input type="checkbox" class="accent-[var(--primary)]">
+                </label>
+                <label class="flex items-center justify-between p-1 rounded hover:bg-white/5 cursor-pointer">
+                  <span class="text-[var(--text-med)]">#dialogue (4)</span>
+                  <input type="checkbox" class="accent-[var(--primary)]">
+                </label>
+              </div>
+              <div class="flex justify-between items-center pt-1 border-t border-white/10 text-[10px]">
+                <button onclick="toggleTagPopup(false)" class="text-[var(--text-low)] hover:underline">Cancel</button>
+                <button onclick="applyTagPopupFilter()" class="bg-[var(--primary)] text-[var(--on-primary)] px-2.5 py-1 rounded font-bold">Apply</button>
+              </div>
+            </div>
+
+            <!-- Scrubber -->
+            <div class="space-y-1">
+              <div class="flex justify-between text-[10px] text-white/60 font-mono">
+                <span>25:17</span>
+                <span>2:01:55</span>
+              </div>
+              <div class="h-1.5 bg-white/20 rounded-full relative">
+                <div class="w-1/4 h-full bg-[var(--primary)] rounded-full"></div>
+                <div class="absolute left-1/4 top-1/2 -translate-y-1/2 w-2 h-4 bg-purple-300 rounded shadow"></div>
+              </div>
+              <div class="flex justify-between items-center text-xs text-white/80 pt-1">
+                <span>🔄</span>
+                <div class="flex gap-4 items-center">
+                  <span>⏮</span>
+                  <span class="bg-white/10 p-1 rounded-full">▶</span>
+                  <span>⏭</span>
+                </div>
+                <span class="text-purple-300">🔖 Active</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bookmark Sidebar Zone (Variable 20% - 35%) -->
+          <div id="sidebar-zone" class="bg-[var(--bg-surface-elevated)] p-2 flex flex-col justify-between text-xs space-y-1.5 transition-all duration-300" style="width: 20%;">
+            
+            <!-- MULTI-ROW ARRANGED TOOLBAR (Requested in feedback!) -->
+            <div class="space-y-1 bg-[var(--bg-base)] p-1.5 rounded-xl border border-white/10">
+              
+              <!-- ROW 1: Header + Live Clock + Quick Actions -->
+              <div class="flex items-center justify-between pb-1 border-b border-white/10 text-[10px]">
+                <div class="flex items-center gap-1 bg-black/60 px-1.5 py-0.5 rounded border border-purple-500/30 text-[9px]">
+                  <span>🕒</span>
+                  <span class="font-mono font-bold text-purple-200" id="land-clock">18:45:01</span>
+                </div>
+                <div class="flex items-center gap-1 text-white/70">
+                  <button class="hover:text-white p-0.5" title="Add Bookmark">➕</button>
+                  <button class="hover:text-white p-0.5" title="Overlay">⛶</button>
+                  <button class="hover:text-white p-0.5">✕</button>
+                </div>
+              </div>
+
+              <!-- ROW 2: Existing Auxiliary Controls (Audio FP, Row count, Width %, Full Gallery) -->
+              <div class="flex items-center justify-between gap-1 text-[9px] font-mono">
+                <!-- Audio Fingerprint -->
+                <button class="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-center truncate" title="Audio Fingerprint / Preset">🔲 FP</button>
+                <!-- Row Selector -->
+                <button class="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-center font-bold text-purple-200 truncate" title="Cycle Row Density">⊞ 3R</button>
+                <!-- Width Selector -->
+                <button onclick="cycleWidthStep()" class="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-center truncate" title="Cycle Width 20-35%" id="btn-width-label">20%</button>
+                <!-- Full Gallery -->
+                <button class="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-center truncate" title="Open Full Window Gallery">↗ Gal</button>
+              </div>
+
+              <!-- ROW 3: New Feature Options (Scope Switcher + Tag Filter Trigger) -->
+              <div class="flex items-center justify-between gap-1 pt-0.5 border-t border-white/5 text-[9px]">
+                <!-- Compact Scope Switcher Button -->
+                <button id="btn-land-scope-btn" onclick="toggleLandScopeState()" class="flex-1 py-1 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold text-center truncate flex items-center justify-center gap-1" title="Toggle This Video vs All by Tags">
+                  <span id="land-scope-icon">🎬</span>
+                  <span id="land-scope-label">This Video</span>
+                </button>
+                <!-- Tag Filter Button -->
+                <button onclick="toggleTagPopup(true)" class="flex-1 py-1 rounded bg-[var(--primary-container)] text-[var(--on-primary-container)] font-semibold text-center truncate flex items-center justify-center gap-0.5 hover:brightness-110" title="Open Tag Filter Popup">
+                  <span>🏷️</span>
+                  <span>Tags...</span>
+                </button>
+              </div>
+
+            </div>
+
+            <!-- Bookmark Cards List with Clean Proportions -->
+            <div class="flex-1 overflow-y-auto space-y-1.5 custom-scroll pr-0.5">
+              <div class="p-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] rounded border border-white/5 cursor-pointer">
+                <div class="aspect-video bg-black rounded overflow-hidden relative">
+                  <div class="absolute inset-0 bg-purple-900/40"></div>
+                  <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">06:14</span>
+                </div>
+                <div class="text-[9px] font-bold text-white truncate mt-0.5">06:14 Scene 1</div>
+              </div>
+              <div class="p-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] rounded border border-white/5 cursor-pointer">
+                <div class="aspect-video bg-black rounded overflow-hidden relative">
+                  <div class="absolute inset-0 bg-purple-900/40"></div>
+                  <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">25:17</span>
+                </div>
+                <div class="text-[9px] font-bold text-white truncate mt-0.5">25:17 Dialogue</div>
+              </div>
+              <div class="p-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-highest)] rounded border border-white/5 cursor-pointer">
+                <div class="aspect-video bg-black rounded overflow-hidden relative">
+                  <div class="absolute inset-0 bg-purple-900/40"></div>
+                  <span class="absolute bottom-0 right-0 bg-black/80 px-1 font-mono text-[7px] text-white">48:50</span>
+                </div>
+                <div class="text-[9px] font-bold text-white truncate mt-0.5">48:50 Climax</div>
+              </div>
+            </div>
+
+            <div class="text-[8px] text-center text-purple-200/80 pt-1 border-t border-white/5 font-mono">
+              Sidebar: <span id="sidebar-label-footer">20%</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 1A: BOOKMARK GALLERY - LANDSCAPE (UP TO 4 COLUMNS) -->
+    <!-- ========================================================================= -->
+    <section id="section-gallery-land" class="space-y-4 pt-4 border-t border-[var(--bg-surface-highest)]">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/40">Landscape Mode (Max 4 Columns)</span>
+          <h2 class="text-base font-bold text-white mt-1">1A. Bookmark Gallery in Landscape: Max 4 Columns (33% / 33% / 34% Split)</h2>
+          <p class="text-xs text-[var(--text-low)]">
+            Controls = 34%, Row 1 = 33%, Row 2 = 33%. Supports up to 4 columns in landscape mode without vertical clipping.
+          </p>
+        </div>
+        <div class="flex items-center gap-1.5 bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-white/10 text-xs">
+          <span class="text-[10px] text-[var(--text-low)] pl-1">Cols:</span>
+          <button onclick="setLandCols(4)" id="btn-col-4" class="px-2 py-0.5 rounded-lg bg-[var(--primary)] text-[var(--on-primary)] font-bold transition">4 Cols (Max)</button>
+          <button onclick="setLandCols(3)" id="btn-col-3" class="px-2 py-0.5 rounded-lg text-[var(--text-med)] hover:text-white transition">3 Cols</button>
+          <button onclick="setLandCols(2)" id="btn-col-2" class="px-2 py-0.5 rounded-lg text-[var(--text-med)] hover:text-white transition">2 Cols</button>
+        </div>
+      </div>
+
+      <div class="bg-[var(--bg-surface)] p-4 rounded-3xl border border-[var(--bg-surface-highest)] shadow-2xl">
+        <div class="bg-[#120d1c] rounded-2xl border border-white/10 p-3 h-[420px] flex flex-col justify-between overflow-hidden relative">
+          
+          <!-- Top 34% Control Area -->
+          <div class="h-[34%] flex flex-col justify-between pb-2 border-b border-white/10 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="cursor-pointer text-xs hover:text-white">←</span>
+                <span class="font-bold text-xs text-white">Bookmarks</span>
+                <span class="text-[9px] bg-black/60 text-purple-200 px-1.5 py-0.2 rounded font-mono">20</span>
+              </div>
+              <div class="flex bg-black/60 p-0.5 rounded-full text-[10px] border border-white/5">
+                <button class="px-2.5 py-0.5 rounded-full bg-[var(--primary)] text-[var(--on-primary)] font-bold">All Videos</button>
+                <button class="px-2.5 py-0.5 rounded-full text-[var(--text-low)] hover:text-white flex items-center gap-1">
+                  <span>🔒</span> Secure
+                </button>
+              </div>
+              <div class="text-[10px] bg-white/5 px-2 py-0.5 rounded text-purple-300 font-mono border border-white/5">
+                <span id="land-col-readout">4 Columns</span>
+              </div>
+            </div>
+
+            <!-- Thicker Search Input Row -->
+            <div class="flex-1 flex flex-col justify-center space-y-1.5">
+              <div class="flex items-center gap-2 bg-[var(--bg-surface-elevated)] px-3 py-2 rounded-xl border border-white/10 shadow-inner">
+                <span class="text-sm text-[var(--primary)]">🔍</span>
+                <input type="text" placeholder="Filter bookmarks by tags (e.g. #intro, #action)..." class="bg-transparent border-none outline-none text-xs text-white placeholder-[var(--text-low)] w-full">
+                <button class="text-[10px] bg-white/5 hover:bg-white/10 text-[var(--text-med)] px-2 py-1 rounded">Clear</button>
+              </div>
+              <div class="flex items-center gap-1.5 overflow-x-auto text-[10px]">
+                <span class="text-[9px] text-[var(--text-low)]">Tags:</span>
+                <span class="px-2 py-0.5 rounded-full bg-[var(--primary-container)] text-[var(--on-primary-container)] font-medium flex items-center gap-1">
+                  highlight <span class="cursor-pointer font-bold">×</span>
+                </span>
+                <span class="px-2 py-0.5 rounded-full bg-white/5 text-[var(--text-med)] hover:text-white cursor-pointer">+ scene</span>
+                <span class="px-2 py-0.5 rounded-full bg-white/5 text-[var(--text-med)] hover:text-white cursor-pointer">+ climax</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Middle 33%: Thumbnail ROW 1 -->
+          <div class="h-[33%] flex flex-col justify-center py-1">
+            <div class="text-[9px] font-semibold text-purple-300 mb-1 flex justify-between">
+              <span>ROW 1 (33% Height)</span>
+              <span class="text-[8px] text-[var(--text-low)] font-mono">16:9 Aspect Cards</span>
+            </div>
+            <div id="land-grid-1" class="grid grid-cols-4 gap-2 h-full">
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">04:12 • Scene 1</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#highlight</span>
+              </div>
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">12:45 • Intro</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#scene</span>
+              </div>
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">28:30 • Climax</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#climax</span>
+              </div>
+              <div id="col4-item-1" class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">31:15 • Chase</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#action</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom 33%: Thumbnail ROW 2 -->
+          <div class="h-[33%] flex flex-col justify-center py-1 border-t border-white/5">
+            <div class="text-[9px] font-semibold text-emerald-300 mb-1 flex justify-between">
+              <span>ROW 2 (33% Height)</span>
+              <span class="text-[8px] text-[var(--text-low)] font-mono">16:9 Aspect Cards</span>
+            </div>
+            <div id="land-grid-2" class="grid grid-cols-4 gap-2 h-full">
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">35:10 • Dialogue</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#dialogue</span>
+              </div>
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">42:18 • Ending</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#highlight</span>
+              </div>
+              <div class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">55:00 • Epilogue</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#scene</span>
+              </div>
+              <div id="col4-item-2" class="bg-[var(--bg-surface-highest)] rounded-lg overflow-hidden relative border border-white/10 p-1 flex flex-col justify-between cursor-pointer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30"></div>
+                <span class="relative text-[8px] font-bold text-white truncate">59:20 • Credits</span>
+                <span class="relative text-[7px] bg-black/70 self-start px-1 rounded text-purple-200">#outro</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 1B: BOOKMARK GALLERY - PORTRAIT (MAX 3 COLUMNS) -->
+    <!-- ========================================================================= -->
+    <section id="section-gallery-port" class="space-y-4 pt-4 border-t border-[var(--bg-surface-highest)]">
+      <div>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/40">Portrait Mode (Strict Max 3 Columns)</span>
+        <h2 class="text-base font-bold text-white mt-1">1B. Bookmark Gallery in Portrait: Hard-Capped at 3 Columns</h2>
+        <p class="text-xs text-[var(--text-low)]">
+          In portrait mode, column count is restricted to 1, 2, or 3 max so thumbnails never become unreadable.
+        </p>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="w-80 bg-[#120d1c] rounded-3xl border-2 border-[var(--bg-surface-highest)] p-4 shadow-2xl space-y-2.5">
+          <div class="flex items-center justify-between text-xs text-[var(--text-low)] font-mono pb-1">
+            <span>18:38:33</span>
+            <div class="flex items-center gap-1 text-[9px]">
+              <span>📶</span>
+              <span>🔋 76%</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between bg-[var(--bg-surface-elevated)] p-1.5 rounded-xl border border-white/5 text-xs">
+            <div class="flex items-center gap-1.5">
+              <span>←</span>
+              <span class="font-bold text-white">Bookmarks</span>
+              <span class="text-[9px] bg-black/60 text-purple-200 px-1.5 py-0.2 rounded font-mono">20</span>
+            </div>
+            <div class="flex bg-black/60 p-0.5 rounded-full text-[9px]">
+              <span class="px-2 py-0.5 rounded-full bg-[var(--primary)] text-[var(--on-primary)] font-bold">All</span>
+              <span class="px-2 py-0.5 rounded-full text-[var(--text-low)]">🔒 Sec</span>
+            </div>
+            <span class="text-[9px] bg-white/5 px-1.5 py-0.5 rounded text-purple-300 font-bold">⊞ 3 Max</span>
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 bg-[var(--bg-surface-elevated)] px-2.5 py-2 rounded-xl border border-white/10">
+              <span class="text-xs text-[var(--primary)]">🔍</span>
+              <input type="text" placeholder="Filter by tags..." class="bg-transparent border-none outline-none text-xs text-white placeholder-[var(--text-low)] w-full">
+              <span class="text-[9px] text-[var(--text-low)]">Clear</span>
+            </div>
+            <div class="flex gap-1 overflow-x-auto text-[9px]">
+              <span class="px-1.5 py-0.5 rounded bg-[var(--primary-container)] text-[var(--on-primary-container)]">blowjob ×</span>
+              <span class="px-1.5 py-0.5 rounded bg-white/5 text-[var(--text-low)]">+ pin hands</span>
+              <span class="px-1.5 py-0.5 rounded bg-white/5 text-[var(--text-low)]">+ undress</span>
+            </div>
+          </div>
+
+          <div class="space-y-1.5 pt-1">
+            <span class="text-[9px] text-purple-300 font-semibold block">Row 1 (3 Columns)</span>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">04:12</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#blowjob</span>
+              </div>
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">12:45</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#pin hands</span>
+              </div>
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">28:30</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#undress</span>
+              </div>
+            </div>
+
+            <span class="text-[9px] text-emerald-300 font-semibold block pt-1 border-t border-white/5">Row 2 (3 Columns - Fully Visible)</span>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">35:10</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#blowjob</span>
+              </div>
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">42:18</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#swallow</span>
+              </div>
+              <div class="aspect-video bg-[var(--bg-surface-highest)] rounded-lg p-1 flex flex-col justify-between border border-white/5">
+                <span class="text-[7px] text-white truncate font-medium">55:00</span>
+                <span class="text-[6px] bg-black/70 px-1 rounded self-start text-purple-200">#scene</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 3: MUSIC PLAYER (2-LINE LYRICS DEFAULT & COMPACT EDITOR) -->
+    <!-- ========================================================================= -->
+    <section id="section-music" class="space-y-4 pt-4 border-t border-[var(--bg-surface-highest)]">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40">2-Line Default Config</span>
+          <h2 class="text-base font-bold text-white mt-1">3. Music Player: Multi-Line Lyrics (2-Line Default) & Compact Controls</h2>
+          <p class="text-xs text-[var(--text-low)]">
+            Default multi-line mode displays 2 lines simultaneously with automatic artwork downsizing.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-[var(--bg-surface)] p-3.5 rounded-2xl border border-[var(--bg-surface-highest)] space-y-2.5">
+          <div class="p-2.5 bg-[var(--bg-surface-elevated)] rounded-xl border border-white/5 space-y-1.5">
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-semibold text-white">Lyrics Display:</span>
+              <span id="m2-line-badge" class="text-[9px] bg-[var(--primary-container)] text-[var(--on-primary-container)] px-2 py-0.5 rounded font-mono font-bold">2 Lines (Default)</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 text-xs">
+              <button onclick="setMusicLinesFinal(1)" id="btn-mfinal-1" class="py-1 rounded bg-[var(--bg-surface-highest)] text-[var(--text-med)]">1 Line</button>
+              <button onclick="setMusicLinesFinal(2)" id="btn-mfinal-2" class="py-1 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold">2 Lines (Default)</button>
+              <button onclick="setMusicLinesFinal(3)" id="btn-mfinal-3" class="py-1 rounded bg-[var(--bg-surface-highest)] text-[var(--text-med)]">3 Lines</button>
+            </div>
+          </div>
+
+          <div class="p-2.5 bg-[var(--bg-surface-elevated)] rounded-xl border border-white/5 space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="font-semibold text-white">Font Size:</span>
+              <span id="m2-font-readout" class="font-mono text-[var(--primary)] font-bold text-xs">14px</span>
+            </div>
+            <input type="range" min="11" max="20" value="14" class="w-full accent-[var(--primary)] cursor-pointer" oninput="changeMFontFinal(this.value)">
+          </div>
+
+          <div class="p-2.5 bg-[var(--bg-surface-elevated)] rounded-xl border border-white/5 space-y-1 text-xs">
+            <span class="font-semibold text-white block">Button Visibility:</span>
+            <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+              <label class="flex items-center justify-between p-1 rounded bg-black/40 cursor-pointer">
+                <span>Speed Chip</span>
+                <input type="checkbox" checked onchange="toggleM2('chip-spd2', this.checked)" class="accent-[var(--primary)]">
+              </label>
+              <label class="flex items-center justify-between p-1 rounded bg-black/40 cursor-pointer">
+                <span>Equalizer (📊)</span>
+                <input type="checkbox" checked onchange="toggleM2('btn-eq2', this.checked)" class="accent-[var(--primary)]">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-[var(--bg-surface)] p-4 rounded-2xl border border-[var(--bg-surface-highest)] flex justify-center">
+          <div class="w-72 bg-[#120d1c] rounded-3xl border-2 border-[var(--bg-surface-highest)] p-4 flex flex-col justify-between shadow-2xl space-y-2">
+            <div class="flex items-center justify-between text-xs text-[var(--text-med)]">
+              <span>▼</span>
+              <span class="font-bold text-white text-xs">Now Playing</span>
+              <span>ⓘ</span>
+            </div>
+
+            <div class="flex justify-center transition-all duration-300">
+              <div id="m2-art-box" class="w-36 h-36 rounded-2xl bg-zinc-900 border border-white/10 flex flex-col items-center justify-center shadow-lg relative overflow-hidden transition-all duration-300">
+                <span class="text-3xl">🎙️</span>
+                <span class="text-[9px] font-bold text-white/80 tracking-widest uppercase mt-1">The Eminem Show</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="text-xs font-bold text-white truncate">Till I Collapse (feat. Nate Dogg)</div>
+              <div class="text-[10px] text-[var(--text-low)] truncate">Eminem</div>
+            </div>
+
+            <div class="flex items-center justify-between text-[10px] text-[var(--text-med)] py-0.5">
+              <span class="font-mono text-[9px]">Track 1/1018</span>
+              <div class="flex items-center gap-1">
+                <span id="chip-spd2" class="bg-white/10 px-1 rounded text-[9px]">1.00x</span>
+                <span class="text-purple-300">♡</span>
+                <span>≡+</span>
+              </div>
+            </div>
+
+            <div class="p-2 rounded-xl bg-[var(--bg-surface-elevated)] border border-purple-500/40 space-y-1">
+              <div class="flex items-center justify-between text-[8px] text-[var(--primary)] font-bold">
+                <span>♪ SYNCHRONIZED LYRICS (2 LINES)</span>
+                <span>&gt;</span>
+              </div>
+              <div id="m2-lyrics-text" class="space-y-0.5 font-medium transition-all" style="font-size: 14px;">
+                <p class="text-white font-bold" id="m2l-1">"Just the groove for now..."</p>
+                <p class="text-purple-200/90 font-medium" id="m2l-2">'Cause sometimes you feel tired...</p>
+                <p class="text-[var(--text-low)] font-medium hidden" id="m2l-3">You feel weak, and when you feel weak...</p>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <div class="h-1 bg-[var(--bg-surface-highest)] rounded-full relative">
+                <div class="w-1/4 h-full bg-[var(--primary)] rounded-full"></div>
+              </div>
+              <div class="flex justify-between text-[8px] text-[var(--text-low)] font-mono">
+                <span>00:01</span>
+                <span>04:58</span>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-center gap-3 py-1">
+              <span class="text-sm">⏮</span>
+              <span class="w-10 h-7 rounded-full bg-[var(--primary)] text-[var(--on-primary)] flex items-center justify-center font-bold">▶</span>
+              <span class="text-sm">⏭</span>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-[var(--text-med)] pt-1 border-t border-white/5">
+              <span id="btn-eq2">📊</span>
+              <span>💬</span>
+              <span>🔀</span>
+              <span>🔁</span>
+              <span>🎧</span>
+              <span>☰</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 4: UNIVERSAL 5-TAP STEALTH MODE -->
+    <!-- ========================================================================= -->
+    <section id="section-stealth" class="space-y-4 pt-4 border-t border-[var(--bg-surface-highest)]">
+      <div>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/40">Universal 5+ Tap Protocol</span>
+        <h2 class="text-base font-bold text-white mt-1">4. Universal Stealth Mode: 5+ Taps for Secret Stats & Secret Folder</h2>
+        <p class="text-xs text-[var(--text-low)]">
+          Both Secret Statistics and the Secret Folder itself require 5 or more rapid taps to trigger authentication, eliminating accidental access.
+        </p>
+      </div>
+
+      <div class="bg-[var(--bg-surface)] p-4 rounded-3xl border border-[var(--bg-surface-highest)] shadow-2xl flex flex-col md:flex-row gap-6 items-center justify-center">
+        
+        <div class="max-w-sm space-y-3 text-xs">
+          <div class="p-3 bg-[var(--bg-surface-elevated)] rounded-xl border border-white/5 space-y-2">
+            <span class="font-bold text-white block">Universal 5-Tap Gesture:</span>
+            <ul class="list-disc list-inside space-y-1 text-[11px] text-[var(--text-low)]">
+              <li>Replaces double-tap and hold everywhere in the app.</li>
+              <li>Tapping <strong>"mpvRx"</strong> 5 times unlocks Secret Statistics in Profile.</li>
+              <li>Tapping the Secret Vault entry 5 times prompts for Folder PIN.</li>
+              <li>Re-tapping 5 times instantly wipes secret cache and locks session.</li>
+            </ul>
+            <div class="flex items-center justify-between bg-black/40 p-2 rounded-lg border border-white/5">
+              <span>Test Tap Counter:</span>
+              <span id="stealth-tap-readout" class="font-mono text-purple-300 font-bold text-sm">0 / 5 Taps</span>
+            </div>
+            <button onclick="handleStealthTap()" class="w-full py-2 bg-[var(--primary)] text-[var(--on-primary)] rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition">
+              👆 Tap Stealth Logo (<span id="stealth-taps-left">5 more</span>)
+            </button>
+          </div>
+        </div>
+
+        <div class="w-80 bg-[#120d1c] rounded-3xl border-2 border-[var(--bg-surface-highest)] p-4 shadow-2xl space-y-3 relative">
+          <div id="auth-gate-modal" class="hidden absolute inset-0 z-40 bg-black/95 rounded-3xl p-5 flex flex-col justify-center items-center text-center space-y-3 backdrop-blur-sm">
+            <span class="text-3xl">🔒</span>
+            <div>
+              <div class="font-bold text-white text-sm">5+ Taps Detected</div>
+              <div class="text-[10px] text-[var(--text-low)]">Authenticate to unlock Secret Database</div>
+            </div>
+            <button onclick="unlockSecretSuccess()" class="w-full py-2 bg-[var(--primary)] text-[var(--on-primary)] rounded-xl font-bold text-xs mt-2">
+              Unlock with Biometrics / PIN
+            </button>
+            <button onclick="closeAuthGate()" class="text-[10px] text-[var(--text-low)] hover:underline">Cancel</button>
+          </div>
+
+          <div class="flex items-center justify-between pb-1 border-b border-white/5">
+            <div class="flex items-center gap-2">
+              <button onclick="handleStealthTap()" class="font-mono text-xs font-black tracking-wider text-purple-200 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/40 hover:bg-purple-900/60 active:scale-90 transition">
+                mpvRx
+              </button>
+              <span class="font-bold text-white text-xs">Profile</span>
+            </div>
+            <div id="status-pill" class="text-[9px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded-full font-mono border border-emerald-800/40">
+              Normal Mode
+            </div>
+          </div>
+
+          <div class="bg-[var(--bg-surface-elevated)] p-2.5 rounded-xl border border-white/5 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-white flex items-center gap-1">
+                <span class="text-purple-400">★</span> <span id="most-watched-title">Most watched</span>
+              </span>
+              <span id="db-source-label" class="text-[9px] text-emerald-400">Public DB</span>
+            </div>
+
+            <div id="media-list-container" class="space-y-1.5 text-[11px]">
+              <div class="flex items-center gap-2 p-1.5 rounded bg-white/5">
+                <span class="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-bold flex items-center justify-center">1</span>
+                <span class="flex-1 truncate">Gmail কাজ করার নি...</span>
+                <span class="text-[10px] text-[var(--text-low)] font-mono">5m</span>
+              </div>
+              <div class="flex items-center gap-2 p-1.5 rounded bg-white/5">
+                <span class="w-4 h-4 rounded-full bg-zinc-700 text-white text-[9px] font-bold flex items-center justify-center">2</span>
+                <span class="flex-1 truncate">*NSYNC - Bye Bye Bye...</span>
+                <span class="text-[10px] text-[var(--text-low)] font-mono">4m</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="secret-relock-btn" class="hidden">
+            <button onclick="lockSecretBack()" class="w-full py-1.5 rounded-xl bg-red-950/80 text-red-300 border border-red-800/40 text-[10px] font-bold">
+              🔒 Re-Lock Secret Mode
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- JavaScript Controls -->
+  <script>
+    // 2A. Portrait Player Scope Icon Toggle
+    let portScopeIsVideo = true;
+    function togglePortScopeIcon() {
+      portScopeIsVideo = !portScopeIsVideo;
+      const glyph = document.getElementById('port-scope-icon-glyph');
+      const text = document.getElementById('port-scope-icon-text');
+      const btn = document.getElementById('btn-port-scope-icon');
+      if (portScopeIsVideo) {
+        glyph.innerText = "🎬";
+        text.innerText = "Vid";
+        btn.className = "px-2 py-0.8 rounded-lg bg-[var(--primary)] text-[var(--on-primary)] font-bold text-[10px] flex items-center gap-1 transition";
+      } else {
+        glyph.innerText = "🏷️";
+        text.innerText = "Tags";
+        btn.className = "px-2 py-0.8 rounded-lg bg-purple-700 text-white font-bold text-[10px] flex items-center gap-1 transition";
+      }
+    }
+
+    function togglePortTagPopup(show) {
+      const pop = document.getElementById('port-tag-popup');
+      if (show) pop.classList.remove('hidden');
+      else pop.classList.add('hidden');
+    }
+
+    // 2B. Landscape Player Multi-Row Controls & Width
+    let currentWidth = 20;
+    function setPlayerWidth(pct) {
+      currentWidth = pct;
+      const vz = document.getElementById('video-zone');
+      const sz = document.getElementById('sidebar-zone');
+      const vBadge = document.getElementById('video-width-badge');
+      const sFooter = document.getElementById('sidebar-label-footer');
+      const wLabel = document.getElementById('btn-width-label');
+
+      [20, 25, 30, 35].forEach(p => {
+        const btn = document.getElementById(`btn-w-${p}`);
+        btn.className = "px-2 py-0.5 rounded text-[var(--text-med)] hover:text-white transition";
+      });
+      document.getElementById(`btn-w-${pct}`).className = "px-2 py-0.5 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold transition";
+
+      sz.style.width = `${pct}%`;
+      vz.style.width = `${100 - pct}%`;
+      vBadge.innerText = `Video: ${100 - pct}%`;
+      sFooter.innerText = `${pct}%`;
+      wLabel.innerText = `${pct}%`;
+    }
+
+    function cycleWidthStep() {
+      const steps = [20, 25, 30, 35];
+      let nextIdx = (steps.indexOf(currentWidth) + 1) % steps.length;
+      setPlayerWidth(steps[nextIdx]);
+    }
+
+    let landScopeIsVideo = true;
+    function toggleLandScopeState() {
+      landScopeIsVideo = !landScopeIsVideo;
+      const icon = document.getElementById('land-scope-icon');
+      const label = document.getElementById('land-scope-label');
+      const btn = document.getElementById('btn-land-scope-btn');
+      if (landScopeIsVideo) {
+        icon.innerText = "🎬";
+        label.innerText = "This Video";
+        btn.className = "flex-1 py-1 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold text-center truncate flex items-center justify-center gap-1";
+      } else {
+        icon.innerText = "🏷️";
+        label.innerText = "All by Tags";
+        btn.className = "flex-1 py-1 rounded bg-purple-700 text-white font-bold text-center truncate flex items-center justify-center gap-1";
+      }
+    }
+
+    function toggleTagPopup(show) {
+      const popup = document.getElementById('tag-filter-popup');
+      if (show) popup.classList.remove('hidden');
+      else popup.classList.add('hidden');
+    }
+
+    function applyTagPopupFilter() {
+      toggleTagPopup(false);
+      landScopeIsVideo = false;
+      document.getElementById('land-scope-icon').innerText = "🏷️";
+      document.getElementById('land-scope-label').innerText = "#highlight";
+      document.getElementById('btn-land-scope-btn').className = "flex-1 py-1 rounded bg-purple-700 text-white font-bold text-center truncate flex items-center justify-center gap-1";
+    }
+
+    // 1A. Gallery Landscape
+    function setLandCols(cols) {
+      const g1 = document.getElementById('land-grid-1');
+      const g2 = document.getElementById('land-grid-2');
+      const readout = document.getElementById('land-col-readout');
+      const c4_1 = document.getElementById('col4-item-1');
+      const c4_2 = document.getElementById('col4-item-2');
+
+      [4, 3, 2].forEach(c => {
+        const btn = document.getElementById(`btn-col-${c}`);
+        btn.className = "px-2 py-0.5 rounded-lg text-[var(--text-med)] hover:text-white transition";
+      });
+      document.getElementById(`btn-col-${cols}`).className = "px-2 py-0.5 rounded-lg bg-[var(--primary)] text-[var(--on-primary)] font-bold transition";
+
+      g1.className = `grid grid-cols-${cols} gap-2 h-full`;
+      g2.className = `grid grid-cols-${cols} gap-2 h-full`;
+      readout.innerText = `${cols} Columns`;
+
+      if (cols === 4) {
+        c4_1.classList.remove('hidden');
+        c4_2.classList.remove('hidden');
+      } else {
+        c4_1.classList.add('hidden');
+        c4_2.classList.add('hidden');
+      }
+    }
+
+    // 3. Music Player
+    function setMusicLinesFinal(lines) {
+      const badge = document.getElementById('m2-line-badge');
+      const l2 = document.getElementById('m2l-2');
+      const l3 = document.getElementById('m2l-3');
+      const art = document.getElementById('m2-art-box');
+
+      [1, 2, 3].forEach(n => {
+        const btn = document.getElementById(`btn-mfinal-${n}`);
+        btn.className = "py-1 rounded bg-[var(--bg-surface-highest)] text-[var(--text-med)]";
+      });
+      document.getElementById(`btn-mfinal-${lines}`).className = "py-1 rounded bg-[var(--primary)] text-[var(--on-primary)] font-bold";
+
+      badge.innerText = `${lines} Line${lines > 1 ? 's' : ''}`;
+
+      if (lines === 1) {
+        l2.classList.add('hidden');
+        l3.classList.add('hidden');
+        art.className = "w-44 h-44 rounded-2xl bg-zinc-900 border border-white/10 flex flex-col items-center justify-center shadow-lg relative overflow-hidden transition-all duration-300";
+      } else if (lines === 2) {
+        l2.classList.remove('hidden');
+        l3.classList.add('hidden');
+        art.className = "w-36 h-36 rounded-2xl bg-zinc-900 border border-white/10 flex flex-col items-center justify-center shadow-lg relative overflow-hidden transition-all duration-300";
+      } else {
+        l2.classList.remove('hidden');
+        l3.classList.remove('hidden');
+        art.className = "w-28 h-28 rounded-xl bg-zinc-900 border border-white/10 flex flex-col items-center justify-center shadow-lg relative overflow-hidden transition-all duration-300";
+      }
+    }
+
+    function changeMFontFinal(px) {
+      document.getElementById('m2-font-readout').innerText = `${px}px`;
+      document.getElementById('m2-lyrics-text').style.fontSize = `${px}px`;
+    }
+
+    function toggleM2(id, show) {
+      const el = document.getElementById(id);
+      if (el) {
+        if (show) el.classList.remove('opacity-0', 'pointer-events-none');
+        else el.classList.add('opacity-0', 'pointer-events-none');
+      }
+    }
+
+    // 4. Stealth 5-Tap
+    let stealthTaps = 0;
+    let stealthActive = false;
+    let sTimer = null;
+
+    function handleStealthTap() {
+      if (stealthActive) {
+        stealthTaps++;
+        if (stealthTaps >= 5) {
+          lockSecretBack();
+          stealthTaps = 0;
+          return;
+        }
+        return;
+      }
+
+      stealthTaps++;
+      document.getElementById('stealth-tap-readout').innerText = `${stealthTaps} / 5 Taps`;
+      document.getElementById('stealth-taps-left').innerText = `${Math.max(0, 5 - stealthTaps)} more`;
+
+      clearTimeout(sTimer);
+      sTimer = setTimeout(() => {
+        if (stealthTaps < 5) {
+          stealthTaps = 0;
+          document.getElementById('stealth-tap-readout').innerText = `0 / 5 Taps`;
+          document.getElementById('stealth-taps-left').innerText = `5 more`;
+        }
+      }, 3000);
+
+      if (stealthTaps >= 5) {
+        stealthTaps = 0;
+        document.getElementById('stealth-tap-readout').innerText = `0 / 5 Taps`;
+        document.getElementById('stealth-taps-left').innerText = `5 more`;
+        document.getElementById('auth-gate-modal').classList.remove('hidden');
+      }
+    }
+
+    function closeAuthGate() {
+      document.getElementById('auth-gate-modal').classList.add('hidden');
+    }
+
+    function unlockSecretSuccess() {
+      closeAuthGate();
+      stealthActive = true;
+      const pill = document.getElementById('status-pill');
+      pill.innerText = "🔒 Secret Mode";
+      pill.className = "text-[9px] bg-purple-950 text-purple-300 px-2 py-0.5 rounded-full font-mono border border-purple-800/40";
+
+      document.getElementById('most-watched-title').innerText = "Secret Most Watched";
+      document.getElementById('db-source-label').innerText = "Secure Vault";
+      document.getElementById('db-source-label').className = "text-[9px] text-purple-300 font-bold";
+
+      document.getElementById('media-list-container').innerHTML = `
+        <div class="flex items-center gap-2 p-1.5 rounded bg-purple-950/40 border border-purple-800/40">
+          <span class="w-4 h-4 rounded-full bg-purple-900 text-purple-200 text-[9px] font-bold flex items-center justify-center">1</span>
+          <span class="flex-1 truncate font-mono text-purple-200 font-semibold">PPPD-752.mp4</span>
+          <span class="text-[10px] text-purple-300 font-mono">4m</span>
+        </div>
+        <div class="flex items-center gap-2 p-1.5 rounded bg-purple-950/40 border border-purple-800/40">
+          <span class="w-4 h-4 rounded-full bg-purple-900 text-purple-200 text-[9px] font-bold flex items-center justify-center">2</span>
+          <span class="flex-1 truncate font-mono text-purple-200 font-semibold">SNOS-039.mp4</span>
+          <span class="text-[10px] text-purple-300 font-mono">3m</span>
+        </div>
+      `;
+      document.getElementById('secret-relock-btn').classList.remove('hidden');
+    }
+
+    function lockSecretBack() {
+      stealthActive = false;
+      const pill = document.getElementById('status-pill');
+      pill.innerText = "Normal Mode";
+      pill.className = "text-[9px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded-full font-mono border border-emerald-800/40";
+
+      document.getElementById('most-watched-title').innerText = "Most watched";
+      document.getElementById('db-source-label').innerText = "Public DB";
+      document.getElementById('db-source-label').className = "text-[9px] text-emerald-400";
+
+      document.getElementById('media-list-container').innerHTML = `
+        <div class="flex items-center gap-2 p-1.5 rounded bg-white/5">
+          <span class="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-bold flex items-center justify-center">1</span>
+          <span class="flex-1 truncate">Gmail কাজ করার নি...</span>
+          <span class="text-[10px] text-[var(--text-low)] font-mono">5m</span>
+        </div>
+        <div class="flex items-center gap-2 p-1.5 rounded bg-white/5">
+          <span class="w-4 h-4 rounded-full bg-zinc-700 text-white text-[9px] font-bold flex items-center justify-center">2</span>
+          <span class="flex-1 truncate">*NSYNC - Bye Bye Bye...</span>
+          <span class="text-[10px] text-[var(--text-low)] font-mono">4m</span>
+        </div>
+      `;
+      document.getElementById('secret-relock-btn').classList.add('hidden');
+    }
+
+    // Clocks
+    function runLiveClocks() {
+      const now = new Date();
+      const str = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      const cp = document.getElementById('port-live-clock');
+      const cl = document.getElementById('land-clock');
+      if (cp) cp.innerText = str;
+      if (cl) cl.innerText = str;
+    }
+    setInterval(runLiveClocks, 1000);
+    runLiveClocks();
+  </script>
+</body>
+</html>
