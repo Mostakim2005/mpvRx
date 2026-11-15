@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mpvRx: Implementation Blueprint & Dual-Orientation Previews</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg-base: #0a0712;
+      --bg-surface: #140f21;
+      --bg-surface-elevated: #1d1630;
+      --bg-surface-highest: #2b2244;
+      --primary: #c9bfff;
+      --on-primary: #322377;
+      --primary-container: #493b8f;
+      --on-primary-container: #e7e0ff;
+      --accent-red: #ffb4ab;
+      --accent-green: #7adc8c;
+      --accent-amber: #ffba28;
+      --border-subtle: rgba(201, 191, 255, 0.12);
+      --text-high: #f1edfa;
+      --text-med: #cac3d6;
+      --text-low: #8f889c;
+    }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-high);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: var(--bg-surface-highest); border-radius: 4px; }
+    .phone-portrait { width: 320px; height: 600px; }
+    .phone-landscape { width: 580px; height: 320px; }
+  </style>
+</head>
+<body class="p-4 md:p-8 custom-scroll">
+
+  <!-- Master Container -->
+  <div class="max-w-6xl mx-auto space-y-12">
+
+    <!-- Top Navigation & Purpose -->
+    <header class="bg-[var(--bg-surface)] p-6 rounded-2xl border border-[var(--border-subtle)] shadow-2xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <span class="inline-block px-3 py-1 bg-purple-950 text-purple-300 rounded-full text-xs font-semibold tracking-wide uppercase mb-2 border border-purple-800">
+            Implementation Blueprint & Feedback Review
+          </span>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+            mpvRx: Calibrated Layouts & Dual-Orientation Architecture
+          </h1>
+          <p class="text-sm text-[var(--text-med)] mt-1">
+            Visual implementation blueprint incorporating all collected feedback. Numbered <span class="text-amber-400 font-bold">[1]–[5]</span> with separate <strong>Portrait</strong> and <strong>Landscape</strong> views.
+          </p>
+        </div>
+        <div class="text-xs bg-[var(--bg-surface-elevated)] px-4 py-2 rounded-xl border border-[var(--border-subtle)] text-purple-300">
+          Rule: Dual-Orientation Separate Configurations Enforced
+        </div>
+      </div>
+
+      <!-- Quick Jump Menu -->
+      <div class="flex flex-wrap gap-2 text-xs pt-2 border-t border-[var(--border-subtle)]">
+        <a href="#feature-1" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
+          <span class="font-bold text-amber-400">[1]</span> Gallery: Natural Scroll & Tag Autocomplete
+        </a>
+        <a href="#feature-2" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
+          <span class="font-bold text-amber-400">[2]</span> Portrait Player: 16:9 Video & 1R/2R Switcher
+        </a>
+        <a href="#feature-3" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
+          <span class="font-bold text-amber-400">[3]</span> Landscape Player: Global Scope & Tag Overlay
+        </a>
+        <a href="#feature-4" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
+          <span class="font-bold text-amber-400">[4]</span> Music Player: 2-Line Lyrics & 144dp Art
+        </a>
+        <a href="#feature-5" class="px-3 py-1.5 bg-[var(--bg-surface-elevated)] rounded-lg hover:bg-purple-900/40 transition border border-[var(--border-subtle)]">
+          <span class="font-bold text-amber-400">[5]</span> Security: Secure Folder PIN & Vault Persistence
+        </a>
+      </div>
+    </header>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 1: CROSS-VIDEO BOOKMARK GALLERY                                   -->
+    <!-- ========================================================================= -->
+    <section id="feature-1" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [1]</span>
+          <h2 class="text-xl font-bold text-white mt-1">Cross-Video Bookmark Gallery: Natural Vertical Scroll & Tag Autocomplete</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Replaces the 3.1.0 two-row horizontal lock. Restores natural vertical scrolling with search input and autocomplete suggestion chips.
+          </p>
+        </div>
+        <div class="flex gap-2 text-xs">
+          <span class="px-2.5 py-1 bg-purple-950 text-purple-300 rounded font-bold border border-purple-800">Portrait: Max 3 Cols</span>
+          <span class="px-2.5 py-1 bg-purple-950 text-purple-300 rounded font-bold border border-purple-800">Landscape: Max 4 Cols</span>
+        </div>
+      </div>
+
+      <!-- Dual-Orientation Visual Cards -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- 1A: PORTRAIT VIEW -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 View 1A: Portrait Mode (Phone Display)</span>
+            <span class="text-gray-400">Hard-Capped Max 3 Columns</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
+            <!-- Header Bar -->
+            <div class="bg-[#171224] px-3 py-2 border-b border-gray-800 flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs">←</span>
+                <span class="text-xs font-bold text-white">Bookmarks</span>
+                <span class="text-[10px] bg-purple-900/60 px-1.5 py-0.2 rounded text-purple-300">28</span>
+              </div>
+              <div class="flex items-center gap-1 text-[10px]">
+                <span class="px-2 py-0.5 bg-[#251d38] text-purple-200 rounded font-bold border border-purple-800/60">3 Cols</span>
+                <span class="px-1.5 py-0.5 bg-gray-800 text-gray-400 rounded">✕</span>
+              </div>
+            </div>
+
+            <!-- Search Area + Autocomplete Suggestions Directly Underneath -->
+            <div class="bg-[#171224] px-3 py-2 border-b border-gray-800 space-y-1.5">
+              <div class="bg-[#221c33] px-2.5 py-1.5 rounded-lg text-xs text-gray-300 flex items-center justify-between border border-purple-900/40">
+                <span class="text-gray-400">Search tags or titles...</span>
+                <span>🔍</span>
+              </div>
+              <!-- Autocomplete Tag Suggestions Area -->
+              <div class="flex items-center gap-1 overflow-x-auto text-[9px] py-0.5">
+                <span class="text-gray-400 font-semibold flex-shrink-0">Tags:</span>
+                <span class="px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold flex-shrink-0">#highlight ✕</span>
+                <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full flex-shrink-0 hover:bg-purple-800">+ #action</span>
+                <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full flex-shrink-0 hover:bg-purple-800">+ #dialogue</span>
+                <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full flex-shrink-0 hover:bg-purple-800">+ #climax</span>
+              </div>
+            </div>
+
+            <!-- Natural Vertically Scrollable Grid (3 Columns Max) -->
+            <div class="flex-1 p-2 grid grid-cols-3 gap-1.5 overflow-y-auto custom-scroll bg-[#0c0914]">
+              <!-- 16:9 Card 1 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden group">
+                <span class="text-[8px] font-bold text-white truncate z-10">Intro Scene</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:02:14</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#intro</span>
+                </div>
+              </div>
+              <!-- 16:9 Card 2 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden">
+                <span class="text-[8px] font-bold text-white truncate z-10">Fight Arena</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:18:40</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#action</span>
+                </div>
+              </div>
+              <!-- 16:9 Card 3 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden">
+                <span class="text-[8px] font-bold text-white truncate z-10">Briefing Room</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:35:10</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#plot</span>
+                </div>
+              </div>
+              <!-- 16:9 Card 4 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden">
+                <span class="text-[8px] font-bold text-white truncate z-10">Dialogue Phase</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:54:22</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#talk</span>
+                </div>
+              </div>
+              <!-- 16:9 Card 5 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden">
+                <span class="text-[8px] font-bold text-white truncate z-10">Chase Sequence</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>01:12:05</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#chase</span>
+                </div>
+              </div>
+              <!-- 16:9 Card 6 -->
+              <div class="aspect-video bg-gray-800 rounded-md border border-gray-700 p-1 flex flex-col justify-between relative overflow-hidden">
+                <span class="text-[8px] font-bold text-white truncate z-10">Grand Finale</span>
+                <div class="z-10 flex items-center justify-between text-[7px] text-amber-300 font-mono">
+                  <span>01:48:30</span>
+                  <span class="text-[6px] bg-purple-900/80 px-1 rounded text-purple-200">#climax</span>
+                </div>
+              </div>
+              <!-- Continuous scroll indicator -->
+              <div class="col-span-3 py-2 text-center text-[9px] text-gray-500 border-t border-gray-800">
+                ⬇️ Smooth vertical scrolling continues through all 28 bookmarks...
+              </div>
+            </div>
+          </div>
+          <div class="text-[11px] text-gray-300 space-y-1">
+            <p><strong>Portrait Layout Specs:</strong></p>
+            <ul class="list-disc list-inside text-gray-400 space-y-0.5">
+              <li>Columns: <code class="text-purple-300">1, 2, 3, or Auto (Max 3)</code>. Blocks 4+ columns on phone screens.</li>
+              <li>Search bar + dedicated autocomplete tag row takes ~18% height.</li>
+              <li>Remaining 82% is a smooth, continuous <code class="text-purple-300">LazyVerticalGrid</code>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 1B: LANDSCAPE VIEW -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">🖥️ View 1B: Landscape Mode (Wide Display)</span>
+            <span class="text-gray-400">Hard-Capped Max 4 Columns</span>
+          </div>
+
+          <div class="phone-landscape mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
+            <!-- Compact Landscape Header -->
+            <div class="bg-[#171224] px-4 py-1.5 border-b border-gray-800 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-white">Bookmarks</span>
+                <span class="text-[10px] bg-purple-900/60 px-1.5 rounded text-purple-300">28</span>
+                <span class="text-[10px] text-gray-400">| Scope: All Videos</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="bg-[#221c33] px-2 py-0.5 rounded text-[10px] text-gray-400 flex items-center gap-1 w-48">
+                  <span>Search tags...</span>
+                  <span class="ml-auto">🔍</span>
+                </div>
+                <span class="px-2 py-0.5 bg-[#251d38] text-purple-200 rounded text-[10px] font-bold border border-purple-800/60">4 Cols</span>
+                <span class="text-xs text-gray-400">✕</span>
+              </div>
+            </div>
+
+            <!-- Landscape Tag Suggestions Row -->
+            <div class="bg-[#151022] px-4 py-1 border-b border-gray-800 flex items-center gap-1 text-[9px]">
+              <span class="text-gray-500 font-semibold">Active:</span>
+              <span class="px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">#action ✕</span>
+              <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full">+ #climax</span>
+              <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full">+ #intro</span>
+              <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded-full">+ #highlight</span>
+            </div>
+
+            <!-- 4-Column Vertical Scroll Grid in Landscape -->
+            <div class="flex-1 p-2 grid grid-cols-4 gap-2 overflow-y-auto custom-scroll bg-[#0c0914]">
+              <div class="aspect-video bg-gray-800 rounded p-1.5 flex flex-col justify-between border border-gray-700">
+                <span class="text-[8px] font-bold text-white truncate">Opening Scene</span>
+                <div class="flex justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:03:10</span>
+                  <span class="bg-purple-900/60 px-1 rounded text-purple-200">#action</span>
+                </div>
+              </div>
+              <div class="aspect-video bg-gray-800 rounded p-1.5 flex flex-col justify-between border border-gray-700">
+                <span class="text-[8px] font-bold text-white truncate">Combat Stunt</span>
+                <div class="flex justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:22:45</span>
+                  <span class="bg-purple-900/60 px-1 rounded text-purple-200">#action</span>
+                </div>
+              </div>
+              <div class="aspect-video bg-gray-800 rounded p-1.5 flex flex-col justify-between border border-gray-700">
+                <span class="text-[8px] font-bold text-white truncate">Vault Entry</span>
+                <div class="flex justify-between text-[7px] text-amber-300 font-mono">
+                  <span>00:41:20</span>
+                  <span class="bg-purple-900/60 px-1 rounded text-purple-200">#action</span>
+                </div>
+              </div>
+              <div class="aspect-video bg-gray-800 rounded p-1.5 flex flex-col justify-between border border-gray-700">
+                <span class="text-[8px] font-bold text-white truncate">Pursuit</span>
+                <div class="flex justify-between text-[7px] text-amber-300 font-mono">
+                  <span>01:05:00</span>
+                  <span class="bg-purple-900/60 px-1 rounded text-purple-200">#action</span>
+                </div>
+              </div>
+              <div class="col-span-4 text-center text-[9px] text-gray-500 py-1">
+                ⬇️ Smooth vertical scrolling continues through all rows...
+              </div>
+            </div>
+          </div>
+
+          <div class="text-[11px] text-gray-300 space-y-1">
+            <p><strong>Landscape Layout Specs:</strong></p>
+            <ul class="list-disc list-inside text-gray-400 space-y-0.5">
+              <li>Columns: <code class="text-purple-300">2, 3, 4, or Auto (Max 4)</code>. Eliminates horizontal 2-strip trap.</li>
+              <li>Controls stay ultra-compact in a single top bar, leaving 85%+ height for bookmarks.</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 2: PORTRAIT IN-PLAYER VIDEO & BOOKMARK DRAWER                     -->
+    <!-- ========================================================================= -->
+    <section id="feature-2" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [2]</span>
+          <h2 class="text-xl font-bold text-white mt-1">Portrait Player: Dynamic 16:9 Video & 1-Row / 2-Row Drawer Switcher</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Replaces the broken hardcoded 45%/55% split. Video plays natively at 16:9, and the drawer below offers a dedicated 1-Row vs 2-Row visible toggle with 2 or 3 columns only.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
+          Portrait-Specific Architecture
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- 2A: 1-ROW VISIBLE MODE -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 View 2A: 1-Row Visible Mode (Max Video Focus)</span>
+            <span class="text-gray-400">1 Row • 2 or 3 Cols</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
+            <!-- Native 16:9 Video Playback Surface -->
+            <div class="w-full aspect-video bg-[#1a1329] flex flex-col justify-between p-2 border-b border-gray-800 relative">
+              <div class="flex justify-between text-[9px] text-gray-300">
+                <span class="font-bold truncate">Episode 04 • 16:9 Native</span>
+                <span>1080p</span>
+              </div>
+              <div class="self-center text-purple-300 text-lg">▶</div>
+              <div class="w-full space-y-1">
+                <div class="h-1 bg-purple-900 rounded overflow-hidden">
+                  <div class="w-1/3 h-full bg-purple-400"></div>
+                </div>
+                <div class="flex justify-between text-[7px] text-gray-400 font-mono">
+                  <span>14:20</span>
+                  <span>45:00</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- In-Player Drawer: 1-Row Visible Configuration -->
+            <div class="flex-1 bg-[#140f21] flex flex-col">
+              <!-- Toolbar -->
+              <div class="px-3 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
+                <span class="font-bold text-white text-[11px]">Bookmarks</span>
+                <div class="flex items-center gap-1.5 text-[9px]">
+                  <!-- Row Switcher (Active: 1 Row) -->
+                  <span class="px-2 py-0.5 bg-purple-600 text-white rounded font-bold">⊞ 1 Row</span>
+                  <!-- Columns Switcher (2 or 3 only) -->
+                  <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60">2 Cols</span>
+                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">+</span>
+                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">✕</span>
+                </div>
+              </div>
+
+              <!-- 1 Row Visible: Exactly 1 row of cards fits comfortably, remaining scrollable below -->
+              <div class="p-2 space-y-2 overflow-y-auto custom-scroll flex-1">
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-purple-600/60">
+                    <span class="text-[9px] font-bold text-white truncate">Key Moment</span>
+                    <span class="text-[8px] text-amber-300 font-mono">08:15</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded-lg p-1.5 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[9px] font-bold text-white truncate">Reaction</span>
+                    <span class="text-[8px] text-amber-300 font-mono">14:02</span>
+                  </div>
+                </div>
+                <div class="text-[9px] text-gray-500 text-center py-1">
+                  ↕️ Scroll down to reveal more bookmark rows...
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>1-Row Mode:</strong> Video surface remains large and dominant at true 16:9; drawer shows one prominent row of thumbnails with remaining rows scrollable beneath.
+          </p>
+        </div>
+
+        <!-- 2B: 2-ROW VISIBLE MODE -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 View 2B: 2-Row Visible Mode (High Bookmark Density)</span>
+            <span class="text-gray-400">2 Rows • 2 or 3 Cols</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-black rounded-2xl border-2 border-gray-700 flex flex-col overflow-hidden shadow-2xl">
+            <!-- Native 16:9 Video Surface -->
+            <div class="w-full aspect-video bg-[#1a1329] flex flex-col justify-between p-2 border-b border-gray-800 relative">
+              <div class="flex justify-between text-[9px] text-gray-300">
+                <span class="font-bold truncate">Episode 04 • 16:9 Native</span>
+                <span>1080p</span>
+              </div>
+              <div class="self-center text-purple-300 text-lg">▶</div>
+              <div class="w-full space-y-1">
+                <div class="h-1 bg-purple-900 rounded overflow-hidden">
+                  <div class="w-1/3 h-full bg-purple-400"></div>
+                </div>
+                <div class="flex justify-between text-[7px] text-gray-400 font-mono">
+                  <span>14:20</span>
+                  <span>45:00</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- In-Player Drawer: 2-Row Visible Configuration -->
+            <div class="flex-1 bg-[#140f21] flex flex-col">
+              <!-- Toolbar -->
+              <div class="px-3 py-1.5 bg-[#1b142c] border-b border-gray-800 flex items-center justify-between text-xs">
+                <span class="font-bold text-white text-[11px]">Bookmarks</span>
+                <div class="flex items-center gap-1.5 text-[9px]">
+                  <!-- Row Switcher (Active: 2 Rows) -->
+                  <span class="px-2 py-0.5 bg-purple-600 text-white rounded font-bold">⊞ 2 Rows</span>
+                  <!-- Columns Switcher (Active: 3 Cols) -->
+                  <span class="px-2 py-0.5 bg-[#2b2244] text-purple-200 rounded font-bold border border-purple-800/60">3 Cols</span>
+                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">+</span>
+                  <span class="px-1.5 py-0.5 bg-gray-800 text-gray-300 rounded">✕</span>
+                </div>
+              </div>
+
+              <!-- 2 Rows Visible: 6 cards (3x2 grid) visible immediately above fold -->
+              <div class="p-2 space-y-1.5 overflow-y-auto custom-scroll flex-1">
+                <div class="grid grid-cols-3 gap-1.5">
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 1</span>
+                    <span class="text-[6px] text-amber-300 font-mono">03:10</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 2</span>
+                    <span class="text-[6px] text-amber-300 font-mono">09:40</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 3</span>
+                    <span class="text-[6px] text-amber-300 font-mono">15:20</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 4</span>
+                    <span class="text-[6px] text-amber-300 font-mono">22:05</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 5</span>
+                    <span class="text-[6px] text-amber-300 font-mono">31:18</span>
+                  </div>
+                  <div class="aspect-video bg-gray-800 rounded p-1 flex flex-col justify-between border border-gray-700">
+                    <span class="text-[7px] font-bold text-white truncate">Scene 6</span>
+                    <span class="text-[6px] text-amber-300 font-mono">42:30</span>
+                  </div>
+                </div>
+                <div class="text-[8px] text-gray-500 text-center py-0.5">
+                  ↕️ 6 cards visible above the fold; scroll for more...
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>2-Row Mode:</strong> Compact 16:9 cards allow 2 full rows (4 cards in 2-col mode, or 6 cards in 3-col mode) visible above fold.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 3: LANDSCAPE SIDEBAR - GLOBAL SCOPE & TAG OVERLAY                -->
+    <!-- ========================================================================= -->
+    <section id="feature-3" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [3]</span>
+          <h2 class="text-xl font-bold text-white mt-1">Landscape Sidebar: In-Drawer Global Scope Toggle & Floating Tag Overlay</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Retains the 20%, 25%, 30%, 35% menu. Adds a new button to toggle between bookmarks from <strong>This Video</strong> and <strong>All Bookmarks (Global)</strong> directly in the drawer, plus a floating tag filter popup.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-purple-950 text-purple-300 text-xs font-bold rounded border border-purple-800">
+          Landscape-Specific Architecture
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- 3A: IN-DRAWER SCOPE TOGGLE -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">🖥️ View 3A: In-Drawer Scope Switcher</span>
+            <span class="text-gray-400">This Video ⇄ All Bookmarks</span>
+          </div>
+
+          <div class="phone-landscape mx-auto bg-black rounded-2xl border-2 border-gray-700 flex overflow-hidden shadow-2xl">
+            <!-- Video Surface (75% when 25% sidebar chosen) -->
+            <div class="w-[75%] bg-[#1a1329] flex flex-col justify-between p-3 border-r border-gray-800">
+              <span class="text-xs text-gray-400">Video Playing (75% width)</span>
+              <div class="self-center text-2xl text-purple-300">▶</div>
+              <div class="h-1 bg-purple-900 rounded"><div class="w-1/2 h-full bg-purple-400"></div></div>
+            </div>
+
+            <!-- Bookmark Sidebar (25% width) -->
+            <div class="w-[25%] bg-[#140f21] flex flex-col justify-between text-xs">
+              <!-- Tier 1: Action Icons -->
+              <div class="p-2 border-b border-gray-800 flex items-center justify-between">
+                <span class="font-bold text-white text-[10px]">Bookmarks</span>
+                <div class="flex gap-1 text-[9px]">
+                  <span class="px-1 bg-gray-800 rounded">🏷️</span>
+                  <span class="px-1 bg-gray-800 rounded">+</span>
+                  <span class="px-1 bg-gray-800 rounded">✕</span>
+                </div>
+              </div>
+
+              <!-- Tier 2: Configuration Chips including NEW Scope Switcher -->
+              <div class="px-2 py-1 bg-[#1a142c] border-b border-gray-800 flex flex-wrap gap-1 text-[8px]">
+                <span class="px-1.5 py-0.5 bg-purple-600 text-white font-bold rounded">25%</span>
+                <!-- NEW SCOPE SWITCHER BUTTON -->
+                <span class="px-1.5 py-0.5 bg-amber-500 text-black font-extrabold rounded flex items-center gap-0.5">
+                  <span>🌐</span> Global
+                </span>
+                <span class="px-1.5 py-0.5 bg-[#2b2244] text-purple-200 rounded">FP</span>
+              </div>
+
+              <!-- List displaying global bookmarks from all media -->
+              <div class="flex-1 p-1.5 space-y-1 overflow-y-auto custom-scroll text-[8px]">
+                <div class="bg-gray-800 p-1 rounded border border-gray-700 flex flex-col">
+                  <span class="font-bold text-white truncate">Movie A • Climax</span>
+                  <span class="text-amber-300 font-mono text-[7px]">01:45:10</span>
+                </div>
+                <div class="bg-gray-800 p-1 rounded border border-gray-700 flex flex-col">
+                  <span class="font-bold text-white truncate">Show B • Intro</span>
+                  <span class="text-amber-300 font-mono text-[7px]">00:01:30</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>In-Drawer Scope Toggle:</strong> Clicking the <code class="text-amber-400 font-bold">🌐 Global / 🎬 Video</code> button immediately swaps the list between this video's bookmarks and all bookmarks across the library.
+          </p>
+        </div>
+
+        <!-- 3B: FLOATING TAG OVERLAY -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">🖥️ View 3B: Floating Tag Checklist Popup</span>
+            <span class="text-gray-400">Non-Intrusive Video Overlay</span>
+          </div>
+
+          <div class="phone-landscape mx-auto bg-black rounded-2xl border-2 border-gray-700 flex overflow-hidden shadow-2xl relative">
+            <!-- Video Surface with Floating Tag Modal Centered -->
+            <div class="w-full h-full bg-[#1a1329] flex items-center justify-center p-4 relative">
+              <span class="text-xs text-gray-500 absolute top-2 left-2">Video continues playing in background...</span>
+
+              <!-- Floating Tag Filter Overlay -->
+              <div class="w-72 bg-[#1b142c] p-3 rounded-xl border border-purple-500 shadow-2xl space-y-2 z-20">
+                <div class="flex items-center justify-between text-xs border-b border-gray-700 pb-1">
+                  <span class="font-bold text-white flex items-center gap-1">🏷️ Filter Bookmarks by Tag</span>
+                  <span class="text-gray-400 cursor-pointer">✕</span>
+                </div>
+                <div class="space-y-1 text-[10px]">
+                  <label class="flex items-center gap-1.5 text-purple-200">
+                    <input type="checkbox" checked class="rounded text-purple-500"> #highlight (14 bookmarks)
+                  </label>
+                  <label class="flex items-center gap-1.5 text-gray-300">
+                    <input type="checkbox" checked class="rounded text-purple-500"> #action (8 bookmarks)
+                  </label>
+                  <label class="flex items-center gap-1.5 text-gray-400">
+                    <input type="checkbox" class="rounded"> #dialogue (5 bookmarks)
+                  </label>
+                </div>
+                <div class="flex justify-end gap-1 pt-1 border-t border-gray-800 text-[10px]">
+                  <button class="px-2 py-0.5 bg-gray-800 text-gray-300 rounded">Clear</button>
+                  <button class="px-2.5 py-0.5 bg-purple-600 text-white font-bold rounded">Apply Filter</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>Floating Tag Overlay:</strong> Opens directly over the video without stopping playback or navigating to full-screen modals.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 4: MUSIC PLAYER - 2-LINE/3-LINE LYRICS & 144DP ARTWORK            -->
+    <!-- ========================================================================= -->
+    <section id="feature-4" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [4]</span>
+          <h2 class="text-xl font-bold text-white mt-1">Music Player: 2-Line/3-Line Lyrics & Dynamic 144dp Artwork Scaling</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Implements the missing music specifications. Defaults to 2-line synchronized lyrics with automatic artwork scaling to prevent transport button clipping.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
+          Ready for Implementation
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        <!-- 4A: PORTRAIT MUSIC PLAYER -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">📱 View 4A: Portrait Music Player (2-Line Mode)</span>
+            <span class="text-gray-400">144dp Art • 2-Line Lyrics</span>
+          </div>
+
+          <div class="phone-portrait mx-auto bg-[#130e21] rounded-2xl border-2 border-gray-700 flex flex-col justify-between p-4 shadow-2xl">
+            <!-- Top Bar -->
+            <div class="flex justify-between items-center text-xs text-gray-400">
+              <span>⌄</span>
+              <span class="font-bold text-white">Now Playing</span>
+              <span>⋮</span>
+            </div>
+
+            <!-- Album Artwork Scaled down to 144dp (36x36 in tailwind) -->
+            <div class="w-36 h-36 bg-[#251d3b] rounded-xl self-center flex flex-col items-center justify-center border border-purple-800/40 shadow-lg my-2">
+              <span class="text-3xl">🎵</span>
+              <span class="text-[9px] text-purple-300 font-mono mt-1">144dp x 144dp</span>
+            </div>
+
+            <!-- Song Info -->
+            <div class="text-center space-y-0.5">
+              <div class="text-sm font-bold text-white">Midnight Drive</div>
+              <div class="text-xs text-purple-300">Synthwave Collective • FLAC</div>
+            </div>
+
+            <!-- 2-Line Synchronized Lyrics Display -->
+            <div class="bg-[#1b152d] p-2.5 rounded-xl border border-purple-900/60 text-center space-y-1">
+              <div class="text-[11px] text-purple-200 font-semibold">"Neon lights reflecting in the rearview mirror"</div>
+              <div class="text-xs text-white font-extrabold text-amber-300">"Accelerating through the quiet city streets"</div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="space-y-1">
+              <div class="h-1 bg-gray-800 rounded overflow-hidden">
+                <div class="w-2/5 h-full bg-purple-400"></div>
+              </div>
+              <div class="flex justify-between text-[8px] text-gray-400 font-mono">
+                <span>01:45</span>
+                <span>04:12</span>
+              </div>
+            </div>
+
+            <!-- Media Transport Controls (Never pushed off screen!) -->
+            <div class="flex items-center justify-center gap-6 text-white text-base">
+              <span>⏮</span>
+              <span class="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg font-bold">⏸</span>
+              <span>⏭</span>
+            </div>
+
+            <!-- Bottom Customization Row -->
+            <div class="flex justify-between text-[10px] text-gray-400 border-t border-gray-800 pt-2">
+              <span>Lyrics: 2 Lines (Default)</span>
+              <span>Font: 14sp</span>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>Portrait Geometry:</strong> Album art scaled from 176dp to 144dp guarantees lyrics and transport buttons never collide or push off screen on phones.
+          </p>
+        </div>
+
+        <!-- 4B: LANDSCAPE MUSIC PLAYER -->
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
+            <span class="font-bold text-purple-300">🖥️ View 4B: Landscape Music Player (Horizontal Split)</span>
+            <span class="text-gray-400">Side-by-Side Art & Lyrics</span>
+          </div>
+
+          <div class="phone-landscape mx-auto bg-[#130e21] rounded-2xl border-2 border-gray-700 flex p-4 gap-4 shadow-2xl">
+            <!-- Left Side: Album Art & Track Info -->
+            <div class="w-48 flex flex-col items-center justify-center space-y-2 border-r border-gray-800 pr-3">
+              <div class="w-28 h-28 bg-[#251d3b] rounded-xl flex items-center justify-center border border-purple-800/40">
+                <span class="text-3xl">🎵</span>
+              </div>
+              <div class="text-center">
+                <div class="text-xs font-bold text-white truncate w-36">Midnight Drive</div>
+                <div class="text-[10px] text-purple-300">Synthwave Collective</div>
+              </div>
+            </div>
+
+            <!-- Right Side: 3-Line Lyrics & Transport Controls -->
+            <div class="flex-1 flex flex-col justify-between space-y-2">
+              <!-- 3-Line Lyrics Box in Landscape -->
+              <div class="bg-[#1b152d] p-2 rounded-xl border border-purple-900/60 text-center space-y-0.5 text-[10px]">
+                <div class="text-gray-400">"The night is calling out our names"</div>
+                <div class="text-amber-300 font-bold text-xs">"Neon lights reflecting in the rearview mirror"</div>
+                <div class="text-purple-200">"Accelerating through the quiet city streets"</div>
+              </div>
+
+              <!-- Seekbar -->
+              <div class="space-y-0.5">
+                <div class="h-1 bg-gray-800 rounded"><div class="w-1/2 h-full bg-purple-400"></div></div>
+                <div class="flex justify-between text-[8px] text-gray-400 font-mono">
+                  <span>02:06</span>
+                  <span>04:12</span>
+                </div>
+              </div>
+
+              <!-- Transport Controls -->
+              <div class="flex items-center justify-center gap-6 text-white text-sm">
+                <span>🔀</span>
+                <span>⏮</span>
+                <span class="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center font-bold">⏸</span>
+                <span>⏭</span>
+                <span>🔁</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-300">
+            <strong>Landscape Geometry:</strong> Left-to-right split ensures 3 full lines of lyrics display alongside playback controls without vertical crowding.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- FEATURE 5: SECURITY & PERSISTENCE ARCHITECTURE                            -->
+    <!-- ========================================================================= -->
+    <section id="feature-5" class="bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
+        <div>
+          <span class="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-mono font-bold rounded text-xs">FEATURE BLUEPRINT [5]</span>
+          <h2 class="text-xl font-bold text-white mt-1">Security & Persistence: Secure Folder PIN Gate & Uninstall Survival</h2>
+          <p class="text-xs text-[var(--text-med)] mt-1">
+            Fixes double PIN prompts by querying Secure Folder's own credentials. Establishes persistent vault storage so uninstalling the app never destroys private media.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 bg-green-950 text-green-300 text-xs font-bold rounded border border-green-800">
+          Architecture Solution
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-2">
+          <div class="font-bold text-purple-300 flex items-center gap-1.5 border-b border-gray-800 pb-2">
+            <span>🔑</span> Fix: Single Secure Folder PIN Challenge
+          </div>
+          <p class="text-gray-300">
+            <strong>Root Cause of Double Prompt:</strong> In 3.1.0, direct playback used system <code class="text-white">DeviceCredentialPrompt</code> (phone lock PIN) while the vault used its own internal password/PIN.
+          </p>
+          <p class="text-green-300">
+            <strong>Solution:</strong> Unify the challenge to check if <code class="text-white">SecureFolderRepository</code> is unlocked. If not, challenge with the Secure Folder PIN directly, completely eliminating double prompts.
+          </p>
+        </div>
+
+        <div class="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-2">
+          <div class="font-bold text-purple-300 flex items-center gap-1.5 border-b border-gray-800 pb-2">
+            <span>🛡️</span> Fix: Vault Storage Persistence (Survive Uninstall)
+          </div>
+          <p class="text-gray-300">
+            <strong>Root Cause of Data Loss:</strong> Storing vault files in <code class="text-red-400">context.filesDir</code> causes Android to wipe all private videos and SQLite databases on app uninstallation.
+          </p>
+          <p class="text-green-300">
+            <strong>Solution:</strong> Store vault media and database backups in persistent app-external directory (e.g. <code class="text-white">/Android/media/app.gyrolet.mpvrx/vault/</code> or user-selected SAF folder with <code class="text-white">.nomedia</code>).
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+</body>
+</html>
