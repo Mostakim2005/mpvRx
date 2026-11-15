@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,9 +69,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
+import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository
+import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryScope
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore
 import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -76,9 +82,11 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
+import app.gyrolet.mpvrx.utils.media.MediaUtils
 import dev.vivvvek.seeker.Segment
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import java.util.Locale
 import kotlin.math.abs
 
@@ -553,6 +561,8 @@ internal fun BookmarkSplitPanel(
   onClose: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val galleryRepository = koinInject<BookmarkGalleryRepository>()
+  val context = LocalContext.current
   val bookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
   val sourceChapters by viewModel.sourceChapters.collectAsStateWithLifecycle()
   val cardCount by viewModel.bookmarkGridCardCount.collectAsStateWithLifecycle()
@@ -564,6 +574,66 @@ internal fun BookmarkSplitPanel(
   var menuBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
   var showPresetDialog by remember { mutableStateOf(false) }
   var showGallery by remember { mutableStateOf(false) }
+  var showTagFilterDialog by remember { mutableStateOf(false) }
+  var isGlobalScope by rememberSaveable { mutableStateOf(false) }
+  var portraitColumns by rememberSaveable { mutableStateOf(2) }
+  var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
+
+  val globalGalleryItems by galleryRepository.observeItems(BookmarkGalleryScope.AllVideos)
+    .collectAsStateWithLifecycle(initialValue = emptyList())
+  val availableTags by galleryRepository.observeFilterTags()
+    .collectAsStateWithLifecycle(initialValue = emptyList())
+  val tagsByBookmark by viewModel.bookmarkTags.collectAsStateWithLifecycle()
+  fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> = tagsByBookmark[bookmark.id].orEmpty()
+
+  val currentMediaId = remember(bookmarks) { bookmarks.firstOrNull()?.mediaId }
+  val baseBookmarks = remember(isGlobalScope, bookmarks, globalGalleryItems) {
+    if (isGlobalScope) {
+      globalGalleryItems.map { item ->
+        PlaybackBookmarkEntity(
+          id = item.row.id,
+          mediaId = item.row.mediaId,
+          positionMs = item.row.positionMs,
+          title = item.mediaTitle ?: item.row.title,
+          createdAt = item.row.createdAt,
+          thumbnailPath = item.row.thumbnailPath,
+        )
+      }
+    } else {
+      bookmarks
+    }
+  }
+
+  val displayedBookmarks = remember(baseBookmarks, selectedTags, tagsByBookmark) {
+    if (selectedTags.isEmpty()) {
+      baseBookmarks
+    } else {
+      val tagSet = selectedTags.toSet()
+      baseBookmarks.filter { bm ->
+        val itemTags = tagsFor(bm)
+        itemTags.any { it in tagSet }
+      }
+    }
+  }
+
+  val onCardClick: (PlaybackBookmarkEntity) -> Unit = { bookmark ->
+    if (!isGlobalScope || bookmark.mediaId == currentMediaId) {
+      viewModel.seekToBookmark(bookmark)
+    } else {
+      val target = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }?.playableUri
+      if (!target.isNullOrBlank()) {
+        MediaUtils.playFile(
+          source = target,
+          context = context,
+          launchSource = "bookmark_drawer",
+          title = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }?.mediaTitle ?: bookmark.title,
+          startPositionSeconds = bookmark.positionMs / 1000.0,
+        )
+      } else {
+        viewModel.seekToBookmark(bookmark)
+      }
+    }
+  }
 
   val onQuickAdd: () -> Unit = {
     if (viewModel.quickAddBookmark()) {
@@ -585,9 +655,9 @@ internal fun BookmarkSplitPanel(
     Column(modifier = Modifier.fillMaxSize()) {
       if (isPortrait) {
         Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(5.dp),
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
           Text(
             text = stringResource(R.string.bookmark_panel_title),
@@ -596,32 +666,23 @@ internal fun BookmarkSplitPanel(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
+          // Tag Filter icon button in portrait
+          PanelIconAction(
+            icon = Icons.RoundedFilled.FilterList,
+            contentDescription = stringResource(R.string.bookmark_gallery_filter_tags),
+            onClick = {
+              haptics.tick()
+              showTagFilterDialog = true
+            },
+          )
+          // Portrait columns selector: strictly 2 or 3
           PanelToggleChip(
-            label = "$cardCount",
+            label = "$portraitColumns Cols",
             icon = Icons.RoundedFilled.GridView,
-            contentDescription = stringResource(R.string.bookmark_panel_card_count_cd),
+            contentDescription = stringResource(R.string.bookmark_gallery_columns),
             onClick = {
               haptics.tick()
-              viewModel.cycleBookmarkGridCardCount()
-            },
-          )
-          PanelToggleChip(
-            label = "${panelSizePercent}%",
-            icon = Icons.RoundedFilled.AspectRatio,
-            contentDescription = stringResource(R.string.bookmark_panel_size_cd),
-            onClick = {
-              haptics.tick()
-              viewModel.cycleBookmarkPanelSizePercent()
-            },
-          )
-          PanelToggleChip(
-            label = activeGroup?.presetCode?.takeIf { it.isNotBlank() }?.take(8).orEmpty(),
-            icon = Icons.RoundedFilled.Fingerprint,
-            contentDescription = stringResource(R.string.bookmark_preset_button_cd),
-            highlighted = !activeGroup?.presetCode.isNullOrBlank(),
-            onClick = {
-              haptics.tick()
-              showPresetDialog = true
+              portraitColumns = if (portraitColumns == 2) 3 else 2
             },
           )
           Spacer(Modifier.weight(1f))
@@ -653,23 +714,30 @@ internal fun BookmarkSplitPanel(
         }
       } else {
         Column(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp),
-          verticalArrangement = Arrangement.spacedBy(4.dp),
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+          verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
+          // Tier 1: Action Icons
           Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
           ) {
             Text(
               text = stringResource(R.string.bookmark_panel_title),
-              style = MaterialTheme.typography.labelLarge,
+              style = MaterialTheme.typography.labelMedium,
               fontWeight = FontWeight.SemiBold,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
               modifier = Modifier.weight(1f),
             )
-            // Landscape sidebar is only 20-35% wide, so the gallery lives in the icon row rather
-            // than adding a fourth chip that the chip row could not fit.
+            PanelIconAction(
+              icon = Icons.RoundedFilled.FilterList,
+              contentDescription = stringResource(R.string.bookmark_gallery_filter_tags),
+              onClick = {
+                haptics.tick()
+                showTagFilterDialog = true
+              },
+            )
             PanelIconAction(
               icon = Icons.RoundedFilled.Bookmarks,
               contentDescription = stringResource(R.string.bookmark_gallery_open),
@@ -695,18 +763,20 @@ internal fun BookmarkSplitPanel(
               onClick = onClose,
             )
           }
+          // Tier 2: Compact Toggle Chips
           Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
           ) {
             PanelToggleChip(
-              label = "$cardCount",
-              icon = Icons.RoundedFilled.GridView,
-              contentDescription = stringResource(R.string.bookmark_panel_card_count_cd),
+              label = if (isGlobalScope) "Global" else "Video",
+              icon = if (isGlobalScope) Icons.RoundedFilled.Language else Icons.RoundedFilled.Movie,
+              contentDescription = "Toggle Bookmark Scope",
+              highlighted = isGlobalScope,
               onClick = {
                 haptics.tick()
-                viewModel.cycleBookmarkGridCardCount()
+                isGlobalScope = !isGlobalScope
               },
             )
             PanelToggleChip(
@@ -719,15 +789,26 @@ internal fun BookmarkSplitPanel(
               },
             )
             PanelToggleChip(
-              label = activeGroup?.presetCode?.takeIf { it.isNotBlank() }?.take(7).orEmpty(),
-              icon = Icons.RoundedFilled.Fingerprint,
-              contentDescription = stringResource(R.string.bookmark_preset_button_cd),
-              highlighted = !activeGroup?.presetCode.isNullOrBlank(),
+              label = "$cardCount",
+              icon = Icons.RoundedFilled.GridView,
+              contentDescription = stringResource(R.string.bookmark_panel_card_count_cd),
               onClick = {
                 haptics.tick()
-                showPresetDialog = true
+                viewModel.cycleBookmarkGridCardCount()
               },
             )
+            if (!activeGroup?.presetCode.isNullOrBlank()) {
+              PanelToggleChip(
+                label = activeGroup?.presetCode?.take(5).orEmpty(),
+                icon = Icons.RoundedFilled.Fingerprint,
+                contentDescription = stringResource(R.string.bookmark_preset_button_cd),
+                highlighted = true,
+                onClick = {
+                  haptics.tick()
+                  showPresetDialog = true
+                },
+              )
+            }
           }
         }
       }
@@ -743,7 +824,7 @@ internal fun BookmarkSplitPanel(
           if (sourceChapters.isNotEmpty()) sourceChapters else emptyList()
         }
 
-      if (bookmarks.isEmpty() && displayChapters.isEmpty()) {
+      if (displayedBookmarks.isEmpty() && displayChapters.isEmpty()) {
         Box(
           modifier = Modifier.weight(1f).fillMaxWidth().padding(12.dp),
           contentAlignment = Alignment.Center,
@@ -759,25 +840,21 @@ internal fun BookmarkSplitPanel(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
           val spacing = 6.dp
           val currentSecInt = currentPositionSeconds.toInt()
-          val tagsByBookmark by viewModel.bookmarkTags.collectAsStateWithLifecycle()
-          fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> = tagsByBookmark[bookmark.id].orEmpty()
 
           if (isPortrait) {
-            // Height follows the column width so a card is always exactly 16:9. Filling a fixed
-            // slot instead is what turned every card into a tall box with letterbox flanks.
-            // Portrait is a strict 2-column grid so two rows stay visible above the fold.
-            val portraitColumns = 2
-            val slotWidth = (maxWidth - 12.dp - spacing * (portraitColumns - 1)) / portraitColumns
+            // Height follows the column width so a card is always exactly 16:9.
+            val cols = portraitColumns
+            val slotWidth = (maxWidth - 12.dp - spacing * (cols - 1)) / cols
             val rowHeight = (slotWidth * 9f / 16f).coerceIn(48.dp, 184.dp)
             LazyVerticalGrid(
-              columns = GridCells.Fixed(portraitColumns),
+              columns = GridCells.Fixed(cols),
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),
               horizontalArrangement = Arrangement.spacedBy(spacing),
               verticalArrangement = Arrangement.spacedBy(spacing),
             ) {
               items(
-                items = bookmarks,
+                items = displayedBookmarks,
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
@@ -787,7 +864,7 @@ internal fun BookmarkSplitPanel(
                   selected = abs(posSec - currentSecInt) <= 2,
                   compactLabels = cardCount >= 5,
                   tagNames = tagsFor(bookmark),
-                  onClick = { viewModel.seekToBookmark(bookmark) },
+                  onClick = { onCardClick(bookmark) },
                   onLongClick = {
                     haptics.tick()
                     menuBookmark = bookmark
@@ -797,7 +874,7 @@ internal fun BookmarkSplitPanel(
               }
 
               if (displayChapters.isNotEmpty()) {
-                item(span = { GridItemSpan(portraitColumns) }) {
+                item(span = { GridItemSpan(cols) }) {
                   Text(
                     text = stringResource(R.string.bookmark_list_section_chapters),
                     style = MaterialTheme.typography.labelMedium,
@@ -808,7 +885,7 @@ internal fun BookmarkSplitPanel(
                 items(
                   count = displayChapters.size,
                   key = { idx -> "ch_$idx" },
-                  span = { GridItemSpan(portraitColumns) },
+                  span = { GridItemSpan(cols) },
                 ) { idx ->
                   val chapter = displayChapters[idx]
                   val selected = idx == activeChapterIndex
@@ -860,7 +937,7 @@ internal fun BookmarkSplitPanel(
               verticalArrangement = Arrangement.spacedBy(spacing),
             ) {
               items(
-                items = bookmarks,
+                items = displayedBookmarks,
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
@@ -870,7 +947,7 @@ internal fun BookmarkSplitPanel(
                   selected = abs(posSec - currentSecInt) <= 2,
                   compactLabels = cardCount >= 5,
                   tagNames = tagsFor(bookmark),
-                  onClick = { viewModel.seekToBookmark(bookmark) },
+                  onClick = { onCardClick(bookmark) },
                   onLongClick = {
                     haptics.tick()
                     menuBookmark = bookmark
@@ -967,5 +1044,84 @@ internal fun BookmarkSplitPanel(
 
   if (showGallery) {
     app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(onClose = { showGallery = false })
+  }
+
+  if (showTagFilterDialog) {
+    Dialog(
+      onDismissRequest = { showTagFilterDialog = false },
+    ) {
+      Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = stringResource(R.string.bookmark_gallery_filter_tags),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.Bold,
+            )
+            Icon(
+              Icons.RoundedFilled.Close,
+              contentDescription = null,
+              modifier = Modifier.size(18.dp).clickable { showTagFilterDialog = false },
+            )
+          }
+          if (availableTags.isEmpty()) {
+            Text(
+              text = stringResource(R.string.bookmark_gallery_empty),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          } else {
+            FlowRow(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              availableTags.forEach { tag ->
+                val isSelected = tag in selectedTags
+                Surface(
+                  shape = RoundedCornerShape(8.dp),
+                  color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLowest,
+                  modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                    selectedTags = if (isSelected) selectedTags - tag else selectedTags + tag
+                  },
+                ) {
+                  Text(
+                    text = "#$tag",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                  )
+                }
+              }
+            }
+          }
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.End,
+          ) {
+            if (selectedTags.isNotEmpty()) {
+              TextButton(onClick = { selectedTags = emptyList() }) {
+                Text(stringResource(R.string.bookmark_gallery_clear_filters))
+              }
+            }
+            TextButton(onClick = { showTagFilterDialog = false }) {
+              Text("Done")
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -18,6 +18,8 @@ import app.gyrolet.mpvrx.ui.player.declaredMediaKind
 import app.gyrolet.mpvrx.domain.torrent.TorrentStreamingState
 import app.gyrolet.mpvrx.domain.torrent.formatTorrentBytes
 import app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed
+import androidx.compose.foundation.layout.aspectRatio
+import app.gyrolet.mpvrx.ui.player.VideoAspectGeometry
 import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkSplitPanel
 import android.content.res.Configuration.ORIENTATION_PORTRAIT
 import android.database.ContentObserver
@@ -2552,8 +2554,9 @@ fun PlayerControls(
             if (isPortrait) {
               Column(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
-                  // Portrait budget: 45% video, the remaining 55% is the bookmark drawer.
-                  Box(modifier = Modifier.fillMaxWidth().weight(0.45f)) {
+                  // Portrait budget: Native video aspect ratio (no hardcoding), remaining vertical space dedicated to bookmark drawer.
+                  val nativeAspect = (VideoAspectGeometry.currentEffectiveDisplayAspect() ?: (16.0 / 9.0)).toFloat().coerceIn(0.5f, 3.0f)
+                  Box(modifier = Modifier.fillMaxWidth().aspectRatio(nativeAspect)) {
                     videoOverlayPane(Modifier.fillMaxSize())
                   }
                   BookmarkSplitPanel(
@@ -2564,7 +2567,7 @@ fun PlayerControls(
                     onOpenSheet = onOpenSheet,
                     onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
                     onClose = { viewModel.setBookmarkPanelOpen(false) },
-                    modifier = Modifier.fillMaxWidth().weight(0.55f),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                   )
                 }
               }

@@ -30,6 +30,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -85,10 +88,6 @@ private const val PORTRAIT_MAX_COLUMNS = 3
 
 /** Max columns in landscape, where two full rows still fit the height budget. */
 private const val LANDSCAPE_MAX_COLUMNS = 4
-
-/** Share of the window height given to controls, the first card row and the second card row. */
-private const val CONTROLS_HEIGHT_WEIGHT = 0.34f
-private const val CARD_ROW_HEIGHT_WEIGHT = 0.33f
 
 /**
  * Cross-video bookmark browser.
@@ -166,8 +165,6 @@ fun BookmarkGalleryContent(
         availableWidth = maxWidth,
         maxColumns = maxColumnCount,
       )
-    val rows = remember(filtered, columns) { filtered.chunked(columns) }
-    val cardWidth = cardWidthFor(maxWidth, columns)
     val openItem: (BookmarkGalleryItem) -> Unit = { item ->
       val target = item.playableUri
       if (target.isNullOrBlank()) {
@@ -187,8 +184,8 @@ fun BookmarkGalleryContent(
     }
 
     Column(Modifier.fillMaxSize()) {
-      // ── Controls + search: 34% of the height ──────────────────────────────
-      Column(Modifier.fillMaxWidth().weight(CONTROLS_HEIGHT_WEIGHT)) {
+      // ── Controls + search ──────────────────────────────
+      Column(Modifier.fillMaxWidth()) {
         Row(
           modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
           verticalAlignment = Alignment.CenterVertically,
@@ -294,7 +291,7 @@ fun BookmarkGalleryContent(
 
         if (suggestions.isNotEmpty()) {
           LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
             items(suggestions, key = { it }) { tag ->
@@ -310,10 +307,10 @@ fun BookmarkGalleryContent(
         }
       }
 
-      // ── Thumbnail row 1 (33%) + row 2 (33%) ───────────────────────────────
+      // ── Naturally Vertically Scrollable Grid of 16:9 Cards ───────────────
       if (filtered.isEmpty()) {
         Box(
-          Modifier.fillMaxWidth().weight(CONTROLS_HEIGHT_WEIGHT + CARD_ROW_HEIGHT_WEIGHT),
+          Modifier.fillMaxWidth().weight(1f),
           contentAlignment = Alignment.Center,
         ) {
           Text(
@@ -324,22 +321,18 @@ fun BookmarkGalleryContent(
           )
         }
       } else {
-        repeat(2) { rowIndex ->
-          val rowItems = rows.getOrNull(rowIndex).orEmpty()
-          Box(Modifier.fillMaxWidth().weight(CARD_ROW_HEIGHT_WEIGHT)) {
-            LazyRow(
-              modifier = Modifier.fillMaxSize(),
-              contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-              horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-              items(rowItems, key = { it.row.id }) { item ->
-                BookmarkGalleryCard(
-                  item = item,
-                  width = cardWidth,
-                  onOpen = { openItem(item) },
-                )
-              }
-            }
+        LazyVerticalGrid(
+          columns = GridCells.Fixed(columns),
+          modifier = Modifier.fillMaxWidth().weight(1f),
+          contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          items(filtered, key = { it.row.id }) { item ->
+            BookmarkGalleryCard(
+              item = item,
+              onOpen = { openItem(item) },
+            )
           }
         }
       }
@@ -367,14 +360,6 @@ private fun resolveColumnCount(
     // Cards stay 16:9, so auto-fit only has to keep them legible.
     (availableWidth.value / MIN_CARD_WIDTH.value).toInt().coerceIn(2, maxColumns)
   }
-
-private fun cardWidthFor(
-  availableWidth: Dp,
-  columns: Int,
-): Dp {
-  val spacing = 6 * (columns - 1)
-  return ((availableWidth.value - 20 - spacing) / columns).coerceAtLeast(MIN_CARD_WIDTH.value / 2).dp
-}
 
 @Composable
 private fun SmallIconAction(
@@ -465,8 +450,8 @@ private fun TagPill(
 @Composable
 private fun BookmarkGalleryCard(
   item: BookmarkGalleryItem,
-  width: Dp,
   onOpen: () -> Unit,
+  width: Dp = Dp.Unspecified,
 ) {
   // Exactly one 16:9 frame: title at the top, tags and timestamp at the bottom, nothing outside.
   Surface(
@@ -474,7 +459,7 @@ private fun BookmarkGalleryCard(
     color = MaterialTheme.colorScheme.surfaceContainerLowest,
     modifier =
       Modifier
-        .width(width)
+        .then(if (width != Dp.Unspecified && width > 0.dp) Modifier.width(width) else Modifier.fillMaxWidth())
         .aspectRatio(16f / 9f)
         .clip(RoundedCornerShape(10.dp))
         .clickable(onClick = onOpen),
