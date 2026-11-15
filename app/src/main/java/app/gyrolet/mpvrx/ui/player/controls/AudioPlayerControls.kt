@@ -1542,22 +1542,24 @@ fun AudioPlayerControls(
           if (showInPlaceLyrics && !showLandscapeSidePanel) {
             Box(modifier = Modifier.fillMaxSize()) {
               if (activeCoverOverride != null || albumArtBitmap != null || currentArtworkUri != null) {
-                CoverArtCardImage(
-                  bitmap = activeCoverOverride ?: albumArtBitmap,
-                  artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
-                  contentScale = ContentScale.Crop,
-                  motionArtwork = null,
-                  isPlaying = false,
-                  remoteMotionQuery = null,
-                  modifier = Modifier
-                    .fillMaxSize()
-                    .blur(24.dp)
-                    .graphicsLayer(alpha = 0.28f),
-                )
                 Box(
                   modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.65f))
+                    .graphicsLayer(alpha = 0.22f)
+                ) {
+                  CoverArtCardImage(
+                    bitmap = activeCoverOverride ?: albumArtBitmap,
+                    artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
+                    contentScale = ContentScale.Crop,
+                    motionArtwork = null,
+                    isPlaying = false,
+                    remoteMotionQuery = null,
+                  )
+                }
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.75f))
                 )
               }
               app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(

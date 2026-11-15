@@ -290,7 +290,7 @@ fun LyricsView(
 
           FilterChip(
             selected = false,
-            onClick = { viewModel.sheetShown = app.gyrolet.mpvrx.ui.player.Sheets.LyricAnchorCalibration },
+            onClick = { viewModel.sheetShown.value = app.gyrolet.mpvrx.ui.player.Sheets.LyricAnchorCalibration },
             label = {
               Text("⏱️ Anchor Match", fontWeight = FontWeight.Bold)
             },

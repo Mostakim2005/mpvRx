@@ -4,6 +4,17 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.2.0 — Music Player Extension, Tag Editor, 1-Point Lyric Anchor & Persistent Storage
+
+- **Fullscreen Tag & Metadata Editor with Artwork Carousel:** Dedicated pencil icon (`✏️`) in the music player toolbar opens a comprehensive in-app metadata editor. Browse multi-artwork candidates in a top horizontal carousel, edit title/artist/album/year/genre fields, toggle automatic disk file renaming (`Artist - Title.ext`), and choose from iTunes and MusicBrainz metadata candidate cards.
+- **1-Point Lyric Anchor Calibration:** Single-tap full-song lyric synchronization. Tap any lyric line (such as "Let's Go"), tap "Anchor Match" when that moment plays in the audio, uniformly shift all subsequent timestamps, and save the calibrated `.lrc` with one tap.
+- **Musicolet-Style Direct Container Tag Embedding:** Writes synchronized and unsynchronized lyrics directly into native audio container tags without re-encoding audio bytes (`USLT` & `SYLT` frames for MP3, `LYRICS` & `UNSYNCEDLYRICS` comments for Opus/FLAC, and `©lyr` atoms for M4A/MP4).
+- **Portrait Lyrics with Blurred Artwork Canvas:** Full-body lyrics view in portrait mode now renders seamlessly over a dimmed, blurred album art canvas instead of a plain empty background.
+- **yt-dlp Companion Video Downloader & Audio Collision Avoidance:** Link YouTube music videos to audio tracks, download audio-less video streams (1080p, 720p, 480p, 360p, 240p) to keep high-fidelity local audio playback without collision, and use the smart replacement dialog to clean up redundant audio when downloading full video with audio.
+- **Zero-Bloat Single Root Directory Persistence:** All settings, thumbnails, secret vault files, lyrics, and the central Room SQLite database (`database/mpvrx.db`) reside in a user-chosen external folder (`/sdcard/Documents/mpvRx/`) that remains 100% uninstall-proof and upgrade-proof without duplicate backup files.
+- **Dynamic Video Ratio & Natural Gallery Grid:** Video split panels adapt naturally to 16:9, 4:3, and 21:9 aspect ratios without black bar waste, paired with in-drawer global bookmark gallery toggling.
+- **Release tag:** `v3.2.0`.
+
 ## 3.1.1 — Safe Path Normalization & Background Flow Fixes
 
 - **Fix crash on non-ASCII & Unicode filenames:** Replaced `java.net.URI`-based local path normalization with robust pure-string segment normalization that safely handles Unicode paths (such as Bengali filenames), content URIs, opaque IDs, colons, Windows backslashes, and relative traversals without throwing or returning null.

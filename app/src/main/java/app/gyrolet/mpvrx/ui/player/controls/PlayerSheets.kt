@@ -734,6 +734,7 @@ fun PlayerSheets(
     }
 
     Sheets.MetadataEditor -> {
+      val playback by app.gyrolet.mpvrx.ui.player.PlaybackSession.state.composeCollectAsState()
       val taggingEngine = org.koin.compose.koinInject<app.gyrolet.mpvrx.domain.metadata.AudioTaggingEngine>()
       val currentItem = playback.currentItem
       val title = currentItem?.title.orEmpty().ifBlank { "Unknown Title" }
@@ -750,13 +751,15 @@ fun PlayerSheets(
     }
 
     Sheets.LyricAnchorCalibration -> {
+      val playback by app.gyrolet.mpvrx.ui.player.PlaybackSession.state.composeCollectAsState()
       val taggingEngine = org.koin.compose.koinInject<app.gyrolet.mpvrx.domain.metadata.AudioTaggingEngine>()
       val musicCompanionDao = org.koin.compose.koinInject<app.gyrolet.mpvrx.database.dao.MusicCompanionDao>()
+      val currentPositionSec by viewModel.precisePosition.composeCollectAsState()
       val currentItem = playback.currentItem
       val title = currentItem?.title.orEmpty().ifBlank { "Unknown Title" }
       val artist = currentItem?.artist.orEmpty().ifBlank { "Unknown Artist" }
       val path = currentItem?.originalUri.orEmpty()
-      val lines = viewModel.lyrics.synced.orEmpty()
+      val lines = viewModel.lyricsUiState.value.lyrics?.synced.orEmpty()
       val selectedLine = lines.firstOrNull() ?: app.gyrolet.mpvrx.domain.lyrics.SyncedLine(time = 0, line = "Intro")
 
       app.gyrolet.mpvrx.ui.player.controls.components.sheets.LyricAnchorDialog(
@@ -764,7 +767,7 @@ fun PlayerSheets(
         songName = title,
         audioPath = path,
         youtubeUrl = null,
-        currentPlayheadMs = playback.position,
+        currentPlayheadMs = (currentPositionSec * 1000f).toLong(),
         selectedLine = selectedLine,
         allLines = lines,
         taggingEngine = taggingEngine,
