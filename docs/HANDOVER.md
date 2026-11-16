@@ -1,6 +1,6 @@
 # Handover — mpvRx v3.2.1 repair batch
 
-Last updated: 2026-11-16 · Branch `master` · Base `2244fbf1`
+Last updated: 2026-11-16 (batch 2: R-04, R-05, R-07) · Branch `master` · Base `8db4aa2e`
 
 ## 1. How this batch is verified
 
@@ -39,6 +39,10 @@ the standard APK build), and only then push the next. A cancelled run proves not
 | `43805359408` | `4a1d29ba` | **cancelled** by the docs push that followed |
 | `43806394165` | `8963bee5` | first complete check of the shipped code |
 
+**Batch 2** (R-04, R-05, R-07 + this doc) landed in one push after `8db4aa2e`. Its `build.yml`
+run is the one that matters for § 5 — confirm it is green with `gh run list` before release
+work (a cancelled run proves nothing).
+
 Nothing in this batch has been exercised on a device. "Shipped" below means *committed and
 pushed*, not *seen working*.
 
@@ -51,6 +55,9 @@ pushed*, not *seen working*.
 | R-01 | `34ef23be`, `4a1d29ba` | `ui/browser/components/MiniPlayer.kt` | Dismissing the card sends `ACTION_NOTIFICATION_STOP` only when `AudioPreferences.audioBackgroundPlayback` is off. With it on, the card leaves, the session keeps playing in the notification, the toss no longer pauses, and the refused-stop restore is skipped |
 | R-03 | `afbc30b0` | `ui/player/controls/components/sheets/ChaptersSheet.kt` | `PlaybackBookmarkEditor` holds `SCREEN_ORIENTATION_PORTRAIT` for as long as it is composed and restores the exact `requestedOrientation` it captured on close |
 | Docs status | `8963bee5` | `docs/PRODUCT.md` | Records the above |
+| R-04 (player half) | `9c3f01c4` | `ui/player/controls/PlayerControls.kt` | `showSystemStatusBar` now follows the real window: preference OR `WindowInsets.areStatusBarsVisible`, the same pattern the nav bar already used. The toast, unlock button and top-controls rows clear the status bar whenever it is actually visible, including transient immersive reveals |
+| R-05 | `a86f06b3` | `domain/secure/SecureFolderSession.kt`, `ui/securefolder/SecureFolderGateScreen.kt`, `ui/securefolder/SecureUnlockActivity.kt`, `App.kt` | One session unlock token: any gate success (folder entry PIN/biometric/setup or playback credential) opens the session, both gates skip prompting while it is live, and `App.onActivityStopped` clears it when the app is backgrounded. Per-action prompts (destroy vault, PIN change) intentionally still ask |
+| R-07 | `5ceb475a` | `ui/player/PlayerViewModel.kt`, `ui/player/controls/components/BookmarkListContent.kt` | Scope lives in `PlayerViewModel.toggleInPlayerBookmarkScope()` so it survives drawer close/reopen; the portrait drawer gained the missing scope chip; `currentMediaId` comes from `bookmarkMediaId` (covers bookmark-less videos); a foreign row with no replay ref shows a toast instead of seeking the current file to a foreign timestamp |
 
 ### Why R-01 was changed that way
 
@@ -68,17 +75,8 @@ the compile error CI caught.
 
 ## 3. Remaining work
 
-Statuses mirror `PRODUCT.md` § 4.
-
-### R-04 (player half) — status-bar inset on the player's top rows · P1
-
-`ui/player/controls/PlayerControls.kt` already insets three blocks with
-`windowInsetsPadding(WindowInsets.statusBars)` guarded by `showSystemStatusBar`
-(the player-update toast ≈1539, the unlock button ≈1848, the top-controls box ≈2324).
-The remaining top rows use the same guard, so the fix is a **condition** fix, not new padding:
-find where `showSystemStatusBar` is derived and make it true whenever the bars are actually
-visible (non-immersive, controls shown, not locked), instead of deriving it from a preference
-that can disagree with the window. Do not add a second inset pass on top of an active one.
+Statuses mirror `PRODUCT.md` § 4. R-04 (player half), R-05 and R-07 shipped in batch 2 — see § 2
+and `DECISIONS_AND_TRAPS.md` for how each was fixed. What remains of the original nine:
 
 ### R-02 — music action-row visibility menu · P2
 
@@ -100,33 +98,6 @@ Queue. Pattern to mirror: `ui/preferences/ControlLayoutEditorScreen.kt` (`Contro
 `currentItem` to a video source and opens the existing downloader sheet
 (`docs/MUSIC_PLAYER_CUSTOMIZATION.md` § Integrated-Media-Downloader-And-Databasing). The button
 participates in R-02 visibility. No downloader logic changes; this is discoverability.
-
-### R-05 — Secure Folder prompts twice · P1
-
-Reproduce first: the reported flow asks for the credential, shows the folder, then asks again on
-entry. Suspects are a second `SecureFolderRepository.unlock(...)` call from a lifecycle/`LaunchedEffect`
-re-entry, or `requireUnlock` being consulted per screen instead of per session. Fix by holding a
-single session-scoped unlock token (cleared on `onStop` when the app is backgrounded, per the
-existing security contract) and making every gate read it.
-
-### R-07 — `Video` ⇄ `Global` scope · P1
-
-Reviewed `ui/player/controls/components/BookmarkListContent.kt` (580–620) and
-`domain/bookmark/BookmarkGalleryRepository.kt`:
-
-- `baseBookmarks` is scope-derived and the drawer renders `displayedBookmarks` in **both** the
-  grid and list branches, so the toggle is wired.
-- `viewModel.bookmarkTags` is global (`observeAllPairs()`), so tag filtering is not limited to the
-  current video — my earlier hypothesis was wrong.
-- `currentMediaId` comes from `bookmarks.firstOrNull()?.mediaId`, so a video with **no** bookmarks
-  of its own yields `null` and Global taps relaunch the file instead of seeking.
-
-Remaining candidates, in order: (a) `BookmarkGalleryScope.AllVideos` drops every curated media
-row (`bookmarkDao.observeGallery()` is joined against replay refs), so Global looks identical to
-Video when nothing else was replayed; (b) `PlaybackIdentity.forLocalPath` mismatch when the secure
-folder holds a renamed copy, leaking or hiding rows; (c) the panel state `isGlobalScope` being
-reset by recomposition when the drawer is recreated in landscape. Reproduce with two videos'
-bookmarks before changing anything.
 
 ### R-08 — Now Playing queue compactness · P3
 

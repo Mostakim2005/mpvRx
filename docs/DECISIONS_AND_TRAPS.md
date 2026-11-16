@@ -78,6 +78,34 @@ flowchart LR
 
 ---
 
+### [DECISION: Single-Session-Unlock-Token-Vs-Per-Entry-Credential-Gates] | Aliases: secure folder prompts twice, double credential prompt, one prompt per session, session unlock token
+> **1-Line Summary:** A process-scoped `SecureFolderSession` token unifies the folder-entry and playback credential gates — one unlock covers the whole session and clears when the app is backgrounded.
+* **Decision Maker:** `[DECIDED BY: AGENT]`
+* **Original User Intention:** Entering the Secure Folder and then opening a file inside it must never ask for the credential twice in one session (R-05).
+* **Options Considered:**
+  * **Option A (Rejected):** Keep the two independent gates (`SecureFolderGateScreen` per nav entry, `SecureUnlockActivity` per playback launch) each prompting on its own. This is exactly the reported double-prompt flow, and it contradicted [DECISION: Align-Playback-Authentication-To-Secure-Folder-PIN] Option B, which assumed an "already unlocked" check that never existed in the code.
+  * **Option B (Chosen):** `domain/secure/SecureFolderSession.kt` marks the session unlocked on any gate success (folder entry PIN/biometric/setup, or the playback credential); every gate reads the token before prompting; `App.onActivityStopped` clears it when the app goes background (same contract as Secret Mode). Per-action prompts — destroy vault, PIN change, secret stats — intentionally keep asking.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `SecureFolderSession`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `authenticate`, `continueToTarget`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `Content`, `onAuthenticationSucceeded`
+  * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `onActivityStopped`
+
+---
+
+### [DECISION: Drawer-Scope-State-Lives-In-PlayerViewModel] | Aliases: scope toggle reset, video global toggle, bookmark drawer scope, chip survives reopen
+> **1-Line Summary:** The bookmark drawer's `Video ⇄ Global` scope lives in `PlayerViewModel.inPlayerBookmarkScope` (`toggleInPlayerBookmarkScope()`), never in composable-local state, and both orientations carry the chip.
+* **Decision Maker:** `[DECIDED BY: AGENT]`
+* **Original User Intention:** The scope choice must survive drawer close/reopen and be togglable in the portrait drawer as well as the landscape sidebar (R-07).
+* **Options Considered:**
+  * **Option A (Rejected):** `rememberSaveable` inside `BookmarkSplitPanel`. The panel leaves composition whenever the drawer closes, so the toggle silently reset to `Video` on reopen, and the portrait header shipped without any scope chip at all — "toggling" in portrait was impossible.
+  * **Option B (Chosen):** Scope state and `toggleInPlayerBookmarkScope()` live in `PlayerViewModel` (matching the `ARCHITECTURE.md` data-flow for this subsystem); `currentMediaId` comes from `bookmarkMediaId` so bookmark-less videos still classify rows correctly; a global row with no replay ref shows a toast instead of seeking the current file to a foreign timestamp.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `toggleInPlayerBookmarkScope`, `inPlayerBookmarkScope`, `bookmarkMediaId`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `isGlobalScope`, `onCardClick`, `currentMediaId`
+
+---
+
 ### [DECISION: Vault-Storage-Persistence-Strategy-Survive-Uninstall] | Aliases: survive uninstall, external app storage, nomedia vault, sdcard documents mpvrx
 > **1-Line Summary:** Private vault media, bookmark thumbnails, database backups, settings, and PIN verifiers are relocated to persistent storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) so uninstalling the app never destroys user data.
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
