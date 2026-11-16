@@ -178,14 +178,14 @@
 | Task | Priority | Surface | Status |
 | --- | --- | --- | --- |
 | `R-01` | P1 | Music player dismissal | `SHIPPED` (`34ef23be`, `4a1d29ba`) |
-| `R-02` | P2 | Music layout visibility menu | `OPEN` |
+| `R-02` | P2 | Music layout visibility menu | `SHIPPED` (`b187233d`) |
 | `R-03` | P2 | Bookmark editor orientation | `SHIPPED` (`afbc30b0`) |
 | `R-04` | P1 | Landscape status-bar insets (player + gallery) | `SHIPPED` (`e106d62b`, `9c3f01c4`) |
 | `R-05` | P1 | Secure Folder double credential prompt | `SHIPPED` (`a86f06b3`) |
-| `R-06` | P2 | yt-dlp / video download discoverability | `OPEN` |
+| `R-06` | P2 | yt-dlp / video download discoverability | `SHIPPED` (`b187233d`) |
 | `R-07` | P1 | Bookmark scope toggle (`Video` ⇄ `Global`) | `SHIPPED` (`5ceb475a`) |
-| `R-08` | P3 | Now Playing sheet compactness | `OPEN` |
-| `R-09` | P2 | Landscape music layout: browse left, now playing right | `OPEN` |
+| `R-08` | P3 | Now Playing sheet compactness | `SHIPPED` (`e2859d14`) |
+| `R-09` | P2 | Landscape music layout: browse left, now playing right | `SHIPPED` (`b187233d`) |
 
 **Handover:** current state, verification workflow and per-item implementation plans live in
 [`HANDOVER.md`](HANDOVER.md). Read it before resuming this table.

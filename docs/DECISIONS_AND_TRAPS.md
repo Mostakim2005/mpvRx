@@ -106,6 +106,20 @@ flowchart LR
 
 ---
 
+### [DECISION: Download-Discoverability-Vs-Companion-Downloader-Sheet] | Aliases: download button music, yt-dlp affordance, companion video downloader, attach to track
+> **1-Line Summary:** R-06 ships the download *affordances* (action-row ⬇, overflow entry, install messaging) on the existing engine; the companion-video sheet, `MusicCompanionDao` attach-binding and audio-replacement prompt stay a separate feature.
+* **Decision Maker:** `[DECIDED BY: AGENT]`
+* **Original User Intention:** A download action must be reachable from the video and music players when the build ships `ENABLE_YTDLP`, with install/status messaging when the engine is missing and no dead UI otherwise (R-06).
+* **Options Considered:**
+  * **Option A (Rejected):** Build the full [FEATURE: Granular-Quality-Downloader-And-Configurable-Presets] surface (`CompanionVideoDownloaderSheet`, `ResolutionOptionGrid`, `AudioReplacementConfirmDialog`, `MusicCompanionDao.companionVideoPath` binding). None of those components exist yet, and the R-06 item spec scoped the repair to discoverability ("no downloader logic changes").
+  * **Option B (Chosen):** Route the new entries into the existing download path — the VideoQuality sheet's per-quality download buttons (presets + enqueue) — and into `YtdlpInstallPromptDialog` / `YtdlpInstallProgressDialog` when `YtdlpManager.isInstalled` is false. `ENABLE_YTDLP=false` builds render no download UI at all.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `MusicActionRowButton.DOWNLOAD`, `showYtdlpInstallPrompt`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/MoreSheet.kt` -> `onDownloadClick`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.More`, `YtdlpManager.isInstalled`
+
+---
+
 ### [DECISION: Vault-Storage-Persistence-Strategy-Survive-Uninstall] | Aliases: survive uninstall, external app storage, nomedia vault, sdcard documents mpvrx
 > **1-Line Summary:** Private vault media, bookmark thumbnails, database backups, settings, and PIN verifiers are relocated to persistent storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) so uninstalling the app never destroys user data.
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`

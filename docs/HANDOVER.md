@@ -1,6 +1,6 @@
 # Handover — mpvRx v3.2.1 repair batch
 
-Last updated: 2026-11-16 (batch 2: R-04, R-05, R-07) · Branch `master` · Base `8db4aa2e`
+Last updated: 2026-11-16 (batch 3: R-02, R-06, R-08, R-09 — backlog complete) · Branch `master` · Base `63c56493`
 
 ## 1. How this batch is verified
 
@@ -43,6 +43,9 @@ the standard APK build), and only then push the next. A cancelled run proves not
 run is the one that matters for § 5 — confirm it is green with `gh run list` before release
 work (a cancelled run proves nothing).
 
+**Batch 3** (R-02, R-06, R-08, R-09 + docs) completes the repair backlog and runs the release
+path in § 5.
+
 Nothing in this batch has been exercised on a device. "Shipped" below means *committed and
 pushed*, not *seen working*.
 
@@ -58,6 +61,10 @@ pushed*, not *seen working*.
 | R-04 (player half) | `9c3f01c4` | `ui/player/controls/PlayerControls.kt` | `showSystemStatusBar` now follows the real window: preference OR `WindowInsets.areStatusBarsVisible`, the same pattern the nav bar already used. The toast, unlock button and top-controls rows clear the status bar whenever it is actually visible, including transient immersive reveals |
 | R-05 | `a86f06b3` | `domain/secure/SecureFolderSession.kt`, `ui/securefolder/SecureFolderGateScreen.kt`, `ui/securefolder/SecureUnlockActivity.kt`, `App.kt` | One session unlock token: any gate success (folder entry PIN/biometric/setup or playback credential) opens the session, both gates skip prompting while it is live, and `App.onActivityStopped` clears it when the app is backgrounded. Per-action prompts (destroy vault, PIN change) intentionally still ask |
 | R-07 | `5ceb475a` | `ui/player/PlayerViewModel.kt`, `ui/player/controls/components/BookmarkListContent.kt` | Scope lives in `PlayerViewModel.toggleInPlayerBookmarkScope()` so it survives drawer close/reopen; the portrait drawer gained the missing scope chip; `currentMediaId` comes from `bookmarkMediaId` (covers bookmark-less videos); a foreign row with no replay ref shows a toast instead of seeking the current file to a foreign timestamp |
+| R-02 | `b187233d` | `preferences/MusicActionRowButton.kt`, `preferences/AudioPreferences.kt`, `ui/player/controls/AudioPlayerControls.kt` | Per-orientation action-row visibility (`music_action_row_portrait` / `..._landscape`), a Layout checklist behind the music overflow, contiguously renumbered connected-bar slots, Queue and transport pinned |
+| R-06 | `b187233d` | `ui/player/controls/AudioPlayerControls.kt`, `ui/player/controls/components/sheets/MoreSheet.kt`, `ui/player/controls/PlayerSheets.kt` | ⬇ in the action row (participates in R-02 visibility) plus a Download entry in the video overflow; engine missing → install prompt with progress; `ENABLE_YTDLP=false` builds show no download UI |
+| R-09 | `b187233d` | `ui/player/controls/AudioPlayerControls.kt` | Landscape dual-pane: `DualPaneSidePanel` moved to the left column, artwork/title/seekbar/transport/action row stay right, each pane clearing the status bar on its own edge; portrait untouched |
+| R-08 | `e2859d14` | `ui/player/controls/components/sheets/PlaylistSheet.kt` | Queue list capped at ≈6 rows and scrolls inside its budget; the landscape sheet no longer claims the screen; the header row stays fixed |
 
 ### Why R-01 was changed that way
 
@@ -75,42 +82,12 @@ the compile error CI caught.
 
 ## 3. Remaining work
 
-Statuses mirror `PRODUCT.md` § 4. R-04 (player half), R-05 and R-07 shipped in batch 2 — see § 2
-and `DECISIONS_AND_TRAPS.md` for how each was fixed. What remains of the original nine:
-
-### R-02 — music action-row visibility menu · P2
-
-Targets the eight real buttons in `ui/player/controls/AudioPlayerControls.kt` (≈2560–2760):
-Equalizer, Lyrics, Shuffle, Repeat, artwork/visualizer toggle, Edit tags, Background playback,
-Queue. Pattern to mirror: `ui/preferences/ControlLayoutEditorScreen.kt` (`ControlRegion` model).
-
-1. Add `AudioPreferences.musicActionVisibility` as a string set per orientation
-   (`music_action_row_portrait` / `..._landscape`), default = all visible.
-2. Render a "Layout" entry in the music overflow that opens a checklist (not a reorder list —
-   these buttons live in fixed slots).
-3. Wrap each button in `if (region in visible)`; `Queue` stays pinned so the sheet is always
-   reachable, and play/pause + seek are never hideable.
-4. Portrait and landscape read their own set (`TRAP: Dual-Orientation-UI-Consistency-Rule`).
-
-### R-06 — ⬇ download button in the music action row · P2
-
-`AudioPlayerControls` action row (same block as R-02): add a download action that resolves
-`currentItem` to a video source and opens the existing downloader sheet
-(`docs/MUSIC_PLAYER_CUSTOMIZATION.md` § Integrated-Media-Downloader-And-Databasing). The button
-participates in R-02 visibility. No downloader logic changes; this is discoverability.
-
-### R-08 — Now Playing queue compactness · P3
-
-`ui/player/controls/components/sheets/PlaylistSheet.kt`: the sheet sizes its height by content
-rather than the queue, leaving dead space under the last row. Cap visible rows (≈6), make the list
-scroll inside, and keep the header + close row fixed. No change to queue ordering or actions.
-
-### R-09 — landscape music layout · P2
-
-One side only: browse list left, current track + action row right. `AudioPlayerControls` has the
-landscape branch (`isCompactLandscape`); move the browse/list panel into the left column and keep
-artwork, title, action row and transport in the right. Portrait untouched. Reuse the existing
-panels — the ask is placement, not new surfaces.
+**None — the repair backlog (R-01 … R-09) is complete.** Statuses mirror `PRODUCT.md` § 4; the
+per-item fixes are in § 2 and `DECISIONS_AND_TRAPS.md`. One deliberate scope boundary: R-06
+shipped the download *affordances* only (its item spec said "no downloader logic changes"); the
+companion-video downloader sheet, `MusicCompanionDao` attach-binding and audio-replacement prompt
+from `PRODUCT.md`'s music-side spec remain their own feature
+([FEATURE: Granular-Quality-Downloader-And-Configurable-Presets]).
 
 ## 4. Traps that shaped this batch
 
