@@ -177,10 +177,10 @@
 
 | Task | Priority | Surface | Status |
 | --- | --- | --- | --- |
-| `R-01` | P1 | Music player dismissal | `OPEN` |
+| `R-01` | P1 | Music player dismissal | `SHIPPED` (`34ef23be`, `4a1d29ba`) |
 | `R-02` | P2 | Music layout visibility menu | `OPEN` |
-| `R-03` | P2 | Bookmark editor orientation | `OPEN` |
-| `R-04` | P1 | Landscape status-bar insets (player + gallery) | `OPEN` |
+| `R-03` | P2 | Bookmark editor orientation | `SHIPPED` (`afbc30b0`) |
+| `R-04` | P1 | Landscape status-bar insets (player + gallery) | `PARTIAL` gallery shipped (`e106d62b`); player rows still open |
 | `R-05` | P1 | Secure Folder double credential prompt | `OPEN` |
 | `R-06` | P2 | yt-dlp / video download discoverability | `OPEN` |
 | `R-07` | P1 | Bookmark scope toggle (`Video` ⇄ `Global`) | `OPEN` |
