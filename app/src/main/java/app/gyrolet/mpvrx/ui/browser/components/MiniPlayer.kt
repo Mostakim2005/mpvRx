@@ -310,6 +310,7 @@ private fun MiniPlayerContent(
   val sessionState by PlaybackSession.state.collectAsStateWithLifecycle()
   val queueState by PlaybackSession.queue.collectAsStateWithLifecycle()
   val currentItem = sessionState.currentItem
+  val audioPreferences = koinInject<AudioPreferences>()
   val paused by PlaybackSession.propBoolean["pause"].collectAsStateWithLifecycle()
   val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsStateWithLifecycle()
   val duration by PlaybackSession.propInt["duration"].collectAsStateWithLifecycle()
