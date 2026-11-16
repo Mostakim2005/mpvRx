@@ -164,3 +164,145 @@
   * **M4A / MP4:** `©lyr` atom.
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/domain/metadata/AudioTaggingEngine.kt` -> `embedLyricsIntoAudioFile`, `extractEmbeddedLyrics`
+
+---
+
+## 4. Open Repair Backlog (v3.2.0 → Next Patch)
+
+> **1-Line Summary:** Confirmed regressions and missing affordances reported from real-device testing on realme RMX2001 (Android 11), kept here so every fix is judged against the same user-visible outcome in **both** orientations.
+
+> **Status:** `OPEN` until the acceptance check is demonstrated. Nothing in this section changes an existing [FEATURE] contract; each entry restores one that v3.2.0 broke or never finished.
+
+> **Visual preview:** [`docs/v3_2_1_fixes_preview.html`](v3_2_1_fixes_preview.html) — every item below drawn in **portrait and landscape** with independent layout budgets, per `TRAP: Dual-Orientation-UI-Consistency-Rule`.
+
+| Task | Priority | Surface | Status |
+| --- | --- | --- | --- |
+| `R-01` | P1 | Music player dismissal | `OPEN` |
+| `R-02` | P2 | Music layout visibility menu | `OPEN` |
+| `R-03` | P2 | Bookmark editor orientation | `OPEN` |
+| `R-04` | P1 | Landscape status-bar insets (player + gallery) | `OPEN` |
+| `R-05` | P1 | Secure Folder double credential prompt | `OPEN` |
+| `R-06` | P2 | yt-dlp / video download discoverability | `OPEN` |
+| `R-07` | P1 | Bookmark scope toggle (`Video` ⇄ `Global`) | `OPEN` |
+| `R-08` | P3 | Now Playing sheet compactness | `OPEN` |
+| `R-09` | P2 | Landscape music layout: browse left, now playing right | `OPEN` |
+
+**Implementation order:** `R-04` (insets, in progress) → `R-01` (dismiss semantics) → `R-07` (scope + tags) → `R-02` (button visibility) → `R-06` (download button) → `R-09` (landscape split) → `R-03` (portrait editor) → `R-05` (single unlock) → `R-08` (compact queue). Each lands alone, with the existing layout untouched unless the entry says otherwise.
+
+### [ISSUE: R-01-Music-Collapses-To-Mini-Player-On-Swipe-Down] | Aliases: swipe to close music, music keeps playing minimized, dismiss stops audio
+> **1-Line Summary:** Swiping the music player down dismisses playback entirely; it must collapse to the mini player and keep the audio running.
+* **Reported Behavior (v3.2.0):** With music playing from the Music tab, a downward swipe (or the sheet's dismiss gesture) ends the session; the mini player disappears and audio stops. Only the explicit `✕` should end playback.
+* **Root Cause (investigated):** Tossing the mini-player card is wired to `MediaPlaybackService.ACTION_NOTIFICATION_STOP`, a hard session stop; it does **not** consult the audio background-playback preference (`AudioPreferences.audioBackgroundPlayback`). So the setting is not the cause — the gesture itself is wired to the wrong action.
+* **User Intention (Non-Negotiable):** A gesture that closes the *surface* must never close the *session*. Swipe-down = collapse to the existing mini player docked above the bottom navigation; playback position, queue, and notification survive. `✕` and the notification's stop action remain the only terminal actions.
+* **Acceptance Criteria:**
+  * Swipe-down on the expanded music player leaves the mini player visible with the same track and a moving progress state; audio never gaps.
+  * Re-expanding restores the exact position and queue.
+  * `✕` still ends the session and clears the mini player.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/InAppMusicPlayer.kt` -> `dismiss`, `collapse`, `endDrag`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/browser/components/MiniPlayer.kt` -> `dismissPlayer`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/MediaPlaybackService.kt` -> session stop path
+
+### [ISSUE: R-02-Music-Player-Needs-Layout-Visibility-Menu] | Aliases: hide music layout, show music regions, music layout editor, compact music player
+> **1-Line Summary:** The video player exposes a per-region control layout editor; the music player has no equivalent hide/show menu.
+* **Reported Behavior (v3.2.0):** `ControlLayoutEditorScreen` / `ControlRegion` let users choose which control regions the video player shows, but nothing similar exists for the music player, so artwork, lyrics, seek/time, transport, or the utility bar cannot be hidden.
+* **User Intention (Non-Negotiable):** Music playback gets the same customization contract as video, applied to the **buttons that already exist in the music player's action row** — `Equalizer`, `Lyrics`, `Shuffle`, `Repeat`, artwork/visualizer toggle, `Edit tags`, `Background playback`, `Queue`. Hiding one removes only that button; the bar's structure does not change. Portrait and landscape keep **independent** visibility sets (see `TRAP: Dual-Orientation-UI-Consistency-Rule`).
+* **Acceptance Criteria:**
+  * Toggling a button hides/shows it immediately without recomposing playback or interrupting audio.
+  * Portrait and landscape keep independent sets; both persist across rotation and process restart.
+  * Hiding every optional button still leaves play/pause, seek, queue and the download entry reachable (no unreachable state).
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/ControlLayoutEditorScreen.kt` -> `ControlLayoutEditorScreen`, `ControlRegion`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
+
+### [ISSUE: R-03-Bookmark-Editor-Forces-Portrait-While-Editing] | Aliases: bookmark edit portrait, keyboard covers landscape editor, rotate to type, restore orientation after edit
+> **1-Line Summary:** The bookmark editor must open **in portrait even from landscape playback**, because the keyboard otherwise covers the whole landscape editor, and it must return to the previous orientation when editing ends.
+* **Reported Behavior (v3.2.0):** Editing a bookmark while the player is landscape shows a landscape editor; the IME then fills most of the screen, leaving too little room to see the fields being edited.
+* **User Intention (Non-Negotiable):** Editing is a portrait task. Opening the editor rotates to portrait so the fields and the keyboard are both usable; saving or cancelling restores exactly the orientation the player had before (including a manual rotation-button choice). Playback continues across the rotation.
+* **Acceptance Criteria:**
+  * Landscape player → Edit: editor appears in portrait with the focused field visible above the keyboard.
+  * Save / Cancel / Back: player returns to landscape, playback position intact, no duplicate prompt or reload.
+  * Portrait player → Edit → close: stays portrait.
+  * Works for both new-bookmark and existing-bookmark editing.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` -> `setRequestedOrientation`, `setOrientation`, `PlayerOrientationPolicy.manualOrientation`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.BookmarkEditor`
+
+### [ISSUE: R-04-Landscape-Top-Controls-Sit-Under-The-Status-Bar] | Aliases: top buttons not clickable, status bar overlap landscape, gallery Auto button dead, player plus button dead
+> **1-Line Summary:** In landscape the player's top action row/chips and the bookmark gallery header render beneath the status bar, so the topmost buttons never receive taps.
+* **Reported Behavior (v3.2.0):** Landscape player: the `⋯`, filter, bookmark, `+`, fullscreen and `✕` row plus the `Video` / `20%` / `3` chips sit in the status-bar strip and the top-row `+` does not respond. **Fullscreen bookmark gallery** (the bookmark-only screen opened from the player): the `Auto` column control and the `All videos` / `Secure videos` tabs sit under the clock/battery and cannot be tapped in landscape; the tabs are also cramped to hit.
+* **User Intention (Non-Negotiable):** Every interactive control is fully inside the safe area. Nothing a finger must hit may share space with the system clock, battery, cutout, or gesture pill.
+* **Acceptance Criteria:**
+  * All top-edge controls are inset by `WindowInsets.statusBars` (horizontal cutout insets included) and are hit-testable in landscape.
+  * The gallery `Auto` control opens the column picker; the player `+` adds a bookmark.
+  * No control's touch target overlaps the status-bar strip on a notched device at 20% sidebar width.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> existing `windowInsetsPadding(WindowInsets.statusBars)` branches (inset coverage is uneven)
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> gallery header (no `WindowInsets` handling today)
+
+### [ISSUE: R-05-Secure-Folder-Asks-For-The-Password-Twice] | Aliases: double password prompt, secure folder asks twice, repeated vault unlock
+> **1-Line Summary:** Entering the Secure Folder and then opening protected media challenges the same identity twice instead of reusing the unlocked session.
+* **Reported Behavior (v3.2.0):** The vault asks for the lock-screen/device password, and after entering it the next protected step asks again (and again when playback is requested).
+* **User Intention (Non-Negotiable):** One successful challenge unlocks the vault for the session. The secure-folder credential is the gate; the phone/device password must not be asked again for each video. While the vault is open the user browses freely: list → video → back → another video → playlist next/previous all pass without a prompt. Only an explicit lock, process death, or timeout re-arms the gate.
+* **Acceptance Criteria:**
+  * Unlock vault → open a protected video → exactly one credential prompt total (no second phone-password dialog).
+  * Back out of a video and open a different protected video: no prompt.
+  * Switch between protected videos through the playlist/next controls, and return from the player: no prompt.
+  * Backgrounding and returning keeps the unlocked session; pressing Lock re-arms the prompt.
+  * A cold start from a protected notification still requires one prompt.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `launch`
+  * `app/src/main/java/app/gyrolet/mpvrx/utils/media/MediaUtils.kt` -> `startGuarded`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderViewModel.kt` -> vault gate state
+
+### [ISSUE: R-06-Download-And-Ytdlp-Affordance-Is-Missing] | Aliases: where is download, no yt-dlp button, download video missing
+> **1-Line Summary:** There is no visible download action for videos and no trace of the yt-dlp engine anywhere in the UI.
+* **Reported Behavior (v3.2.0):** The player overflow/menus and the downloads surface expose no download entry for the current video, and nothing indicates whether the yt-dlp engine is available.
+* **User Intention (Non-Negotiable):** When the build ships `ENABLE_YTDLP`, a download action is reachable from the **video player and the music player** and lists the configured resolution presets; the music player downloads the *music video* (audio-less companion where local audio exists) and registers the result in the library/database so the song can show its video without re-downloading. When the engine is missing it explains that once and offers the install path instead of silently hiding the feature.
+* **Music-Side Spec (see `MUSIC_PLAYER_CUSTOMIZATION.md` § [CUSTOM: Integrated-Media-Downloader-And-Databasing]):** a **⬇ download button inside the music player action row** (next to equalizer/lyrics/etc., subject to the R-02 visibility menu) opens the download sheet; resolution spectrum; “attach to this track” binding written as `MusicCompanionDao` row (artist + song ↔ audio path ↔ video path/URL ↔ resolution), auto-deleted audio replacement prompt when a full video with audio is chosen.
+* **Acceptance Criteria:**
+  * `ENABLE_YTDLP=true` build: download entry visible from the player, presets open, enqueue works.
+  * Engine absent: the entry still exists and routes to install/status messaging.
+  * `ENABLE_YTDLP=false` build: no dead download UI.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/download/YtdlpDownloadEngine.kt` -> engine/status
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `ytdlpEngine` usage
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/browser/sheets/PlaylistActionSheet.kt` -> `BuildConfig.ENABLE_YTDLP`
+
+### [ISSUE: R-07-Bookmark-Scope-Toggle-Does-Not-Switch-The-List] | Aliases: global bookmark toggle broken, all videos scope, video scope not switching
+> **1-Line Summary:** The in-player `Video` ⇄ `Global` scope chip changes its label but the drawer keeps showing only the current video's bookmarks.
+* **Reported Behavior (v3.2.0):** In the landscape sidebar (and the portrait drawer), toggling scope to `Global` does not add bookmarks from other videos to the list.
+* **User Intention (Non-Negotiable):** This is the [FEATURE: Landscape-Sidebar-With-Global-Scope-Toggle] contract: `Global` lists every library bookmark with its media title and thumbnail, and tapping a row from another video opens that media at the saved position instead of seeking inside the current file.
+* **Acceptance Criteria:**
+  * With bookmarks on two or more videos, toggling to `Global` immediately lists the other videos' rows (title + thumbnail retained).
+  * Tag filters still apply to global rows; tag lookups resolve for remapped rows.
+  * Tapping another video's bookmark launches that media at its timestamp; the current video's rows still seek locally.
+  * The chip state survives a sheet close/reopen during the same session.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `isGlobalScope`, `baseBookmarks`, `displayedBookmarks`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `observeItems(BookmarkGalleryScope.AllVideos)`
+
+### [ISSUE: R-09-Landscape-Music-Layout-Puts-Both-Panels-On-One-Side] | Aliases: landscape music split, browse left now playing right, same side layout
+> **1-Line Summary:** In landscape the music player must stop splitting current track and mini player across opposite edges: browsing goes on the **left**, current playback on the **right**.
+* **Reported Behavior (v3.2.0):** Landscape now-playing shows the current track against one edge and the mini/queue entry against the other, wasting the middle and forcing the eye to jump sides.
+* **User Intention (Non-Negotiable):** One side (left) is the browsable music list; the other (right) holds the current track, its action row and the mini player. Nothing in the existing panel structure changes beyond this placement.
+* **Acceptance Criteria:**
+  * Left pane scrolls the library/queue; right pane keeps artwork, title, action row and transport.
+  * Portrait is untouched.
+  * Both panes stay inside the safe area with the landscape status-bar inset.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> landscape split branch, `isCompactLandscape`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/InAppMusicPlayer.kt` -> sheet host
+
+### [ISSUE: R-08-Now-Playing-Sheet-Wastes-Vertical-Space] | Aliases: playlist sheet too tall, empty area under queue, compact now playing
+> **1-Line Summary:** The Now Playing sheet announces 6 items but renders one row inside a mostly empty panel.
+* **Reported Behavior (v3.2.0):** Landscape sheet header reads `Now Playing · 6 items`; below the first entry the panel is empty, so the sheet consumes screen area without showing the remaining queue.
+* **User Intention (Non-Negotiable):** Either the queue is drawn (all 6 compact rows visible without scrolling in landscape) or the sheet shrinks to its content. Blank space inside a bottom sheet is a defect, not padding. The visible rows must carry real content (thumbnail, title, duration, resolution, active-row state) rather than one card floating in an empty panel.
+* **Acceptance Criteria:**
+  * Six queued items render as compact rows that fit in landscape without scrolling; the current row stays highlighted.
+  * When the queue is short, the sheet height wraps content instead of reserving empty space.
+  * Portrait keeps a scrollable full-height variant; no row is clipped by the grabber or the sheet's bottom inset.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/PlaylistSheet.kt` -> `PlaylistSheet`, `ui_now_playing` header
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> sheet host sizing
+

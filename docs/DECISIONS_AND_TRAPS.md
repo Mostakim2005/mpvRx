@@ -209,3 +209,23 @@ flowchart LR
 * **Strict Rule:** **NEVER** attempt to run an active Room SQLite database through `ContentResolver` / `DocumentFile` stream wrappers. SQLite requires direct file descriptor locking (`fcntl` / flock) and SHM memory mapping. The user-selected directory must be located in standard external storage (`/sdcard/Documents/mpvRx/`) using direct `File` paths.
 * **Protected Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
+
+---
+
+### [TRAP: Landscape-Top-Gesture-Strip-Has-No-Status-Bar-Inset] | Aliases: dead top buttons, buttons under clock, gallery auto unreachable, status bar overlap
+> **1-Line Summary:** In landscape the status bar lies over the top edge of the app; any control row that skips `WindowInsets.statusBars` is visually present but hit-tested under the system UI.
+* **Strict Rule:** Every top-anchored horizontal row in landscape (player action bar, chip row, bookmark gallery header, sheet title bars) **MUST** consume `WindowInsets.statusBars` plus horizontal cutout insets. Never assume a landscape window starts below the status bar: the app is edge-to-edge, and a row that looks fine in a screenshot can still be untappable because the system consumes those pixels.
+* **Verification:** On a notched landscape device, tap the first and last control of each top row. "Visible but inert" means the inset is missing, not that the click handler is broken.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `windowInsetsPadding(WindowInsets.statusBars)`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> gallery header row
+
+---
+
+### [TRAP: Portrait-Only-Editors-Must-Restore-The-Players-Orientation] | Aliases: bookmark editor portrait, keyboard covers landscape editor, lost landscape after edit, orientation restore
+> **1-Line Summary:** Text-heavy editors (bookmark editor, metadata editor) must be forced to portrait while open, then restore the exact orientation the player had — a forced rotation that is not undone strands the user in portrait.
+* **Strict Rule:** Keyboard-driven editors request `SCREEN_ORIENTATION_PORTRAIT` on open and **must** restore the saved orientation on close (save, cancel, back, and process-death restore). The restore target is the one the player was using before the editor opened: a manual rotation-button choice outranks the media preference, and split-screen/freeform still hands orientation to the system. Never let the editor's request leak into normal playback.
+* **Verification:** Landscape player → open editor → editor is portrait with the focused field above the IME → save/cancel/back → player is landscape again with the same position and a live surface.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` -> `setRequestedOrientation`, `setOrientation`, `PlayerOrientationPolicy.manualOrientation`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.BookmarkEditor`

@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mpvRx · v3.2.1 repair preview (portrait + landscape)</title>
+<style>
+  :root{
+    --bg:#0c0918;--panel:#171129;--panel2:#211a38;--panel3:#2b2247;
+    --line:#3b2f60;--text:#efeaff;--muted:#a79bcf;--accent:#8b6cff;--accent2:#6d4dff;
+    --gold:#ffd166;--good:#5be49b;--warn:#ff8fa3;--chip:#2e2450;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#1d1538,#0c0918 60%);color:var(--text);
+       font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:32px 24px 72px}
+  header{max-width:1180px;margin:0 auto 28px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.2px}
+  header p{color:var(--muted);margin:4px 0;max-width:900px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.p{background:#8b6cff}.dot.l{background:#5be49b}.dot.b{background:#ffd166}
+  section{max-width:1180px;margin:0 auto 40px;border-top:1px solid var(--line);padding-top:22px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .sec-head h2{font-size:17px;margin:0}
+  .tag{font:600 11px/1.4 ui-monospace,Menlo,monospace;background:var(--panel3);color:var(--gold);
+       border:1px solid var(--line);padding:3px 8px;border-radius:999px}
+  .changed{color:var(--muted);font-size:13px;margin:6px 0 18px;max-width:980px}
+  .pair{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .pair.tight{gap:22px}
+  .dock{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .cap{font-size:12px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase}
+  .device{position:relative;border:2px solid #3a2f5d;border-radius:22px;background:#080611;box-shadow:0 18px 40px #0008;overflow:hidden}
+  .device.p{width:300px;height:600px;border-radius:26px}
+  .device.l{width:600px;height:300px;border-radius:16px}
+  .device .scr{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+  .status{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;font-size:9px;color:#d9d2f7;background:#120d22}
+  .status .r{display:flex;gap:5px;align-items:center}
+  .pill{background:#5be49b33;border:1px solid #5be49b66;color:#a8ffd2;border-radius:999px;padding:0 5px;font-size:8px}
+  .inset-line{border-top:1px dashed #8b6cff66;margin:0 0 4px;position:relative}
+  .inset-line::after{content:"status-bar safe area";position:absolute;right:8px;top:-9px;font-size:7px;color:#8b6cffcc;background:#080611;padding:0 4px}
+
+  .screenpad{padding:8px 10px;display:flex;flex-direction:column;gap:7px;flex:1;min-height:0}
+  .topbar{display:flex;align-items:center;gap:7px;font-size:10px}
+  .topbar .title{font-weight:700;font-size:12px;letter-spacing:-.2px}
+  .spacer{flex:1}
+  .icon{width:18px;height:18px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);
+        display:flex;align-items:center;justify-content:center;font-size:9px;color:#cfc7ee}
+  .icon.acc{background:#8b6cff33;border-color:#8b6cff88;color:#d9ccff}
+  .icon.gold{background:#ffd16622;border-color:#ffd16677;color:#ffe6a1}
+  .icon.dead{outline:1px solid #ff8fa355;position:relative}
+  .icon.dead::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        font-size:16px;color:#ff8fa3;background:#2a0c1a;border-radius:6px}
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{font-size:9px;padding:2px 7px;border-radius:999px;background:var(--chip);border:1px solid var(--line);color:#d7cff5;white-space:nowrap}
+  .chip.acc{background:#8b6cff2e;border-color:#8b6cff99;color:#e6dcff}
+  .chip.gold{background:#ffd1661f;border-color:#ffd16680;color:#ffe6a1}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px;display:flex;gap:9px;align-items:center}
+  .thumb{width:52px;height:36px;border-radius:7px;background:linear-gradient(135deg,#3a2b66,#7a5bd1);flex:0 0 auto;
+         display:flex;align-items:center;justify-content:center;font-size:8px;color:#d8ccff}
+  .thumb.sq{width:44px;height:44px;border-radius:9px;background:linear-gradient(135deg,#553a86,#b48aff)}
+  .t{font-size:9.5px;font-weight:600;line-height:1.25;max-height:24px;overflow:hidden}
+  .s{font-size:8px;color:var(--muted);margin-top:2px}
+  .rowbtn{width:24px;height:24px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);display:flex;
+          align-items:center;justify-content:center;font-size:10px;color:#cfc7ee;flex:0 0 auto}
+  .rowbtn.play{background:#8b6cff;border-color:#8b6cff;color:#fff}
+
+  .arr{font-size:11px;color:var(--gold);font-weight:700;display:flex;align-items:center;gap:5px}
+  .note{font-size:12px;color:var(--muted);margin-top:10px;max-width:520px}
+  .note b{color:var(--text);font-weight:600}
+  .mono{font:11px/1.5 ui-monospace,Menlo,monospace;color:#bfb4e4}
+
+  .mini{margin-top:auto;background:#1d1636;border:1px solid #8b6cff66;border-radius:14px;padding:8px 10px;display:flex;gap:9px;align-items:center}
+  .eq{display:flex;gap:2px;align-items:flex-end;height:14px}
+  .eq i{display:block;width:2.5px;background:var(--good);border-radius:2px;animation:bounce 1.1s infinite ease-in-out}
+  .eq i:nth-child(1){height:6px;animation-delay:0s}.eq i:nth-child(2){height:12px;animation-delay:.15s}
+  .eq i:nth-child(3){height:8px;animation-delay:.3s}.eq i:nth-child(4){height:13px;animation-delay:.45s}
+  @keyframes bounce{0%,100%{transform:scaleY(.6)}50%{transform:scaleY(1)}}
+
+  .sheet{margin-top:auto;background:#1a1430;border:1px solid var(--line);border-top-left-radius:16px;border-top-right-radius:16px;padding:9px 10px 10px;display:flex;flex-direction:column;gap:7px}
+  .handle{width:42px;height:3px;border-radius:2px;background:#574a80;margin:0 auto 2px}
+  .sheet h4{margin:0;font-size:11px;font-weight:700}
+  .sw{width:26px;height:14px;border-radius:999px;background:#3a2f5e;border:1px solid var(--line);position:relative;flex:0 0 auto}
+  .sw::after{content:"";position:absolute;top:1.5px;left:2px;width:9px;height:9px;border-radius:50%;background:#9c92c5}
+  .sw.on{background:#8b6cff55;border-color:#8b6cff}
+  .sw.on::after{left:14px;background:#efeaff}
+  .line{display:flex;align-items:center;gap:8px;font-size:9.5px;padding:4px 2px}
+  .grab{width:14px;height:10px;background:repeating-linear-gradient(0deg,#7c6fa8 0 1px,transparent 1px 3px);opacity:.9;border-radius:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .gcard{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px;display:flex;flex-direction:column;gap:4px}
+  .gthumb{height:34px;border-radius:6px;background:linear-gradient(135deg,#513a84,#9a7cff)}
+  .gthumb.b{background:linear-gradient(135deg,#2c4a63,#63a6d8)}
+  .gthumb.c{background:linear-gradient(135deg,#5a3350,#d47fa8)}
+  .tiny{font-size:8px;color:var(--muted);line-height:1.25}
+  .badge{position:absolute;font-size:9px;padding:2px 7px;border-radius:999px;background:#0d0a18dd;border:1px solid #8b6cff88;color:#e3d9ff;z-index:4}
+  .badge.good{border-color:#5be49b88;color:#b7ffd9}
+  .badge.bad{border-color:#ff8fa388;color:#ffc2cc}
+  .overlay{position:absolute;inset:0;background:#07050fcc;display:flex;align-items:center;justify-content:center;z-index:3}
+  .modal{width:190px;background:#1b1430;border:1px solid #8b6cff77;border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:7px;box-shadow:0 12px 30px #000a}
+  .field{background:#120d22;border:1px solid var(--line);border-radius:8px;padding:5px 7px;font-size:9px;color:#cfc7ee}
+  .field.focus{border-color:#8b6cff;box-shadow:0 0 0 2px #8b6cff33}
+  .kbd{margin-top:4px;background:#241c3e;border:1px solid var(--line);border-radius:8px;padding:4px;display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+  .kbd span{height:14px;background:#332a52;border-radius:3px;display:block}
+  .kbd span.wide{grid-column:span 3;background:#3d3163}
+  .badgeline{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#b7ffd9}
+  .badgeline.warn{color:#ffc2cc}
+  .tabs{display:flex;gap:6px;align-items:center;font-size:9px}
+  .tab{padding:3px 9px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:#cfc7ee}
+  .tab.on{background:#8b6cff;border-color:#8b6cff;color:#fff;font-weight:600}
+  footer{max-width:1180px;margin:0 auto;color:#6f6494;font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>mpvRx · v3.2.1 repair preview</h1>
+  <p>Every frame below is drawn twice, portrait and landscape, with independent layout budgets — exactly as the app must render them. This is a mock for sign-off, not the shipped UI.</p>
+  <div class="legend">
+    <span><i class="dot p"></i> Portrait budget</span>
+    <span><i class="dot l"></i> Landscape budget</span>
+    <span><i class="dot b"></i> Callout / annotation</span>
+    <span class="mono">R-01 … R-08</span>
+  </div>
+</header>
+
+<!-- 1 · MUSIC SWIPE DOWN -->
+<section>
+  <div class="sec-head"><h2>1 · Music swipe-down collapses, never stops</h2><span class="tag">R-01</span></div>
+  <p class="changed">Gesture now collapses the expanded player into the mini player and keeps the session alive. Only <b>✕</b> ends playback — background-playback preference is irrelevant because the card is no longer wired to <span class="mono">ACTION_NOTIFICATION_STOP</span>.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span>◐</span><span>▮▮</span><span class="pill">58</span></div></div>
+        <div class="screenpad">
+          <div class="topbar"><span class="icon">⌄</span><span class="title">Now Playing</span><span class="spacer"></span><span class="icon">✕</span></div>
+          <div class="card" style="padding:10px">
+            <div class="thumb sq"></div>
+            <div style="min-width:0;flex:1">
+              <div class="t">*NSYNC - Bye Bye Bye</div>
+              <div class="s">*NSYNC · 03:58</div>
+            </div>
+            <div class="eq"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="note mono" style="font-size:9.5px;color:#bfb4e4">swipe ↓</div>
+          <div class="mini">
+            <div class="thumb sq" style="width:34px;height:34px"></div>
+            <div style="min-width:0;flex:1"><div class="t">*NSYNC - Bye Bye Bye</div><div class="s">Playing · mini player</div></div>
+            <div class="rowbtn play">❚❚</div>
+            <div class="rowbtn">⏭</div>
+            <div class="rowbtn">✕</div>
+          </div>
+          <div class="badgeline">▸ audio keeps playing after collapse</div>
+        </div>
+      </div><span class="badge good" style="left:10px;bottom:8px">collapsed, not stopped</span></div>
+      <div class="cap">Portrait</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span>◐</span><span>▮▮</span><span class="pill">58</span></div></div>
+        <div class="screenpad" style="flex-direction:row;gap:10px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0;border-right:1px solid #3b2f60;padding-right:10px">
+            <div class="topbar"><span class="title" style="font-size:10px">Browse</span><span class="spacer"></span><span class="icon">⌕</span></div>
+            <div class="card" style="padding:4px"><div class="thumb" style="width:34px;height:22px"></div><div style="min-width:0"><div class="t">Bye Bye Bye</div><div class="s">playing</div></div><div class="eq"><i></i><i></i><i></i><i></i></div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb b" style="width:34px;height:22px"></div><div style="min-width:0"><div class="t">'Till I Collapse</div><div class="s">Eminem</div></div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb c" style="width:34px;height:22px"></div><div style="min-width:0"><div class="t">Real Steel OST</div><div class="s">album</div></div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb" style="width:34px;height:22px"></div><div style="min-width:0"><div class="t">Gmail কাজ করার নিয়ম</div><div class="s">video</div></div></div>
+          </div>
+          <div style="width:250px;display:flex;flex-direction:column;gap:6px;min-width:0">
+            <div class="topbar"><span class="icon">⌄</span><span class="title" style="font-size:10px">Now Playing</span><span class="spacer"></span><span class="icon">✕</span></div>
+            <div class="card" style="padding:6px"><div class="thumb sq" style="width:38px;height:38px"></div><div style="min-width:0;flex:1"><div class="t">*NSYNC - Bye Bye Bye</div><div class="s">*NSYNC · 03:58</div></div><div class="eq"><i></i><i></i><i></i><i></i></div></div>
+            <div class="chips"><span class="chip">=</span><span class="chip">Lyrics</span><span class="chip">\u21c4</span><span class="chip">↻</span><span class="chip acc">⬇</span><span class="chip">✎</span><span class="chip">🎧</span><span class="chip">☰</span></div>
+            <div class="note mono" style="font-size:8.5px">action row · ⬇ opens Download music video</div>
+            <div class="mini"><div class="thumb sq" style="width:28px;height:28px"></div><div style="min-width:0;flex:1"><div class="t">Bye Bye Bye</div><div class="s">Playing</div></div><div class="rowbtn play">❚❚</div><div class="rowbtn">✕</div></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape</div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · MUSIC LAYOUT MENU -->
+<section>
+  <div class="sec-head"><h2>2 · Music layout visibility &amp; reorder menu</h2><span class="tag">R-02</span></div>
+  <p class="changed">Parity with the video player's layout manager, applied to the <b>actual music-player buttons</b> (equalizer, lyrics, shuffle, repeat, visualizer, edit tags, background playback, queue) — hide or re-enable each one, stored separately per orientation. The player's structure does not change; only which buttons appear.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad">
+          <div class="topbar"><span class="icon">⌄</span><span class="title">Layout · Portrait</span><span class="spacer"></span><span class="icon acc">↺</span></div>
+          <div class="sheet" style="margin-top:0">
+            <div class="line"><span style="flex:1">Equalizer</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Lyrics / visualizer</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Shuffle</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Repeat</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Artwork / visualizer toggle</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Edit tags</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Background playback</span><span class="sw on"></span></div>
+            <div class="line" style="opacity:.55"><span style="flex:1">Queue (always shown)</span><span class="sw on"></span></div>
+          </div>
+          <div class="note mono" style="font-size:9px">same buttons as the portrait action row · Queue stays pinned</div>
+        </div>
+      </div></div>
+      <div class="cap">Portrait</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="flex-direction:row;gap:12px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:4px;justify-content:center">
+            <div class="tiny" style="color:#cfc7ee;font-weight:700">Landscape action bar</div>
+            <div class="line"><span style="flex:1">Equalizer</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Lyrics</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Shuffle</span><span class="sw"></span></div>
+            <div class="line"><span style="flex:1">Repeat</span><span class="sw"></span></div>
+            <div class="line"><span style="flex:1">Visualizer</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Edit tags</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Background playback</span><span class="sw on"></span></div>
+          </div>
+          <div style="width:250px;display:flex;flex-direction:column;gap:5px">
+            <div class="chip acc">Layout · Landscape</div>
+            <div class="gcard" style="flex:1;justify-content:center;align-items:center"><div class="tiny">preview of the visible regions</div></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape</div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · MUSIC DOWNLOAD -->
+<section>
+  <div class="sec-head"><h2>3 · Download the music video from the music player</h2><span class="tag">R-06</span></div>
+  <p class="changed">A new <b>⬇ download</b> button sits in the music player action row (alongside equalizer, lyrics, shuffle …), exactly like the rest of the controls. It opens this sheet: resolution spectrum, audio-less companion when local audio exists, and a library binding row so the track remembers its video.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad">
+          <div class="sheet" style="margin-top:0">
+            <div class="handle"></div>
+            <h4>Download music video</h4>
+            <div class="card" style="padding:6px"><div class="thumb sq" style="width:34px;height:34px"></div><div><div class="t">Bye Bye Bye</div><div class="s">*NSYNC · 03:58</div></div></div>
+            <div class="grid2">
+              <span class="chip acc">1080p · 45 MB</span><span class="chip">720p · 22 MB</span>
+              <span class="chip">480p · 12 MB</span><span class="chip">360p · 6 MB</span>
+            </div>
+            <div class="line"><span style="flex:1">Audio-less companion (local audio present)</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Add to library &amp; link track</span><span class="sw on"></span></div>
+            <div class="line" style="color:#bfb4e4" ><span class="mono" style="font-size:8px">writes music_companion row: artist ↔ audio ↔ video</span></div>
+          </div>
+          <div class="note mono" style="font-size:9px">engine missing → one “Install yt-dlp” row, not a hidden feature</div>
+        </div>
+      </div></div>
+      <div class="cap">Portrait</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="flex-direction:row;gap:12px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;justify-content:center">
+            <div class="gcard" style="flex:1;justify-content:center;align-items:center"><div class="tiny">video window / artwork</div></div>
+            <div class="note mono" style="font-size:9px">left panel unchanged while the download sheet is open</div>
+          </div>
+          <div class="sheet" style="width:280px;margin:0;justify-content:center">
+            <h4>Download music video</h4>
+            <div class="grid3"><span class="chip acc">1080p</span><span class="chip">720p</span><span class="chip">480p</span></div>
+            <div class="grid3"><span class="chip">360p</span><span class="chip">240p</span><span class="chip gold">Est. size</span></div>
+            <div class="line"><span style="flex:1">Audio-less companion</span><span class="sw on"></span></div>
+            <div class="line"><span style="flex:1">Link to this track</span><span class="sw on"></span></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape</div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 · BOOKMARK SCOPE -->
+<section>
+  <div class="sec-head"><h2>4 · Bookmark scope: Video ⇄ Global working, tags included</h2><span class="tag">R-07</span></div>
+  <p class="changed"><b>Video</b> lists only the playing file's bookmarks; <b>Global</b> lists every library bookmark with its source title, and the tag filter applies to whichever set is visible.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad">
+          <div class="gcard" style="height:86px;justify-content:center;align-items:center"><div class="tiny">video surface (native ratio)</div></div>
+          <div class="topbar"><span class="chip acc">🌐 Global</span><span class="chip">🎬 Video</span><span class="spacer"></span><span class="icon">🏷️</span><span class="icon">⊞</span></div>
+          <div class="chips"><span class="chip acc">gmail</span><span class="chip">work</span><span class="chip">later</span></div>
+          <div class="card" style="padding:5px"><div class="thumb" style="width:46px;height:30px"></div><div style="min-width:0"><div class="t">02:05 · Gmail কাজ করার নিয়ম</div><div class="s">gmail · other video</div></div></div>
+          <div class="card" style="padding:5px"><div class="thumb" style="width:46px;height:30px;background:linear-gradient(135deg,#2c4a63,#63a6d8)"></div><div style="min-width:0"><div class="t">05:30 · BigMarker webinar</div><div class="s">work · other video</div></div></div>
+        </div>
+      </div></div>
+      <div class="cap">Portrait</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:24</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="flex-direction:row;gap:8px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <div class="topbar"><span class="icon">⋯</span><span class="spacer"></span><span class="icon acc">+</span><span class="icon">⛶</span><span class="icon">✕</span></div>
+            <div class="gcard" style="flex:1;justify-content:center;align-items:center"><div class="tiny">video</div></div>
+            <div class="chips"><span class="chip">Video</span><span class="chip">20%</span><span class="chip">3</span></div>
+          </div>
+          <div style="width:210px;display:flex;flex-direction:column;gap:5px">
+            <div class="topbar"><span class="chip acc">🌐</span><span class="chip">🎬</span><span class="spacer"></span><span class="icon">🏷️</span></div>
+            <div class="chips"><span class="chip acc">gmail</span><span class="chip">work</span></div>
+            <div class="card" style="padding:4px"><div class="thumb" style="width:40px;height:26px"></div><div style="min-width:0"><div class="t">02:05 · Gmail</div><div class="s">gmail · other video</div></div></div>
+            <div class="card" style="padding:4px"><div class="thumb" style="width:40px;height:26px;background:linear-gradient(135deg,#2c4a63,#63a6d8)"></div><div style="min-width:0"><div class="t">05:30 · BigMarker</div><div class="s">work · other video</div></div></div>
+            <div class="card" style="padding:4px"><div class="thumb" style="width:40px;height:26px;background:linear-gradient(135deg,#5a3350,#d47fa8)"></div><div style="min-width:0"><div class="t">00:40 · this video</div><div class="s">gmail · current</div></div></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape</div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · GALLERY INSETS -->
+<section>
+  <div class="sec-head"><h2>5 · Fullscreen bookmark gallery respects the status bar</h2><span class="tag">R-04</span></div>
+  <p class="changed">The bookmark-only gallery now starts below the status bar; the tabs and the <b>Auto</b> column control are fully tappable in landscape. Before: both sat under the clock and ignored taps.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:29</span><div class="r"><span>◐</span><span class="pill">58</span></div></div>
+        <div class="inset-line"></div>
+        <div class="screenpad" style="gap:6px">
+          <div class="topbar"><span class="icon acc">←</span><span class="title">Bookmark gallery</span><span class="chip acc">All videos</span><span class="spacer"></span><span class="icon">▦</span></div>
+          <div class="field" style="padding:6px 8px">🔍 Filter by tags</div>
+          <div class="chips"><span class="chip acc">gmail</span><span class="chip">+ tag</span></div>
+          <div class="grid2">
+            <div class="gcard"><div class="gthumb"></div><div class="tiny">02:05 · gmail</div></div>
+            <div class="gcard"><div class="gthumb b"></div><div class="tiny">02:59 · gmail</div></div>
+            <div class="gcard"><div class="gthumb c"></div><div class="tiny">05:30 · work</div></div>
+            <div class="gcard"><div class="gthumb"></div><div class="tiny">07:52 · gmail</div></div>
+          </div>
+        </div>
+      </div><span class="badge good" style="left:10px;top:26px">inset applied</span></div>
+      <div class="cap">Portrait</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:29</span><div class="r"><span>◐</span><span class="pill">58</span></div></div>
+        <div class="inset-line"></div>
+        <div class="screenpad" style="gap:6px">
+          <div class="topbar"><span class="icon acc">←</span><span class="title" style="font-size:11px">Bookmark gallery</span>
+            <span class="tabs"><span class="tab on">All videos</span><span class="tab">Secure videos</span></span>
+            <span class="spacer"></span><span class="chip acc" style="font-size:9px">▦ Auto</span></div>
+          <div class="field" style="padding:5px 8px;font-size:9px">🔍 Filter by tags</div>
+          <div class="grid3">
+            <div class="gcard"><div class="gthumb" style="height:46px"></div><div class="tiny">02:05 · gmail</div></div>
+            <div class="gcard"><div class="gthumb b" style="height:46px"></div><div class="tiny">02:59 · gmail</div></div>
+            <div class="gcard"><div class="gthumb c" style="height:46px"></div><div class="tiny">05:30 · work</div></div>
+          </div>
+          <div class="badgeline">▸ tabs + Auto are below the clock and accept taps</div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape</div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · BOOKMARK EDITOR ORIENTATION -->
+<section>
+  <div class="sec-head"><h2>6 · Bookmark editor opens in portrait, then restores the player's orientation</h2><span class="tag">R-03</span></div>
+  <p class="changed">Editing is a portrait task: the sheet rotates to portrait so the fields and the IME fit together, and closing it returns to the exact orientation the player had.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:31</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="justify-content:center;align-items:center">
+          <div class="gcard" style="width:100%;height:120px;justify-content:center;align-items:center"><div class="tiny">landscape player (dimmed)</div></div>
+        </div>
+        <div class="overlay"><div class="modal">
+          <div class="topbar"><span class="title" style="font-size:10px">Edit bookmark</span><span class="spacer"></span><span class="icon">✕</span></div>
+          <div class="field focus">Title · Bookmark 02:05</div>
+          <div class="field">Tags · gmail, work</div>
+          <div class="kbd"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span class="wide"></span><span></span><span></span><span class="wide"></span></div>
+          <div class="chips"><span class="chip acc">Save</span><span class="chip">Cancel</span></div>
+        </div></div>
+        <span class="badge" style="left:10px;top:24px">editor rotates to portrait</span>
+      </div></div>
+      <div class="cap">Landscape player → portrait editor</div>
+    </div>
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:31</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="gap:6px">
+          <div class="topbar"><span class="icon">✕</span><span class="title">Edit bookmark</span><span class="spacer"></span><span class="chip acc">Save</span></div>
+          <div class="field focus">Title · Bookmark 02:05</div>
+          <div class="field">Tags · gmail, work</div>
+          <div class="field">Timestamp · 00:02:05</div>
+          <div class="kbd" style="margin-top:auto">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            <span class="wide"></span><span></span><span class="wide"></span>
+          </div>
+          <div class="badgeline">▸ close → landscape restored, same position</div>
+        </div>
+      </div></div>
+      <div class="cap">Portrait editor (full height)</div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 · SECURE FOLDER -->
+<section>
+  <div class="sec-head"><h2>7 · Secure Folder: one unlock, then browse freely</h2><span class="tag">R-05</span></div>
+  <p class="changed">The vault credential is the gate. The phone password is asked once; opening another protected video, going back, or using the playlist never re-prompts until Lock / process death.</p>
+  <div class="pair tight">
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:33</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="justify-content:center;gap:8px">
+          <div class="gcard" style="align-items:center;padding:12px"><div class="tiny" style="font-size:10px;color:#efeaff;font-weight:700">Secure Folder</div>
+            <div class="tiny">Enter your vault PIN</div>
+            <div class="chips" style="justify-content:center"><span class="chip">1</span><span class="chip">2</span><span class="chip">3</span><span class="chip">4</span></div>
+            <span class="chip acc">Unlock</span></div>
+          <div class="badgeline">▸ the only prompt of the session</div>
+        </div>
+      </div></div>
+      <div class="cap">1 · Unlock once</div>
+    </div>
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:34</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="gap:6px">
+          <div class="topbar"><span class="icon acc">←</span><span class="title">Secure Folder</span><span class="spacer"></span><span class="icon">🔒</span></div>
+          <div class="grid2">
+            <div class="gcard"><div class="gthumb"></div><div class="tiny">private-a.mp4</div></div>
+            <div class="gcard"><div class="gthumb b"></div><div class="tiny">private-b.mp4</div></div>
+          </div>
+          <div class="badgeline">▸ open A → back → open B: no prompt</div>
+          <div class="badgeline">▸ next / previous inside the player: no prompt</div>
+        </div>
+      </div></div>
+      <div class="cap">2 · Browse freely</div>
+    </div>
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:35</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="flex-direction:row;gap:10px;align-items:center">
+          <div class="gcard" style="flex:1;height:120px;justify-content:center;align-items:center"><div class="tiny">protected video playing</div></div>
+          <div style="width:190px;display:flex;flex-direction:column;gap:5px">
+            <div class="chip acc">🔓 Vault open</div>
+            <div class="tiny">Session stays unlocked until Lock, process death or timeout.</div>
+            <span class="chip gold">Lock</span>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">3 · Still unlocked</div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 · NOW PLAYING SHEET -->
+<section>
+  <div class="sec-head"><h2>8 · Now Playing sheet shows the queue, compactly</h2><span class="tag">R-08</span></div>
+  <p class="changed">Six queued items are all visible as compact rows (thumbnail, title, duration, resolution), the active row is highlighted, and the sheet wraps its content instead of reserving blank height.</p>
+  <div class="pair">
+    <div class="dock">
+      <div class="device l"><div class="scr">
+        <div class="status"><span>20:37</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="gap:5px">
+          <div class="sheet" style="margin:0;padding:7px 9px">
+            <div class="handle"></div>
+            <div class="topbar"><span class="title" style="font-size:10px">Now Playing · 6 items</span><span class="spacer"></span><span class="icon">☰</span><span class="icon">▦</span></div>
+            <div class="card" style="padding:4px"><div class="thumb" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">1 · OKSN-004 · 1:29:39</div><div class="s">842x472</div></div><div class="rowbtn play">❚❚</div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb b" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">2 · Gmail কাজ করার নিয়ম</div><div class="s">09:42 · 1276x720</div></div><div class="rowbtn">▶</div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb c" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">3 · BigMarker webinar</div><div class="s">24:10 · 1280x720</div></div><div class="rowbtn">▶</div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">4 · 'Till I Collapse (audio)</div><div class="s">04:58 · audio</div></div><div class="rowbtn">▶</div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb b" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">5 · Bye Bye Bye</div><div class="s">03:58 · 640x360</div></div><div class="rowbtn">▶</div></div>
+            <div class="card" style="padding:4px;background:#1a1430"><div class="thumb c" style="width:38px;height:24px"></div><div style="min-width:0;flex:1"><div class="t">6 · Real Steel OST</div><div class="s">02:31 · audio</div></div><div class="rowbtn">▶</div></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">Landscape · all six rows fit</div>
+    </div>
+    <div class="dock">
+      <div class="device p"><div class="scr">
+        <div class="status"><span>20:37</span><div class="r"><span class="pill">58</span></div></div>
+        <div class="screenpad" style="gap:5px">
+          <div class="sheet" style="margin:0">
+            <div class="handle"></div>
+            <div class="topbar"><span class="title" style="font-size:10px">Now Playing · 6 items</span><span class="spacer"></span><span class="icon">☰</span></div>
+            <div class="card" style="padding:5px"><div class="thumb" style="width:42px;height:28px"></div><div style="min-width:0"><div class="t">1 · OKSN-004</div><div class="s">1:29:39 · 842x472</div></div></div>
+            <div class="card" style="padding:5px"><div class="thumb b" style="width:42px;height:28px"></div><div style="min-width:0"><div class="t">2 · Gmail কাজ করার নিয়ম</div><div class="s">09:42 · 1276x720</div></div></div>
+            <div class="card" style="padding:5px"><div class="thumb c" style="width:42px;height:28px"></div><div style="min-width:0"><div class="t">3 · BigMarker webinar</div><div class="s">24:10 · 1280x720</div></div></div>
+            <div class="tiny" style="text-align:center">… 3 more (scroll)</div>
+          </div>
+          <div class="badgeline">▸ no blank panel under the queue</div>
+        </div>
+      </div></div>
+      <div class="cap">Portrait · scrollable</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Preview generated for the v3.2.0 → v3.2.1 repair cycle. Portrait and landscape are separate budgets; nothing here is final UI.
+  Cross-reference <span class="mono">docs/PRODUCT.md</span> § 4 (R-01 … R-08) and <span class="mono">docs/DECISIONS_AND_TRAPS.md</span>.
+</footer>
+
+</body>
+</html>

@@ -118,6 +118,22 @@ data class MusicTrackEntity(
 
 ---
 
+### [CUSTOM: Music-Layout-Visibility-Menu] | Aliases: hide music regions, show music layout, music layout editor, compact music player
+> **1-Line Summary:** Gives the music player the same per-region visibility menu the video player already has, so artwork, lyrics, seek/time, transport, and the utility bar can each be hidden per orientation.
+* **User Intention:** Match the video player's layout customization: users who want a wall-of-lyrics view hide the artwork; users who want a compact dock hide the lyrics and utility bar. Every region toggle is independent, remembered separately for portrait and landscape, and applies without restarting playback.
+* **Visual / UI Behavior:**
+  * **Menu Entry:** A `Layout` action in the music player's overflow opens a region checklist, mirroring `ControlRegion` in the video editor.
+  * **Regions:** Album artwork / embedded video, synced lyrics block, seekbar + time row, transport controls, bottom utility bar.
+  * **Orientation Split:** Portrait keeps its own region set (region rows stack vertically); landscape keeps its own set (regions map to the left artwork panel and the right lyrics/transport panel).
+  * **Safety Floor:** The transport and seek regions cannot both be hidden; at least one play/pause affordance always remains reachable.
+* **Persistence:** One preference key per region per orientation, read at composition so rotation never flashes an unstyled frame.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/ControlLayoutEditorScreen.kt` -> `ControlLayoutEditorScreen`, `ControlRegion`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
+  * `app/src/main/java/app/gyrolet/mpvrx/preferences/AppearancePreferences.kt` -> preference store pattern
+
+---
+
 ## 3. Dual-Orientation Layout Specifications
 
 ### Portrait Mode Specifications
