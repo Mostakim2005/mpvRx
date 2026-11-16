@@ -32,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallPromptDialog
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallProgressDialog
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpManager
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
@@ -461,6 +464,12 @@ fun PlayerSheets(
       // Read here: an active sleep timer ticks every second, and collecting it in PlayerControls
       // re-ran the entire controls tree on each tick even while this sheet was closed.
       val sleepTimerTimeRemaining by viewModel.remainingTime.composeCollectAsState()
+      val context = LocalContext.current
+      var ytdlpPromptShown by remember { mutableStateOf(false) }
+      var ytdlpProgressShown by remember { mutableStateOf(false) }
+      var ytdlpInstallLastLog by remember { mutableStateOf("") }
+      var ytdlpInstallError by remember { mutableStateOf<String?>(null) }
+      val ytdlpInstallScope = rememberCoroutineScope()
       MoreSheet(
         remainingTime = sleepTimerTimeRemaining,
         onStartTimer = onStartSleepTimer,
@@ -470,11 +479,52 @@ fun PlayerSheets(
         onEnterSettingsPanel =
           if (!isTelevision && !isAudioOnly) ({ onOpenPanel(Panels.PlayerSettings) }) else null,
         onEnterEqualizerSheet = { onShowSheet(Sheets.Equalizer) },
+        // R-06: download entry in the overflow. Hidden entirely in non-yt-dlp builds.
+        onDownloadClick =
+          if (app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP) {
+            {
+              when {
+                // Engine missing: explain once and offer the install path instead of hiding.
+                !YtdlpManager.isInstalled(context) -> ytdlpPromptShown = true
+                viewModel.canDownloadCurrentVideoQuality() -> onShowSheet(Sheets.VideoQuality)
+                else -> viewModel.showToast(context.getString(app.gyrolet.mpvrx.R.string.download_no_source))
+              }
+            }
+          } else {
+            null
+          },
         anime4KUiState = anime4KUiState,
         onAnime4KModeSelected = viewModel::selectAnime4KMode,
         filtersEnabled = MpvConfigOverride.VIDEO_FILTERS.optionNames.any { it !in configOwnedOptions },
         equalizerEnabled = "af" !in configOwnedOptions,
         anime4KEnabled = MpvConfigControlledFeatures.ANIME4K.none(configOwnedOptions::contains),
+      )
+      YtdlpInstallPromptDialog(
+        isOpen = ytdlpPromptShown,
+        onInstall = {
+          ytdlpPromptShown = false
+          ytdlpInstallError = null
+          ytdlpInstallLastLog = ""
+          ytdlpProgressShown = true
+          ytdlpInstallScope.launch {
+            val success = YtdlpManager.runInstall(context) { log ->
+              ytdlpInstallScope.launch { ytdlpInstallLastLog = log }
+            }
+            if (success) {
+              ytdlpProgressShown = false
+            } else {
+              ytdlpInstallError = context.getString(app.gyrolet.mpvrx.R.string.ytdlp_install_failed)
+            }
+          }
+        },
+        onConfigure = { ytdlpPromptShown = false },
+        onDismiss = { ytdlpPromptShown = false },
+      )
+      YtdlpInstallProgressDialog(
+        isOpen = ytdlpProgressShown,
+        lastLogLine = ytdlpInstallLastLog,
+        error = ytdlpInstallError,
+        onCancel = { ytdlpProgressShown = false },
       )
     }
 

@@ -80,6 +80,15 @@ class AudioPreferences(
       parsed + missing
     },
   )
+  /** Which music action-row buttons stay visible per orientation (R-02); missing names hide a button. */
+  val musicActionRowPortrait = preferenceStore.getStringSet(
+    "music_action_row_portrait",
+    MusicActionRowButton.defaultVisibility(),
+  )
+  val musicActionRowLandscape = preferenceStore.getStringSet(
+    "music_action_row_landscape",
+    MusicActionRowButton.defaultVisibility(),
+  )
 
   /** Fetch from external lyric providers automatically only when local lyrics are absent. */
   val lyricsAutoFetchOnline = preferenceStore.getBoolean("lyrics_auto_fetch_online", true)

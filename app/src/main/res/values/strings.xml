@@ -2357,6 +2357,10 @@
   <string name="downloads_paused">Paused</string>
   <string name="downloads_cancelled">Cancelled</string>
   <string name="downloads_download">Download</string>
+  <string name="music_action_row_layout">Layout</string>
+  <string name="music_action_row_title">Music action row</string>
+  <string name="music_action_edit_tags">Edit tags</string>
+  <string name="download_no_source">No downloadable source for this media</string>
   <string name="downloads_downloaded">Downloaded</string>
   <string name="downloads_started">Download started</string>
   <string name="downloads_already_downloaded">Already downloaded or in the queue</string>

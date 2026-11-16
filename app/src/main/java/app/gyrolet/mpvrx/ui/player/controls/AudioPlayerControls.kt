@@ -58,6 +58,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -148,6 +149,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.window.Dialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -197,6 +201,10 @@ import app.gyrolet.mpvrx.presentation.components.RemoteImage
 import app.gyrolet.mpvrx.presentation.components.AudioFormatArtworkBadge
 import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu
 import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem
+import app.gyrolet.mpvrx.preferences.MusicActionRowButton
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallPromptDialog
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallProgressDialog
+import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpManager
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.AudioVisualizerStyle
@@ -1337,6 +1345,26 @@ fun AudioPlayerControls(
     if (flushInPlaceLyrics) Modifier.padding(start = 16.dp, top = 6.dp, end = 16.dp) else Modifier
   // Visibility-independent insets keep the layout still while bars re-dispatch on resume.
   val stableInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+
+  // Music action-row visibility (R-02): one set per orientation, edited from the overflow's
+  // Layout checklist. Audiobooks render their own fixed row and ignore the set. Queue and the
+  // transport controls are pinned and never hidden.
+  val actionRowPref = if (isPortrait) audioPreferences.musicActionRowPortrait else audioPreferences.musicActionRowLandscape
+  val actionRowVisibility by actionRowPref.collectAsState()
+  val hiddenActionRowButtons = remember(actionRowVisibility, isAudiobook) {
+    if (isAudiobook) {
+      emptySet()
+    } else {
+      MusicActionRowButton.values().toSet() - MusicActionRowButton.parse(actionRowVisibility)
+    }
+  }
+  var showAudioOverflow by remember { mutableStateOf(false) }
+  var showActionRowLayout by remember { mutableStateOf(false) }
+  var showYtdlpInstallPrompt by remember { mutableStateOf(false) }
+  var showYtdlpInstallProgress by remember { mutableStateOf(false) }
+  var ytdlpInstallLastLog by remember { mutableStateOf("") }
+  var ytdlpInstallError by remember { mutableStateOf<String?>(null) }
+  val ytdlpInstallScope = rememberCoroutineScope()
   val showImmersiveArtwork = immersiveArtworkEnabled && isPortrait && !showVisualizer && !showInPlaceLyrics &&
     (albumArtBitmap != null || !currentArtworkUri.isNullOrBlank() ||
       currentAudioPresentation?.motionArtwork != null || motionQuery != null)
@@ -1503,12 +1531,28 @@ fun AudioPlayerControls(
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            ReactiveIconButton(onClick = { onOpenSheet(Sheets.AudioProperties) }, modifier = Modifier.size(audioHeaderSize)) {
+            ReactiveIconButton(onClick = { showAudioOverflow = true }, modifier = Modifier.size(audioHeaderSize)) {
               Icon(
                 imageVector = Icons.RoundedFilled.Info,
                 contentDescription = stringResource(R.string.player_sheets_more_title),
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(28.dp),
+              )
+            }
+            AppDropdownMenu(expanded = showAudioOverflow, onDismissRequest = { showAudioOverflow = false }) {
+              AppDropdownMenuItem(
+                text = { Text(stringResource(R.string.audio_information_title)) },
+                onClick = {
+                  showAudioOverflow = false
+                  onOpenSheet(Sheets.AudioProperties)
+                },
+              )
+              AppDropdownMenuItem(
+                text = { Text(stringResource(R.string.music_action_row_layout)) },
+                onClick = {
+                  showAudioOverflow = false
+                  showActionRowLayout = true
+                },
               )
             }
           }
@@ -2548,12 +2592,38 @@ fun AudioPlayerControls(
         val isLyricsActive = if (showLandscapeSidePanel) tabletDualPaneTab == 1 else showInPlaceLyrics
         val isQueueActive = if (showLandscapeSidePanel) tabletDualPaneTab == 0 else sheetShown == Sheets.Playlist
         val barHeight = if (isShortLandscape) 38.dp else if (isCompactLandscape) 42.dp else 50.dp
-        val centerCount = if (isAudiobook) 5 else 6
+        // Fixed slots in render order; hidden buttons drop out and the rest renumber contiguously.
+        val centerSlots: List<MusicActionRowButton?> =
+          if (isAudiobook) {
+            listOf(
+              MusicActionRowButton.LYRICS,
+              null,
+              null,
+              MusicActionRowButton.VISUALIZER,
+              MusicActionRowButton.EDIT_TAGS,
+            )
+          } else {
+            listOf(
+              MusicActionRowButton.LYRICS,
+              MusicActionRowButton.SHUFFLE,
+              MusicActionRowButton.REPEAT,
+              MusicActionRowButton.VISUALIZER,
+              MusicActionRowButton.EDIT_TAGS,
+              MusicActionRowButton.DOWNLOAD,
+              MusicActionRowButton.BACKGROUND_PLAYBACK,
+            ).filter {
+              it !in hiddenActionRowButtons && (it != MusicActionRowButton.DOWNLOAD || app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP)
+            }
+          }
+        val centerCount = centerSlots.size.coerceAtLeast(1)
+        fun centerIndexOf(button: MusicActionRowButton): Int = centerSlots.indexOf(button)
+        val equalizerShown = MusicActionRowButton.EQUALIZER !in hiddenActionRowButtons
         BoxWithConstraints(Modifier.fillMaxWidth()) {
           val endWidth = minOf(barHeight, maxWidth * 0.15f)
           val outerSpacing = if (maxWidth < 280.dp) 4.dp else 8.dp
           val centerSpacing = if (maxWidth < 320.dp) 2.dp else 4.dp
-          val centerWidth = (maxWidth - endWidth * 2f - outerSpacing * 2f).coerceAtLeast(0.dp)
+          val centerWidth =
+            (maxWidth - (if (equalizerShown) endWidth * 2f else endWidth) - outerSpacing * 2f).coerceAtLeast(0.dp)
           val centerCellWidth =
             ((centerWidth - centerSpacing * (centerCount - 1).toFloat()) / centerCount.toFloat()).coerceAtLeast(0.dp)
           val iconSize = minOf(if (isCompactLandscape) 20.dp else 22.dp, centerCellWidth * 0.72f)
@@ -2563,23 +2633,25 @@ fun AudioPlayerControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(outerSpacing),
           ) {
-            ExpressiveTransportSideButton(
-              onClick = { onOpenSheet(Sheets.Equalizer); actionHaptics.confirm() },
-              size = barHeight,
-              modifier = Modifier.width(endWidth),
-              enabled = !audioFiltersConfigOwned,
-              active = equalizerEnabled && !audioFiltersConfigOwned,
-            ) {
-              Icon(
-                imageVector = Icons.RoundedFilled.Equalizer,
-                contentDescription = stringResource(R.string.btn_label_equalizer),
-                tint = when {
-                  audioFiltersConfigOwned -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                  equalizerEnabled -> MaterialTheme.colorScheme.onPrimaryContainer
-                  else -> MaterialTheme.colorScheme.onSecondaryContainer
-                },
-                modifier = Modifier.size(endIconSize),
-              )
+            if (equalizerShown) {
+              ExpressiveTransportSideButton(
+                onClick = { onOpenSheet(Sheets.Equalizer); actionHaptics.confirm() },
+                size = barHeight,
+                modifier = Modifier.width(endWidth),
+                enabled = !audioFiltersConfigOwned,
+                active = equalizerEnabled && !audioFiltersConfigOwned,
+              ) {
+                Icon(
+                  imageVector = Icons.RoundedFilled.Equalizer,
+                  contentDescription = stringResource(R.string.btn_label_equalizer),
+                  tint = when {
+                    audioFiltersConfigOwned -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    equalizerEnabled -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.onSecondaryContainer
+                  },
+                  modifier = Modifier.size(endIconSize),
+                )
+              }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
               Row(
@@ -2587,32 +2659,34 @@ fun AudioPlayerControls(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(centerSpacing),
               ) {
-                ExpressiveConnectedBarButton(
-                  index = 0,
-                  itemCount = centerCount,
-                  height = barHeight,
-                  selected = isLyricsActive,
-                  onClick = {
-                    val nextState = !isLyricsActive
-                    if (showLandscapeSidePanel) {
-                      tabletDualPaneTab = if (tabletDualPaneTab == 1) 0 else 1
-                    } else {
-                      showInPlaceLyrics = !showInPlaceLyrics
-                    }
-                    resetInactivityTimer()
-                    actionHaptics.selection(nextState)
-                  },
-                  onLongClick = {
-                    onOpenSheet(Sheets.LyricsProvider)
-                    resetInactivityTimer()
-                  },
-                ) { tint ->
-                  Icon(
-                    Icons.RoundedFilled.Lyrics,
-                    contentDescription = stringResource(R.string.player_lyrics_title),
-                    tint = tint,
-                    modifier = Modifier.size(iconSize),
-                  )
+                if (MusicActionRowButton.LYRICS !in hiddenActionRowButtons) {
+                  ExpressiveConnectedBarButton(
+                    index = centerIndexOf(MusicActionRowButton.LYRICS),
+                    itemCount = centerCount,
+                    height = barHeight,
+                    selected = isLyricsActive,
+                    onClick = {
+                      val nextState = !isLyricsActive
+                      if (showLandscapeSidePanel) {
+                        tabletDualPaneTab = if (tabletDualPaneTab == 1) 0 else 1
+                      } else {
+                        showInPlaceLyrics = !showInPlaceLyrics
+                      }
+                      resetInactivityTimer()
+                      actionHaptics.selection(nextState)
+                    },
+                    onLongClick = {
+                      onOpenSheet(Sheets.LyricsProvider)
+                      resetInactivityTimer()
+                    },
+                  ) { tint ->
+                    Icon(
+                      Icons.RoundedFilled.Lyrics,
+                      contentDescription = stringResource(R.string.player_lyrics_title),
+                      tint = tint,
+                      modifier = Modifier.size(iconSize),
+                    )
+                  }
                 }
                 if (isAudiobook) {
                   ExpressiveConnectedBarButton(
@@ -2638,71 +2712,106 @@ fun AudioPlayerControls(
                     )
                   }
                 } else {
+                  if (MusicActionRowButton.SHUFFLE !in hiddenActionRowButtons) {
+                    ExpressiveConnectedBarButton(
+                      index = centerIndexOf(MusicActionRowButton.SHUFFLE), itemCount = centerCount, height = barHeight, selected = shuffleEnabled,
+                      enabled = playlistModeEnabled,
+                      onClick = { viewModel.toggleShuffle(); actionHaptics.selection(!shuffleEnabled) },
+                    ) { tint ->
+                      AnimatedIcon(
+                        imageVector = if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle,
+                        contentDescription = stringResource(R.string.btn_label_shuffle),
+                        tint = tint,
+                        modifier = Modifier.size(iconSize),
+                        reduceMotion = AppMotion.playerReducedMotion(),
+                      )
+                    }
+                  }
+                  if (MusicActionRowButton.REPEAT !in hiddenActionRowButtons) {
+                    ExpressiveConnectedBarButton(
+                      index = centerIndexOf(MusicActionRowButton.REPEAT), itemCount = centerCount, height = barHeight, selected = repeatMode != RepeatMode.OFF,
+                      onClick = { viewModel.cycleRepeatMode(); actionHaptics.confirm() },
+                    ) { tint ->
+                      AnimatedIcon(
+                        imageVector = when (repeatMode) {
+                          RepeatMode.OFF -> Icons.RoundedFilled.Repeat
+                          RepeatMode.ONE -> Icons.RoundedFilled.RepeatOne
+                          RepeatMode.ALL -> Icons.RoundedFilled.RepeatOn
+                        },
+                        contentDescription = stringResource(R.string.btn_label_repeat_mode),
+                        tint = tint,
+                        modifier = Modifier.size(iconSize),
+                        reduceMotion = AppMotion.playerReducedMotion(),
+                      )
+                    }
+                  }
+                }
+                if (MusicActionRowButton.VISUALIZER !in hiddenActionRowButtons) {
                   ExpressiveConnectedBarButton(
-                    index = 1, itemCount = centerCount, height = barHeight, selected = shuffleEnabled,
-                    enabled = playlistModeEnabled,
-                    onClick = { viewModel.toggleShuffle(); actionHaptics.selection(!shuffleEnabled) },
+                    index = centerIndexOf(MusicActionRowButton.VISUALIZER), itemCount = centerCount, height = barHeight, selected = showVisualizer,
+                    onClick = {
+                      if (viewModel.toggleAudioVisualizer()) actionHaptics.selection(!showVisualizer)
+                    },
+                    onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
+                    onLongClickLabel = stringResource(R.string.pref_audio_visualizer_style_title),
                   ) { tint ->
                     AnimatedIcon(
-                      imageVector = if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle,
-                      contentDescription = stringResource(R.string.btn_label_shuffle),
+                      imageVector = if (showVisualizer) Icons.RoundedFilled.AutoAwesome else Icons.RoundedFilled.Audiotrack,
+                      contentDescription = stringResource(
+                        if (showVisualizer) R.string.audio_footer_show_artwork else R.string.audio_footer_show_visualizer,
+                      ),
                       tint = tint,
                       modifier = Modifier.size(iconSize),
                       reduceMotion = AppMotion.playerReducedMotion(),
                     )
                   }
+                }
+                if (MusicActionRowButton.EDIT_TAGS !in hiddenActionRowButtons) {
                   ExpressiveConnectedBarButton(
-                    index = 2, itemCount = centerCount, height = barHeight, selected = repeatMode != RepeatMode.OFF,
-                    onClick = { viewModel.cycleRepeatMode(); actionHaptics.confirm() },
+                    index = centerIndexOf(MusicActionRowButton.EDIT_TAGS), itemCount = centerCount, height = barHeight, selected = sheetShown == Sheets.MetadataEditor,
+                    onClick = {
+                      onOpenSheet(Sheets.MetadataEditor)
+                      actionHaptics.confirm()
+                    },
                   ) { tint ->
-                    AnimatedIcon(
-                      imageVector = when (repeatMode) {
-                        RepeatMode.OFF -> Icons.RoundedFilled.Repeat
-                        RepeatMode.ONE -> Icons.RoundedFilled.RepeatOne
-                        RepeatMode.ALL -> Icons.RoundedFilled.RepeatOn
-                      },
-                      contentDescription = stringResource(R.string.btn_label_repeat_mode),
+                    Icon(
+                      Icons.RoundedFilled.Edit,
+                      contentDescription = "Edit Tags & Metadata",
                       tint = tint,
                       modifier = Modifier.size(iconSize),
-                      reduceMotion = AppMotion.playerReducedMotion(),
                     )
                   }
                 }
-                ExpressiveConnectedBarButton(
-                  index = 3, itemCount = centerCount, height = barHeight, selected = showVisualizer,
-                  onClick = {
-                    if (viewModel.toggleAudioVisualizer()) actionHaptics.selection(!showVisualizer)
-                  },
-                  onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
-                  onLongClickLabel = stringResource(R.string.pref_audio_visualizer_style_title),
-                ) { tint ->
-                  AnimatedIcon(
-                    imageVector = if (showVisualizer) Icons.RoundedFilled.AutoAwesome else Icons.RoundedFilled.Audiotrack,
-                    contentDescription = stringResource(
-                      if (showVisualizer) R.string.audio_footer_show_artwork else R.string.audio_footer_show_visualizer,
-                    ),
-                    tint = tint,
-                    modifier = Modifier.size(iconSize),
-                    reduceMotion = AppMotion.playerReducedMotion(),
-                  )
-                }
-                ExpressiveConnectedBarButton(
-                  index = 4, itemCount = centerCount, height = barHeight, selected = sheetShown == Sheets.MetadataEditor,
-                  onClick = {
-                    onOpenSheet(Sheets.MetadataEditor)
-                    actionHaptics.confirm()
-                  },
-                ) { tint ->
-                  Icon(
-                    Icons.RoundedFilled.Edit,
-                    contentDescription = "Edit Tags & Metadata",
-                    tint = tint,
-                    modifier = Modifier.size(iconSize),
-                  )
-                }
-                if (!isAudiobook) {
+                if (
+                  !isAudiobook &&
+                  app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP &&
+                  MusicActionRowButton.DOWNLOAD !in hiddenActionRowButtons
+                ) {
                   ExpressiveConnectedBarButton(
-                    index = 5, itemCount = centerCount, height = barHeight, selected = backgroundPlaybackEnabled,
+                    index = centerIndexOf(MusicActionRowButton.DOWNLOAD), itemCount = centerCount, height = barHeight, selected = false,
+                    onClick = {
+                      when {
+                        // Engine missing: explain once and offer the install path (R-06).
+                        !YtdlpManager.isInstalled(context) -> showYtdlpInstallPrompt = true
+                        viewModel.canDownloadCurrentVideoQuality() -> {
+                          onOpenSheet(Sheets.VideoQuality)
+                          actionHaptics.confirm()
+                        }
+                        else -> viewModel.showToast(context.getString(R.string.download_no_source))
+                      }
+                    },
+                  ) { tint ->
+                    Icon(
+                      Icons.RoundedFilled.Download,
+                      contentDescription = stringResource(R.string.downloads_download),
+                      tint = tint,
+                      modifier = Modifier.size(iconSize),
+                    )
+                  }
+                }
+                if (!isAudiobook && MusicActionRowButton.BACKGROUND_PLAYBACK !in hiddenActionRowButtons) {
+                  ExpressiveConnectedBarButton(
+                    index = centerIndexOf(MusicActionRowButton.BACKGROUND_PLAYBACK), itemCount = centerCount, height = barHeight, selected = backgroundPlaybackEnabled,
                     onClick = {
                       val enabled = !audioPreferences.audioBackgroundPlayback.get()
                       val activity = context as? PlayerActivity
@@ -2835,17 +2944,36 @@ fun AudioPlayerControls(
           modifier = Modifier.fillMaxSize(),
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          centerVisualizerView(
-            Modifier
-              .weight(if (isTabletLandscape) 1f else 0.42f)
-              .fillMaxHeight(),
-          )
+          if (showLandscapeSidePanel) {
+            // R-09: browsing on the left, now-playing on the right. The browse pane owns the
+            // start edge, so it clears the status bar itself.
+            Box(
+              modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .windowInsetsPadding(stableInsets.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
+            ) {
+              DualPaneSidePanel(
+                viewModel = viewModel,
+                playlist = filteredPlaylist,
+                selectedTab = tabletDualPaneTab,
+                onTabSelected = { tabletDualPaneTab = it },
+                onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
+              )
+            }
+          } else {
+            centerVisualizerView(
+              Modifier
+                .weight(if (isTabletLandscape) 1f else 0.42f)
+                .fillMaxHeight(),
+            )
+          }
           Column(
             modifier =
               Modifier
                 .weight(if (isTabletLandscape) 1.2f else 0.58f)
                 .fillMaxHeight()
-                // The art pane owns the start edge, so this pane only insets its own edges.
+                // Each pane owns its outer edge; this pane insets its end and the vertical bars.
                 .windowInsetsPadding(stableInsets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
                 .padding(horizontal = if (isCompactLandscape) 12.dp else 24.dp,
                   vertical = if (isCompactLandscape) 4.dp else 8.dp),
@@ -2855,15 +2983,7 @@ fun AudioPlayerControls(
             if (showLandscapeSidePanel) {
               Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) { headerBar() }
               Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.TopStart) { trackMetadataView() }
-              Box(Modifier.weight(1f).fillMaxWidth()) {
-                DualPaneSidePanel(
-                  viewModel = viewModel,
-                  playlist = filteredPlaylist,
-                  selectedTab = tabletDualPaneTab,
-                  onTabSelected = { tabletDualPaneTab = it },
-                  onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
-                )
-              }
+              Box(Modifier.weight(1f).fillMaxWidth()) { centerVisualizerView(Modifier.fillMaxSize()) }
               Box(Modifier.fillMaxWidth().height(if (audioWavySeekbar) 96.dp else 80.dp), contentAlignment = Alignment.Center) {
                 seekbarView()
               }
@@ -2942,6 +3062,92 @@ fun AudioPlayerControls(
       )
     }
   }
+
+  // Action-row visibility checklist (R-02): toggles the current orientation's set only; the
+  // buttons live in fixed slots, so this is a checklist, never a reorder list.
+  if (showActionRowLayout) {
+    Dialog(onDismissRequest = { showActionRowLayout = false }) {
+      Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+      ) {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          Text(
+            text = stringResource(R.string.music_action_row_title),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+          )
+          Text(
+            text = if (isPortrait) "Portrait" else "Landscape",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          MusicActionRowButton.values()
+            .filter { it != MusicActionRowButton.DOWNLOAD || app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP }
+            .forEach { button ->
+            val checked = button.name in actionRowVisibility
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  val current = actionRowPref.get()
+                  actionRowPref.set(if (checked) current - button.name else current + button.name)
+                }
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Checkbox(checked = checked, onCheckedChange = null)
+              Text(
+                text = stringResource(button.titleRes),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+              )
+            }
+          }
+          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { showActionRowLayout = false }) {
+              Text("Done")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Engine-missing messaging for the R-06 download action: explain once, offer the install path.
+  YtdlpInstallPromptDialog(
+    isOpen = showYtdlpInstallPrompt,
+    onInstall = {
+      showYtdlpInstallPrompt = false
+      ytdlpInstallError = null
+      ytdlpInstallLastLog = ""
+      showYtdlpInstallProgress = true
+      ytdlpInstallScope.launch {
+        val success = YtdlpManager.runInstall(context) { log ->
+          ytdlpInstallScope.launch { ytdlpInstallLastLog = log }
+        }
+        if (success) {
+          showYtdlpInstallProgress = false
+        } else {
+          // Leave the progress dialog open so the error is visible; Cancel dismisses it.
+          ytdlpInstallError = context.getString(R.string.ytdlp_install_failed)
+        }
+      }
+    },
+    onConfigure = { showYtdlpInstallPrompt = false },
+    onDismiss = { showYtdlpInstallPrompt = false },
+  )
+  YtdlpInstallProgressDialog(
+    isOpen = showYtdlpInstallProgress,
+    lastLogLine = ytdlpInstallLastLog,
+    error = ytdlpInstallError,
+    onCancel = { showYtdlpInstallProgress = false },
+  )
 }
 
 @Composable

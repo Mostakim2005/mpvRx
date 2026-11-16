@@ -73,6 +73,7 @@ fun MoreSheet(
   onEnterLuaScriptsPanel: () -> Unit,
   onEnterEqualizerSheet: (() -> Unit)? = null,
   onEnterSettingsPanel: (() -> Unit)? = null,
+  onDownloadClick: (() -> Unit)? = null,
   anime4KUiState: Anime4KUiState,
   onAnime4KModeSelected: (Anime4KManager.Mode) -> Unit,
   filtersEnabled: Boolean = true,
@@ -160,6 +161,22 @@ fun MoreSheet(
                 )
                 if (showActionLabels) {
                   Text(text = stringResource(id = R.string.btn_label_equalizer))
+                }
+              }
+            }
+          }
+          if (onDownloadClick != null) {
+            TextButton(onClick = onDownloadClick) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+              ) {
+                Icon(
+                  imageVector = Icons.RoundedFilled.Download,
+                  contentDescription = stringResource(id = R.string.downloads_download),
+                )
+                if (showActionLabels) {
+                  Text(text = stringResource(id = R.string.downloads_download))
                 }
               }
             }
