@@ -187,6 +187,9 @@
 | `R-08` | P3 | Now Playing sheet compactness | `OPEN` |
 | `R-09` | P2 | Landscape music layout: browse left, now playing right | `OPEN` |
 
+**Handover:** current state, verification workflow and per-item implementation plans live in
+[`HANDOVER.md`](HANDOVER.md). Read it before resuming this table.
+
 **Implementation order:** `R-04` (insets, in progress) → `R-01` (dismiss semantics) → `R-07` (scope + tags) → `R-02` (button visibility) → `R-06` (download button) → `R-09` (landscape split) → `R-03` (portrait editor) → `R-05` (single unlock) → `R-08` (compact queue). Each lands alone, with the existing layout untouched unless the entry says otherwise.
 
 ### [ISSUE: R-01-Music-Collapses-To-Mini-Player-On-Swipe-Down] | Aliases: swipe to close music, music keeps playing minimized, dismiss stops audio
