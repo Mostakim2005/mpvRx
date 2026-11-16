@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -346,7 +347,9 @@ fun PlaylistSheet(
       } else {
         null
       },
-    customMaxHeight = if (isPortrait) configuration.screenHeightDp.dp * 0.55f else null,
+    // R-08: the sheet shrinks toward its queue instead of consuming the screen in landscape;
+    // the list itself scrolls inside its row budget below.
+    customMaxHeight = configuration.screenHeightDp.dp * (if (isPortrait) 0.55f else 0.85f),
     isSwipeActive = isSwipeActive,
     swipeOffset = swipeOffset,
     useFrostedGlass = true,
@@ -471,7 +474,7 @@ fun PlaylistSheet(
 
           LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(max = PLAYLIST_VISIBLE_ROWS_HEIGHT),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
           ) {
@@ -1137,3 +1140,9 @@ private fun playlistChipColor(isPlaying: Boolean): Color =
   }
 
 private const val PLAYLIST_SCROLL_APPROACH_ITEMS = 6
+
+// R-08: the queue sheet shows about six compact rows; anything longer scrolls inside this budget
+// while the header stays fixed above it.
+private const val PLAYLIST_VISIBLE_ROWS = 6
+private val PLAYLIST_ROW_BUDGET = 88.dp
+private val PLAYLIST_VISIBLE_ROWS_HEIGHT = PLAYLIST_ROW_BUDGET * PLAYLIST_VISIBLE_ROWS
