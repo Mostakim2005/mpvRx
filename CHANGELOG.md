@@ -2,7 +2,16 @@
 
 These notes are written in plain English and focus on what changed for real use.
 
-## Unreleased
+## 3.2.1 — Repair Batch: Insets, Secure Folder Session, Bookmark Scope & Music Polish
+
+- **Status-bar insets follow the real window:** The player's top rows (update toast, unlock button, top controls) clear the status bar whenever it is actually visible — including transient immersive reveals — instead of trusting a preference that can disagree with the window, and the bookmark gallery header clears the system bars in landscape.
+- **Secure Folder prompts once per session:** Entering the folder and then playing a file no longer asks for the credential twice. One unlock — folder PIN/biometric or the playback credential — opens the whole session, and backgrounding the app re-locks it.
+- **Bookmark drawer `Video ⇄ Global` toggle works everywhere:** The scope choice survives drawer close/reopen, the portrait drawer gained the missing toggle chip, and tapping a global bookmark opens that video at its saved timestamp instead of seeking inside the current file.
+- **Music action-row visibility menu:** A `Layout` checklist behind the music overflow shows or hides action-row buttons (equalizer, lyrics, shuffle, repeat, artwork/visualizer, edit tags, background playback, download) per orientation; Queue and the transport controls stay pinned.
+- **Download affordances:** A ⬇ button in the music action row and a `Download` entry in the video overflow open the resolution presets and enqueue downloads; a missing yt-dlp engine explains itself once and offers the install path; builds without yt-dlp show no dead download UI.
+- **Compact Now Playing queue:** The queue sheet shows about six rows and scrolls longer queues inside its own bounds instead of leaving dead panel space.
+- **Landscape music split:** Browsing and the queue live on the left pane, artwork, title, transport and the action row on the right, both panes clearing the status bar.
+- **Release tag:** `v3.2.1`.
 
 ## 3.2.0 — Music Player Extension, Tag Editor, 1-Point Lyric Anchor & Persistent Storage
 
