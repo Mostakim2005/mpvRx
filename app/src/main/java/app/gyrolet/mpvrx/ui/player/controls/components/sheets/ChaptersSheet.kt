@@ -9,6 +9,10 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.sheets
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.clickable
@@ -40,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +54,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
@@ -237,6 +243,21 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
   if (bookmark == null) {
     LaunchedEffect(draft, mediaId) { onDismiss() }
     return
+  }
+  // An editor needs a tall canvas: hold portrait while it is on screen, then hand the player back
+  // to whatever orientation it had picked, so a landscape video is not left stuck upright
+  // (TRAP: Portrait-Only-Editors-Must-Restore-Orientation).
+  val editorActivity = LocalContext.current.findActivity()
+  DisposableEffect(editorActivity) {
+    val previous = editorActivity?.requestedOrientation
+    if (editorActivity != null) {
+      editorActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+    onDispose {
+      if (editorActivity != null && previous != null && previous != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+        editorActivity.requestedOrientation = previous
+      }
+    }
   }
   val isNewDraft = bookmark.id == 0L
   var nameValue by rememberSaveable(
@@ -456,4 +477,14 @@ private fun BookmarkTagEditor(
       }
     }
   }
+}
+
+/** Unwraps the activity behind a (possibly themed) context. */
+private fun Context.findActivity(): Activity? {
+  var current: Context? = this
+  while (current is ContextWrapper) {
+    if (current is Activity) return current
+    current = current.baseContext
+  }
+  return current as? Activity
 }
