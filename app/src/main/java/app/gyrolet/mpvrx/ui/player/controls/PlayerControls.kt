@@ -425,8 +425,9 @@ fun PlayerControls(
   val gesturePreferences = koinInject<GesturePreferences>()
   val reduceMotion by playerPreferences.reduceMotion.collectAsState()
   val audioPreferences = koinInject<AudioPreferences>()
-  val showSystemStatusBar by playerPreferences.showSystemStatusBar.collectAsState()
+  val statusBarRequested by playerPreferences.showSystemStatusBar.collectAsState()
   // Insets follow the actual system UI, including bars revealed temporarily in immersive mode.
+  val showSystemStatusBar = statusBarRequested || WindowInsets.areStatusBarsVisible
   val navigationBarRequested by playerPreferences.showSystemNavigationBar.collectAsState()
   val showSystemNavigationBar = navigationBarRequested || WindowInsets.areNavigationBarsVisible
   val showControlsDrawer by playerPreferences.showControlsDrawer.collectAsState()
