@@ -108,6 +108,7 @@ import app.gyrolet.mpvrx.ui.player.MotionArtworkImage
 import app.gyrolet.mpvrx.ui.player.rememberMotionArtworkDrawable
 import app.gyrolet.mpvrx.presentation.components.LiquidGlassStyle
 import app.gyrolet.mpvrx.presentation.components.LiquidGlassSurface
+import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
@@ -204,23 +205,31 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
   // animation and the session ends only then, never re-laying out the card mid-flight.
   var dismissedMediaId by remember { mutableStateOf<String?>(null) }
   var exitAfterToss by remember { mutableStateOf(false) }
+  // Dismissing the card with background playback on is a UI gesture, not a stop: the session keeps
+  // playing in the notification. Only a refused stop restores the card on its own.
+  var keepsPlayingAfterToss by remember { mutableStateOf(false) }
   LaunchedEffect(dismissedMediaId, hasActiveMedia) {
     val dismissed = dismissedMediaId ?: return@LaunchedEffect
+    if (hasActiveMedia && keepsPlayingAfterToss) return@LaunchedEffect
     // Playback that refused to stop must never be left without its controls.
     if (hasActiveMedia) delay(DISMISS_RESTORE_TIMEOUT_MS)
     if (dismissedMediaId == dismissed) dismissedMediaId = null
   }
   val isMediaActive = hasActiveMedia && dismissedMediaId != currentItem.stableId
   LaunchedEffect(isMediaActive) { if (isMediaActive) exitAfterToss = false }
-  val dismissPlayer: () -> Unit = remember(context) {
+  val audioPreferences = koinInject<AudioPreferences>()
+  val dismissPlayer: () -> Unit = remember(context, audioPreferences) {
     {
       exitAfterToss = true
       dismissedMediaId = PlaybackSession.state.value.currentItem?.stableId
-      context.startService(
-        Intent(context, MediaPlaybackService::class.java).setAction(
-          MediaPlaybackService.ACTION_NOTIFICATION_STOP,
-        ),
-      )
+      keepsPlayingAfterToss = audioPreferences.audioBackgroundPlayback.get()
+      if (!keepsPlayingAfterToss) {
+        context.startService(
+          Intent(context, MediaPlaybackService::class.java).setAction(
+            MediaPlaybackService.ACTION_NOTIFICATION_STOP,
+          ),
+        )
+      }
     }
   }
 
@@ -441,7 +450,11 @@ private fun MiniPlayerContent(
     if (tossed) return
     tossed = true
     actionHaptics.confirm()
-    PlaybackSession.setPropertyBoolean("pause", true)
+    // Only silence the player when the toss also ends the session; with background playback on the
+    // card just goes away and the music keeps playing.
+    if (!audioPreferences.audioBackgroundPlayback.get()) {
+      PlaybackSession.setPropertyBoolean("pause", true)
+    }
     dismissMotion[0]?.cancel()
     dismissMotion[0] = coroutineScope.launch {
       try {
