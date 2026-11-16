@@ -21,6 +21,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 
 /**
  * Authentication gate for a playback launch that targets Secure Folder storage.
@@ -80,6 +81,11 @@ class SecureUnlockActivity : FragmentActivity() {
       abort()
       return
     }
+    if (SecureFolderSession.isUnlocked) {
+      // The session already cleared a credential gate; never ask twice for one unlock.
+      continueToTarget()
+      return
+    }
     val keyguard = getSystemService(KeyguardManager::class.java)
     if (keyguard == null || !keyguard.isDeviceSecure) {
       // Nothing to authenticate against: refuse rather than play private media unguarded.
@@ -128,6 +134,8 @@ class SecureUnlockActivity : FragmentActivity() {
 
   private fun continueToTarget() {
     val target = targetIntent()
+    // Every path here is an authorization success, so it opens the whole session.
+    SecureFolderSession.markUnlocked()
     finish()
     if (target == null) return
     runCatching { startActivity(target) }

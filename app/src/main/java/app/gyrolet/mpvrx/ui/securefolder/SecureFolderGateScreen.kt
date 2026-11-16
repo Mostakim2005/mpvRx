@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.preferences.SecureFolderPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
@@ -133,6 +134,12 @@ data object SecureFolderGateScreen : Screen {
     val viewModel: SecureFolderViewModel =
       viewModel(factory = SecureFolderViewModel.factory(context.applicationContext as android.app.Application))
 
+    // A live session unlock replaces the credential entirely: one prompt per session, not per entry.
+    if (SecureFolderSession.isUnlocked) {
+      LaunchedEffect(Unit) { backstack.replaceTop(SecureFolderScreen) }
+      return
+    }
+
     val gateStep by viewModel.gateStep.collectAsState()
     val gateError by viewModel.gateError.collectAsState()
     val isSettingsEntryHidden by viewModel.preferences.isEntryPointHidden.collectAsState()
@@ -164,6 +171,7 @@ data object SecureFolderGateScreen : Screen {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
               if (backstack.lastOrNull() == SecureFolderGateScreen) {
                 keyboardController?.hide()
+                SecureFolderSession.markUnlocked()
                 backstack.replaceTop(SecureFolderScreen)
               }
             }
@@ -283,7 +291,10 @@ data object SecureFolderGateScreen : Screen {
                       error = gateError,
                       onSubmit = { pin ->
                         val ok = viewModel.verifyPin(pin)
-                        if (ok) backstack.replaceTop(SecureFolderScreen)
+                        if (ok) {
+                          SecureFolderSession.markUnlocked()
+                          backstack.replaceTop(SecureFolderScreen)
+                        }
                         ok
                       },
                       onForgotPin = { viewModel.startForgotPinFlow() },
@@ -301,6 +312,7 @@ data object SecureFolderGateScreen : Screen {
                     error = gateError,
                     onSubmit = { pin, question, answer ->
                       if (viewModel.submitSetup(pin, question, answer)) {
+                        SecureFolderSession.markUnlocked()
                         backstack.replaceTop(SecureFolderScreen)
                       }
                     },

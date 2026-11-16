@@ -345,6 +345,7 @@ class App :
     startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
     if (startedActivityCount == 0 && !activity.isChangingConfigurations) {
       isInForeground = false
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.clear()
       mediaStoreLiveMonitor.stop()
       TvRemoteServer.onAppBackground(this)
       pauseVideoWhenBackgroundPlaybackDisabled(activity)
