@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.ui.player.controls.components
 
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -575,7 +576,7 @@ internal fun BookmarkSplitPanel(
   var showPresetDialog by remember { mutableStateOf(false) }
   var showGallery by remember { mutableStateOf(false) }
   var showTagFilterDialog by remember { mutableStateOf(false) }
-  var isGlobalScope by rememberSaveable { mutableStateOf(false) }
+  val isGlobalScope by viewModel.inPlayerBookmarkScope.collectAsStateWithLifecycle()
   var portraitColumns by rememberSaveable { mutableStateOf(2) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
 
@@ -586,7 +587,8 @@ internal fun BookmarkSplitPanel(
   val tagsByBookmark by viewModel.bookmarkTags.collectAsStateWithLifecycle()
   fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> = tagsByBookmark[bookmark.id].orEmpty()
 
-  val currentMediaId = remember(bookmarks) { bookmarks.firstOrNull()?.mediaId }
+  val bookmarkMediaId by viewModel.bookmarkMediaId.collectAsStateWithLifecycle()
+  val currentMediaId = bookmarkMediaId ?: bookmarks.firstOrNull()?.mediaId
   val baseBookmarks = remember(isGlobalScope, bookmarks, globalGalleryItems) {
     if (isGlobalScope) {
       globalGalleryItems.map { item ->
@@ -620,17 +622,19 @@ internal fun BookmarkSplitPanel(
     if (!isGlobalScope || bookmark.mediaId == currentMediaId) {
       viewModel.seekToBookmark(bookmark)
     } else {
-      val target = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }?.playableUri
-      if (!target.isNullOrBlank()) {
+      val item = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }
+      val target = item?.playableUri
+      if (target.isNullOrBlank()) {
+        // No replay row for this media: never seek the current file to a foreign timestamp.
+        Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
+      } else {
         MediaUtils.playFile(
           source = target,
           context = context,
           launchSource = "bookmark_drawer",
-          title = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }?.mediaTitle ?: bookmark.title,
+          title = item?.mediaTitle ?: bookmark.title,
           startPositionSeconds = bookmark.positionMs / 1000.0,
         )
-      } else {
-        viewModel.seekToBookmark(bookmark)
       }
     }
   }
@@ -683,6 +687,17 @@ internal fun BookmarkSplitPanel(
             onClick = {
               haptics.tick()
               portraitColumns = if (portraitColumns == 2) 3 else 2
+            },
+          )
+          // Same scope toggle as the landscape sidebar: this video ⇄ every library bookmark.
+          PanelToggleChip(
+            label = if (isGlobalScope) "Global" else "Video",
+            icon = if (isGlobalScope) Icons.RoundedFilled.Language else Icons.RoundedFilled.Movie,
+            contentDescription = "Toggle Bookmark Scope",
+            highlighted = isGlobalScope,
+            onClick = {
+              haptics.tick()
+              viewModel.toggleInPlayerBookmarkScope()
             },
           )
           Spacer(Modifier.weight(1f))
@@ -776,7 +791,7 @@ internal fun BookmarkSplitPanel(
               highlighted = isGlobalScope,
               onClick = {
                 haptics.tick()
-                isGlobalScope = !isGlobalScope
+                viewModel.toggleInPlayerBookmarkScope()
               },
             )
             PanelToggleChip(

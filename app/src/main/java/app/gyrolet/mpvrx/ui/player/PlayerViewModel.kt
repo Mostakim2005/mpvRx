@@ -2389,6 +2389,10 @@ fun restartFromBeginning() {
   private val _isBookmarkPanelOpen = MutableStateFlow(false)
   val isBookmarkPanelOpen = _isBookmarkPanelOpen.asStateFlow()
 
+  /** Drawer scope chip: false = this video's bookmarks, true = every library bookmark. Lives here so it survives drawer close/reopen. */
+  private val _inPlayerBookmarkScope = MutableStateFlow(false)
+  val inPlayerBookmarkScope = _inPlayerBookmarkScope.asStateFlow()
+
   private val _bookmarkDraft = MutableStateFlow<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity?>(null)
   val bookmarkDraft = _bookmarkDraft.asStateFlow()
 
@@ -2436,6 +2440,10 @@ fun restartFromBeginning() {
 
   fun setBookmarkPanelOpen(open: Boolean) {
     _isBookmarkPanelOpen.value = open
+  }
+
+  fun toggleInPlayerBookmarkScope() {
+    _inPlayerBookmarkScope.value = !_inPlayerBookmarkScope.value
   }
 
   fun switchBookmarkPresentation(useSplitPanel: Boolean) {
