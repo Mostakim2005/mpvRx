@@ -151,10 +151,10 @@ data object SecureFolderGateScreen : Screen {
     val biometricManager = BiometricManager.from(context)
     val canAuthenticateBiometric = !app.gyrolet.mpvrx.utils.device.DeviceFormFactor.isTelevision(context) &&
       biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
-    val canAuthenticateDeviceCredential = !app.gyrolet.mpvrx.utils.device.DeviceFormFactor.isTelevision(context) &&
-      biometricManager.canAuthenticate(BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
     val fragmentActivity = context as? FragmentActivity
-    val isBiometricAvailable = fragmentActivity != null && (canAuthenticateBiometric || canAuthenticateDeviceCredential)
+    // Only strong biometrics. A DEVICE_CREDENTIAL fallback is the phone's lock screen, which this
+    // vault never asks for; the PIN below is the app's own credential.
+    val isBiometricAvailable = fragmentActivity != null && canAuthenticateBiometric
     val isBiometricEnabled by viewModel.preferences.isBiometricEnabled.collectAsState()
     var initialBiometricRequested by rememberSaveable { mutableStateOf(false) }
     var showPinEntry by rememberSaveable {
@@ -198,15 +198,14 @@ data object SecureFolderGateScreen : Screen {
       }
       showPinEntry = false
       keyboardController?.hide()
-      val promptInfoBuilder = BiometricPrompt.PromptInfo.Builder()
-        .setTitle(context.getString(R.string.secure_folder_title))
-        .setSubtitle(context.getString(R.string.secure_folder_enter_pin))
-      if (canAuthenticateBiometric) {
-        promptInfoBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-      } else {
-        promptInfoBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-      }
-      biometricPrompt.authenticate(promptInfoBuilder.build())
+      val promptInfo =
+        BiometricPrompt.PromptInfo.Builder()
+          .setTitle(context.getString(R.string.secure_folder_title))
+          .setSubtitle(context.getString(R.string.secure_folder_enter_pin))
+          .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+          .setNegativeButtonText(context.getString(android.R.string.cancel))
+          .build()
+      biometricPrompt.authenticate(promptInfo)
     }
 
     LaunchedEffect(Unit) {
