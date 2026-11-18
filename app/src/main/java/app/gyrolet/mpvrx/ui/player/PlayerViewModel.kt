@@ -1227,6 +1227,17 @@ class PlayerViewModel(
       }.distinctUntilChanged()
       .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+  /** True while the loaded file is held by the Secure Folder; every bookmark surface scopes to it. */
+  val isCurrentMediaSecure: StateFlow<Boolean> =
+    PlaybackSession.state
+      .map { state ->
+        val item = state.currentItem
+        item != null &&
+          (app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(item.originalUri) ||
+            app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(item.playableUri))
+      }.distinctUntilChanged()
+      .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val playbackBookmarks: StateFlow<List<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity>> =
     bookmarkMediaId.flatMapLatest { mediaId ->
@@ -2545,7 +2556,11 @@ fun restartFromBeginning() {
    */
   private suspend fun recordBookmarkMediaRef(mediaId: String) {
     val item = PlaybackSession.state.value.currentItem ?: return
-    val playable = item.playableUri.takeIf { it.isNotBlank() } ?: item.originalUri.takeIf { it.isNotBlank() }
+    // originalUri is the durable source. playableUri can be a one-shot loopback proxy URL or an
+    // fd:// handle, which would leave the gallery with a row it can never reopen.
+    val playable =
+      item.originalUri.takeIf { it.isNotBlank() }
+        ?: PlaybackSession.persistableSourceUri().takeIf { it.isNotBlank() }
     if (playable.isNullOrBlank()) return
     runCatching {
       kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -2753,11 +2768,38 @@ fun restartFromBeginning() {
     )
   }
 
-  fun seekToBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
+  fun seekToBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity): Boolean {
     val mediaId = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
-    if (bookmark.mediaId != mediaId) return
+    if (bookmark.mediaId != mediaId) return false
     if (bookmark.bookTrackId != null) AudiobookPlayback.seekToBookmark(bookmark.bookTrackId, bookmark.positionMs)
     else PlaybackSession.command("seek", (bookmark.positionMs / 1000.0).toString(), "absolute+exact")
+    return true
+  }
+
+  /**
+   * Opens [bookmark] from any scope. The current video seeks in place; a foreign row resolves its
+   * replay URI and starts that video at the saved timestamp through MediaUtils, which keeps Secure
+   * Folder targets behind the PIN gate.
+   */
+  suspend fun openBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity): Boolean {
+    val currentMediaId =
+      bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+    if (bookmark.mediaId == currentMediaId) return seekToBookmark(bookmark)
+    val ref =
+      kotlinx.coroutines.withContext(Dispatchers.IO) {
+        runCatching { bookmarkTagDao.mediaRef(bookmark.mediaId) }.getOrNull()
+      }
+    val target = ref?.playableUri?.takeIf { it.isNotBlank() } ?: return false
+    kotlinx.coroutines.withContext(Dispatchers.Main) {
+      app.gyrolet.mpvrx.utils.media.MediaUtils.playFile(
+        source = target,
+        context = appContext,
+        launchSource = "bookmark_gallery",
+        title = ref.title ?: bookmark.title,
+        startPositionSeconds = bookmarkPositionMs(bookmark) / 1000.0,
+      )
+    }
+    return true
   }
 
   fun seekToPlaybackChapter(chapter: dev.vivvvek.seeker.Segment) {

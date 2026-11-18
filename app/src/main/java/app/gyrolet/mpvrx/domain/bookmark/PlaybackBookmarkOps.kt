@@ -17,12 +17,18 @@ import app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkMediaLinkEntity
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.domain.media.model.Video
-import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
 
 private const val TAG = "PlaybackBookmarkOps"
+
+/** Every stable-id form a path can be launched under, so a move cannot lose its group. */
+private fun playbackIds(vararg paths: String): List<String> =
+  paths
+    .filter { it.isNotBlank() }
+    .flatMap { app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.identitiesForPath(it) }
+    .distinct()
 
 data class BookmarkMediaMetadata(
   val rawMediaId: String,
@@ -217,6 +223,8 @@ object PlaybackBookmarkOps {
     height: Int,
     durationSec: Int,
     sourceLabel: String,
+    /** New on-disk source after a vault move/restore, so the replay row stops pointing at the old path. */
+    newPlayableUri: String? = null,
   ) {
     val dao = daoOrNull() ?: return
     val cleanOld = oldMediaIds.filter { it.isNotBlank() }.distinct()
@@ -268,6 +276,9 @@ object PlaybackBookmarkOps {
               stemKey = stemKey,
             ),
         )
+        if (!newPlayableUri.isNullOrBlank()) {
+          dao.updateMediaRefUri(groupKey, newPlayableUri)
+        }
       }.onFailure { error ->
         Log.w(TAG, "Failed to migrate bookmark links during media move", error)
       }
@@ -279,16 +290,18 @@ object PlaybackBookmarkOps {
     newPath: String,
     sourceLabel: String = BookmarkMediaMatcher.extractFileName(newPath),
   ) {
-    val oldId = oldPath.takeIf { it.isNotBlank() }?.let(PlaybackIdentity::forLocalPath) ?: return
-    val newId = newPath.takeIf { it.isNotBlank() }?.let(PlaybackIdentity::forLocalPath) ?: return
+    val oldIds = playbackIds(oldPath)
+    val newIds = playbackIds(newPath)
+    if (oldIds.isEmpty() || newIds.isEmpty()) return
     onMediaMoved(
-      oldMediaIds = listOf(oldId),
-      newMediaIds = listOf(newId),
+      oldMediaIds = oldIds,
+      newMediaIds = newIds,
       fileSizeBytes = 0L,
       width = 0,
       height = 0,
       durationSec = 0,
       sourceLabel = sourceLabel,
+      newPlayableUri = newPath,
     )
   }
 
@@ -297,15 +310,8 @@ object PlaybackBookmarkOps {
     newPath: String,
     newDisplayName: String,
   ) {
-    val oldIds =
-      listOfNotNull(
-        video.path.takeIf { it.isNotBlank() }?.let(PlaybackIdentity::forLocalPath),
-        PlaybackIdentity.forLocalPath(video.uri.toString()),
-      )
-    val newIds =
-      listOfNotNull(
-        newPath.takeIf { it.isNotBlank() }?.let(PlaybackIdentity::forLocalPath),
-      )
+    val oldIds = playbackIds(video.path, video.uri.toString())
+    val newIds = playbackIds(newPath)
     onMediaMoved(
       oldMediaIds = oldIds,
       newMediaIds = newIds,
@@ -314,6 +320,7 @@ object PlaybackBookmarkOps {
       height = video.height,
       durationSec = (video.duration / 1000L).toInt().coerceAtLeast(0),
       sourceLabel = newDisplayName,
+      newPlayableUri = newPath,
     )
   }
 }

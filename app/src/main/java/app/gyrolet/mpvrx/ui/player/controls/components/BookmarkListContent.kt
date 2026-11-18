@@ -83,7 +83,6 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
-import app.gyrolet.mpvrx.utils.media.MediaUtils
 import dev.vivvvek.seeker.Segment
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
@@ -262,6 +261,7 @@ internal fun BookmarkListRow(
   compact: Boolean,
   onClick: () -> Unit,
   onLongClick: () -> Unit,
+  tagNames: List<String> = emptyList(),
   trailingContent: @Composable (() -> Unit)? = null,
   modifier: Modifier = Modifier,
 ) {
@@ -314,6 +314,15 @@ internal fun BookmarkListRow(
           maxLines = 2,
           overflow = TextOverflow.Ellipsis,
         )
+        if (tagNames.isNotEmpty()) {
+          Text(
+            text = tagNames.joinToString("  ") { "#$it" },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
         Text(
           text = formatBookmarkTimecode(positionSeconds),
           style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
@@ -577,10 +586,15 @@ internal fun BookmarkSplitPanel(
   var showGallery by remember { mutableStateOf(false) }
   var showTagFilterDialog by remember { mutableStateOf(false) }
   val isGlobalScope by viewModel.inPlayerBookmarkScope.collectAsStateWithLifecycle()
+  val isSecureScope by viewModel.isCurrentMediaSecure.collectAsStateWithLifecycle()
   var portraitColumns by rememberSaveable { mutableStateOf(2) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
 
-  val globalGalleryItems by galleryRepository.observeItems(BookmarkGalleryScope.AllVideos)
+  // Reuse one flow per scope: creating it inline on every recomposition replaced the collector and
+  // could leave the global list empty after a scope toggle.
+  val galleryScope =
+    if (isSecureScope) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos
+  val globalGalleryItems by remember(galleryScope) { galleryRepository.observeItems(galleryScope) }
     .collectAsStateWithLifecycle(initialValue = emptyList())
   val availableTags by galleryRepository.observeFilterTags()
     .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -619,22 +633,10 @@ internal fun BookmarkSplitPanel(
   }
 
   val onCardClick: (PlaybackBookmarkEntity) -> Unit = { bookmark ->
-    if (!isGlobalScope || bookmark.mediaId == currentMediaId) {
-      viewModel.seekToBookmark(bookmark)
-    } else {
-      val item = globalGalleryItems.firstOrNull { it.row.id == bookmark.id }
-      val target = item?.playableUri
-      if (target.isNullOrBlank()) {
-        // No replay row for this media: never seek the current file to a foreign timestamp.
+    scope.launch {
+      // Same video seeks in place; a global row launches its own video at the saved timestamp.
+      if (!viewModel.openBookmark(bookmark)) {
         Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
-      } else {
-        MediaUtils.playFile(
-          source = target,
-          context = context,
-          launchSource = "bookmark_drawer",
-          title = item?.mediaTitle ?: bookmark.title,
-          startPositionSeconds = bookmark.positionMs / 1000.0,
-        )
       }
     }
   }
@@ -1058,7 +1060,11 @@ internal fun BookmarkSplitPanel(
   }
 
   if (showGallery) {
-    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(onClose = { showGallery = false })
+    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(
+      onClose = { showGallery = false },
+      secureOnly = isSecureScope,
+      currentMediaId = currentMediaId,
+    )
   }
 
   if (showTagFilterDialog) {

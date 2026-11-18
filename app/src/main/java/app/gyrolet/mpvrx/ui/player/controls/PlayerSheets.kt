@@ -36,6 +36,7 @@ import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallPromptDialog
 import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpInstallProgressDialog
 import app.gyrolet.mpvrx.ui.player.ytdlp.YtdlpManager
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.domain.download.AppDownloadManager
@@ -921,6 +922,34 @@ private fun ChaptersSheetWithBookmarks(
   val currentPositionSec by viewModel.precisePosition.composeCollectAsState()
   val playbackState by app.gyrolet.mpvrx.ui.player.PlaybackSession.state.composeCollectAsState()
   val isAudiobook = playbackState.currentItem?.audiobook != null
+  val isGlobalScope by viewModel.inPlayerBookmarkScope.composeCollectAsState()
+  val isSecureScope by viewModel.isCurrentMediaSecure.composeCollectAsState()
+  val bookmarkMediaId by viewModel.bookmarkMediaId.composeCollectAsState()
+  val tagsByBookmark by viewModel.bookmarkTags.composeCollectAsState()
+  val galleryRepository =
+    koinInject<app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository>()
+  val galleryScope =
+    if (isSecureScope) {
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryScope.SecureVideos
+    } else {
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryScope.AllVideos
+    }
+  val globalGalleryItems by remember(galleryScope) { galleryRepository.observeItems(galleryScope) }
+    .collectAsStateWithLifecycle(initialValue = emptyList())
+  val globalBookmarks =
+    remember(globalGalleryItems) {
+      globalGalleryItems.map { item ->
+        PlaybackBookmarkEntity(
+          id = item.row.id,
+          mediaId = item.row.mediaId,
+          positionMs = item.row.positionMs,
+          title = item.mediaTitle ?: item.row.title,
+          createdAt = item.row.createdAt,
+          thumbnailPath = item.row.thumbnailPath,
+        )
+      }
+    }
+  val shownBookmarks = if (isGlobalScope) globalBookmarks else bookmarks
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   val haptics = rememberAppHaptics()
@@ -929,8 +958,8 @@ private fun ChaptersSheetWithBookmarks(
   var showGallery by remember { mutableStateOf(false) }
 
   val nearestBookmarkId =
-    remember(bookmarks, currentPositionSec) {
-      bookmarks.minByOrNull { bookmark ->
+    remember(shownBookmarks, currentPositionSec) {
+      shownBookmarks.minByOrNull { bookmark ->
         kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec)
       }?.takeIf { bookmark ->
         kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec) <= 2f
@@ -938,8 +967,8 @@ private fun ChaptersSheetWithBookmarks(
     }
 
   val displayChapters =
-    remember(sourceChapters, chapters, bookmarks) {
-      (if (sourceChapters.isNotEmpty() || bookmarks.isNotEmpty()) sourceChapters else chapters).toImmutableList()
+    remember(sourceChapters, chapters, shownBookmarks) {
+      (if (sourceChapters.isNotEmpty() || shownBookmarks.isNotEmpty()) sourceChapters else chapters).toImmutableList()
     }
   val displayChapter =
     remember(displayChapters, chapter, currentPositionSec) {
@@ -949,11 +978,16 @@ private fun ChaptersSheetWithBookmarks(
   ChaptersSheet(
     chapters = displayChapters,
     currentChapter = displayChapter,
-    bookmarks = bookmarks,
+    bookmarks = shownBookmarks,
     bookmarkPositionSec = { (viewModel.bookmarkPositionMs(it) / 1000L).toInt().coerceAtLeast(0) },
     selectedBookmarkId = nearestBookmarkId,
+    bookmarkTags = { bookmark -> tagsByBookmark[bookmark.id].orEmpty() },
     onBookmarkClick = { bookmark ->
-      viewModel.seekToBookmark(bookmark)
+      scope.launch {
+        if (!viewModel.openBookmark(bookmark)) {
+          Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
+        }
+      }
       onDismissRequest()
     },
     onBookmarkLongClick = { bookmark -> menuBookmark = bookmark },
@@ -968,6 +1002,11 @@ private fun ChaptersSheetWithBookmarks(
     },
     onDismissRequest = onDismissRequest,
     actions = {
+      androidx.compose.material3.TextButton(
+        onClick = { viewModel.toggleInPlayerBookmarkScope() },
+      ) {
+        androidx.compose.material3.Text(if (isGlobalScope) "Global" else "Video")
+      }
       Box(
         contentAlignment = Alignment.Center,
         modifier =
@@ -1052,6 +1091,10 @@ private fun ChaptersSheetWithBookmarks(
     )
   }
   if (showGallery) {
-    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(onClose = { showGallery = false })
+    app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryOverlay(
+      onClose = { showGallery = false },
+      secureOnly = isSecureScope,
+      currentMediaId = bookmarkMediaId,
+    )
   }
 }

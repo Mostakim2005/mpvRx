@@ -95,6 +95,7 @@ fun ChaptersSheet(
   selectedBookmarkId: Long? = null,
   onBookmarkClick: (PlaybackBookmarkEntity) -> Unit = {},
   onBookmarkLongClick: (PlaybackBookmarkEntity) -> Unit = {},
+  bookmarkTags: (PlaybackBookmarkEntity) -> List<String> = { emptyList() },
   itemActions: @Composable (Segment) -> Unit = {},
 ) {
   val listState = rememberLazyListState()
@@ -144,6 +145,7 @@ fun ChaptersSheet(
             positionSeconds = bookmarkPositionSec(bookmark),
             selected = bookmark.id == selectedBookmarkId,
             compact = false,
+            tagNames = bookmarkTags(bookmark),
             onClick = { onBookmarkClick(bookmark) },
             onLongClick = { onBookmarkLongClick(bookmark) },
           )

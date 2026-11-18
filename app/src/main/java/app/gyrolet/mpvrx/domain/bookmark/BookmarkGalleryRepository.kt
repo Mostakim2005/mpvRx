@@ -13,7 +13,7 @@ import app.gyrolet.mpvrx.database.dao.BookmarkGalleryRow
 import app.gyrolet.mpvrx.database.dao.BookmarkTagDao
 import app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao
 import app.gyrolet.mpvrx.database.repository.SecureFolderRepository
-import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,10 +33,10 @@ enum class BookmarkGalleryScope { AllVideos, SecureVideos }
 /**
  * Builds the cross-video bookmark gallery.
  *
- * The secure slice is resolved here rather than in SQL: a bookmark belongs to secure storage iff its
- * `mediaId` equals `PlaybackIdentity.forLocalPath` of a file the secure folder currently holds. That
- * is the same identity the move-in migration writes (`PlaybackBookmarkOps.onMediaMoved`), so a video
- * restored out of the folder drops out of this view automatically.
+ * The secure slice is resolved here rather than in SQL. A bookmark belongs to secure storage when
+ * its `mediaId` is a secure identity, or when that identity was linked to the bookmark's group while
+ * the file moved in or out of the vault. Without the link lookup a moved file keeps its old public
+ * identity, so its row would stay in the public gallery and disappear from the secure one.
  */
 class BookmarkGalleryRepository(
   private val bookmarkDao: PlaybackBookmarkDao,
@@ -45,21 +45,29 @@ class BookmarkGalleryRepository(
 ) {
   fun observeItems(scope: BookmarkGalleryScope): Flow<List<BookmarkGalleryItem>> {
     val scopedRows: Flow<List<BookmarkGalleryRow>> =
-      when (scope) {
-        // The public slice must never surface a bookmark whose media now lives in Secure
-        // Folder storage, otherwise private titles leak into the normal gallery.
-        BookmarkGalleryScope.AllVideos ->
-          combine(bookmarkDao.observeGallery(), secureFolderRepository.observeAll()) { rows, entries ->
-            if (entries.isEmpty()) return@combine rows
-            val secureIds = entries.mapTo(HashSet()) { PlaybackIdentity.forLocalPath(it.secureFilePath) }
-            rows.filterNot { it.mediaId in secureIds }
-          }
-        BookmarkGalleryScope.SecureVideos ->
-          combine(bookmarkDao.observeGallery(), secureFolderRepository.observeAll()) { rows, entries ->
-            if (entries.isEmpty()) return@combine emptyList()
-            val secureIds = entries.mapTo(HashSet()) { PlaybackIdentity.forLocalPath(it.secureFilePath) }
-            rows.filter { it.mediaId in secureIds }
-          }
+      combine(
+        bookmarkDao.observeGallery(),
+        secureFolderRepository.observeAll(),
+        bookmarkDao.observeAllLinks(),
+      ) { rows, entries, links ->
+        if (entries.isEmpty()) {
+          return@combine if (scope == BookmarkGalleryScope.SecureVideos) emptyList() else rows
+        }
+        val secureIds = HashSet<String>(entries.size * 3)
+        entries.forEach { entry ->
+          secureIds += SecureMediaRegistry.identitiesForPath(entry.secureFilePath)
+        }
+        val secureKeys = HashSet<String>(secureIds.size * 2)
+        secureKeys += secureIds
+        links.forEach { link ->
+          if (link.mediaId in secureIds) secureKeys += link.groupKey
+        }
+        when (scope) {
+          // A private bookmark must never surface in the public slice, even when the bookmark was
+          // created before the file moved into the vault and still carries the old group key.
+          BookmarkGalleryScope.AllVideos -> rows.filterNot { it.mediaId in secureKeys }
+          BookmarkGalleryScope.SecureVideos -> rows.filter { it.mediaId in secureKeys }
+        }
       }
     val paired =
       combine(scopedRows, tagDao.observeAllPairs(), tagDao.observeMediaRefs()) { rows, pairs, refs ->
@@ -95,4 +103,3 @@ fun List<BookmarkGalleryItem>.filterByTags(selected: Set<String>): List<Bookmark
     itemTags.containsAll(required)
   }
 }
-

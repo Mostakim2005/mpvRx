@@ -2659,6 +2659,7 @@
   <string name="bookmark_gallery_title">Bookmark gallery</string>
   <string name="bookmark_gallery_open">Open bookmark gallery</string>
   <string name="bookmark_gallery_scope_current">This video</string>
+  <string name="bookmark_gallery_scope_video">This video</string>
   <string name="bookmark_gallery_scope_all">All videos</string>
   <string name="bookmark_gallery_scope_secure">Secure videos</string>
   <string name="bookmark_gallery_empty">No bookmarks in this view yet</string>

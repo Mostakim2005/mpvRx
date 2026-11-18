@@ -43,15 +43,31 @@ object SecureMediaRegistry {
       return
     }
     val paths = HashSet<String>(entities.size * 2)
-    val identities = HashSet<String>(entities.size)
+    val identities = HashSet<String>(entities.size * 3)
     entities.forEach { entity ->
       normalize(entity.secureFilePath)?.let { securePath ->
         paths += securePath
-        identities += PlaybackIdentity.forLocalPath(entity.secureFilePath)
+        identities += identitiesForPath(securePath)
       }
       normalize(entity.originalPath)?.let { paths += it }
     }
     snapshot = Snapshot(paths, identities)
+  }
+
+  /**
+   * Every identity a local path can be played under.
+   *
+   * A library item is identified with `forLocalPath`, but a direct `file://` launch can produce a
+   * `forUri` stable id. Checking all three stops a bookmark created from one representation from
+   * leaking out of the secure slice because its id was the other representation.
+   */
+  fun identitiesForPath(path: String): Set<String> {
+    val normalized = normalize(path) ?: path
+    val identities = HashSet<String>(3)
+    runCatching { identities += PlaybackIdentity.forLocalPath(normalized) }
+    runCatching { identities += PlaybackIdentity.forUri(normalized) }
+    runCatching { identities += PlaybackIdentity.forUri("file://$normalized") }
+    return identities
   }
 
   fun clear() {
@@ -71,8 +87,7 @@ object SecureMediaRegistry {
     val path = normalize(trimmed)
     if (path != null && path in current.paths) return true
     val target = path ?: trimmed
-    val identity = runCatching { PlaybackIdentity.forLocalPath(target) }.getOrNull()
-    return identity != null && identity in current.identities
+    return identitiesForPath(target).any { it in current.identities }
   }
 
   private fun normalize(raw: String?): String? {

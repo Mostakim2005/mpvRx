@@ -119,13 +119,18 @@ data class BookmarkGalleryScreen(
 fun BookmarkGalleryOverlay(
   onClose: () -> Unit,
   secureOnly: Boolean = false,
+  currentMediaId: String? = null,
 ) {
   Dialog(
     onDismissRequest = onClose,
     properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
   ) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-      BookmarkGalleryContent(secureOnly = secureOnly, onClose = onClose)
+      BookmarkGalleryContent(
+        secureOnly = secureOnly,
+        onClose = onClose,
+        currentMediaId = currentMediaId,
+      )
     }
   }
 }
@@ -135,6 +140,7 @@ fun BookmarkGalleryOverlay(
 fun BookmarkGalleryContent(
   secureOnly: Boolean,
   onClose: () -> Unit,
+  currentMediaId: String? = null,
 ) {
   val context = LocalContext.current
   val repository = koinInject<BookmarkGalleryRepository>()
@@ -143,6 +149,9 @@ fun BookmarkGalleryContent(
   var scope by rememberSaveable {
     mutableStateOf(if (secureOnly) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos)
   }
+  // The player passes its current group key, so the same full-window gallery can show Video ⇄ Global
+  // without dropping back to the sidebar. The Secure Folder screen passes no key.
+  var onlyCurrentVideo by rememberSaveable(currentMediaId) { mutableStateOf(false) }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
@@ -150,7 +159,14 @@ fun BookmarkGalleryContent(
   val items by repository.observeItems(scope).collectAsStateWithLifecycle(initialValue = emptyList())
   val vocabulary by repository.observeFilterTags().collectAsStateWithLifecycle(initialValue = emptyList())
 
-  val filtered = remember(items, selectedTags) { items.filterByTags(selectedTags.toSet()) }
+  val filtered =
+    remember(items, selectedTags, onlyCurrentVideo, currentMediaId) {
+      items
+        .filterByTags(selectedTags.toSet())
+        .filter { item ->
+          !onlyCurrentVideo || currentMediaId == null || item.row.mediaId == currentMediaId
+        }
+    }
   val suggestions =
     remember(vocabulary, filterQuery, selectedTags) {
       val query = BookmarkTagRules.normalize(filterQuery)
@@ -215,17 +231,34 @@ fun BookmarkGalleryContent(
           Spacer(Modifier.width(4.dp))
           // Opened from the Secure Folder the gallery must not be able to widen back out to public
           // videos, so the All pill is only offered when it was opened from the public library.
+          if (currentMediaId != null) {
+            ScopePill(
+              label = stringResource(R.string.bookmark_gallery_scope_video),
+              selected = onlyCurrentVideo,
+              onClick = {
+                onlyCurrentVideo = true
+                scope =
+                  if (secureOnly) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos
+              },
+            )
+          }
           if (!secureOnly) {
             ScopePill(
               label = stringResource(R.string.bookmark_gallery_scope_all),
-              selected = scope == BookmarkGalleryScope.AllVideos,
-              onClick = { scope = BookmarkGalleryScope.AllVideos },
+              selected = !onlyCurrentVideo && scope == BookmarkGalleryScope.AllVideos,
+              onClick = {
+                onlyCurrentVideo = false
+                scope = BookmarkGalleryScope.AllVideos
+              },
             )
           }
           ScopePill(
             label = stringResource(R.string.bookmark_gallery_scope_secure),
-            selected = scope == BookmarkGalleryScope.SecureVideos,
-            onClick = { scope = BookmarkGalleryScope.SecureVideos },
+            selected = !onlyCurrentVideo && scope == BookmarkGalleryScope.SecureVideos,
+            onClick = {
+              onlyCurrentVideo = false
+              scope = BookmarkGalleryScope.SecureVideos
+            },
           )
           Spacer(Modifier.weight(1f))
           // 0 asks the grid to fit as many cards as the width allows; a number pins it.
