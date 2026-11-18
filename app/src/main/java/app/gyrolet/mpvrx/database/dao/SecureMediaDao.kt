@@ -36,6 +36,16 @@ interface SecureMediaDao {
   @Query("DELETE FROM secure_media WHERE id IN (:ids)")
   suspend fun deleteByIds(ids: List<Long>)
 
+  /** Moves stored vault paths under a new root after the durable-storage migration. */
+  @Query(
+    """
+    UPDATE secure_media
+    SET secureFilePath = :newPrefix || substr(secureFilePath, length(:oldPrefix) + 1)
+    WHERE substr(secureFilePath, 1, length(:oldPrefix)) = :oldPrefix
+    """,
+  )
+  suspend fun rebaseSecurePaths(oldPrefix: String, newPrefix: String)
+
   @Query("SELECT COUNT(*) FROM secure_media")
   fun observeCount(): Flow<Int>
 }

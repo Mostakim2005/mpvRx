@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+  <cloud-backup>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="secure_media/" />
+    <include domain="file" path="bookmark-thumbnails/" />
+  </cloud-backup>
+  <device-transfer>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="secure_media/" />
+    <include domain="file" path="bookmark-thumbnails/" />
+  </device-transfer>
+</data-extraction-rules>

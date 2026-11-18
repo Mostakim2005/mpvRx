@@ -1104,8 +1104,11 @@ val DatabaseModule =
 
     single<MpvRxDatabase> {
       val context = androidContext()
+      // The live file lives in Documents/mpvRx/database on standard builds, so uninstalling the
+      // app cannot take the library with it. App.onCreate copied any legacy database first.
+      val databasePath = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.databaseFile(context)
       Room
-        .databaseBuilder(context, MpvRxDatabase::class.java, "mpvrx.db")
+        .databaseBuilder(context, MpvRxDatabase::class.java, databasePath.absolutePath)
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addMigrations(
           MIGRATION_1_2,

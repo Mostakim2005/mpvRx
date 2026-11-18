@@ -59,8 +59,39 @@ interface PlaybackBookmarkDao {
   @Query("SELECT groupKey FROM bookmark_media_links WHERE mediaId = :mediaId LIMIT 1")
   fun observeLinkedGroupKey(mediaId: String): Flow<String?>
 
+  /** Every media-id alias, so the gallery can classify a bookmark by its whole link group. */
+  @Query("SELECT * FROM bookmark_media_links")
+  fun observeAllLinks(): Flow<List<BookmarkMediaLinkEntity>>
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertMediaLink(link: BookmarkMediaLinkEntity)
+
+  @Query("UPDATE bookmark_media_refs SET playableUri = :playableUri, updatedAt = :updatedAt WHERE mediaId = :mediaId")
+  suspend fun updateMediaRefUri(
+    mediaId: String,
+    playableUri: String,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  /** Moves stored thumbnail paths under a new root after the durable-storage migration. */
+  @Query(
+    """
+    UPDATE playback_bookmarks
+    SET thumbnailPath = :newPrefix || substr(thumbnailPath, length(:oldPrefix) + 1)
+    WHERE substr(thumbnailPath, 1, length(:oldPrefix)) = :oldPrefix
+    """,
+  )
+  suspend fun rebaseThumbnailPaths(oldPrefix: String, newPrefix: String)
+
+  /** Moves replay URIs under a new root after the durable-storage migration. */
+  @Query(
+    """
+    UPDATE bookmark_media_refs
+    SET playableUri = :newPrefix || substr(playableUri, length(:oldPrefix) + 1)
+    WHERE substr(playableUri, 1, length(:oldPrefix)) = :oldPrefix
+    """,
+  )
+  suspend fun rebaseMediaRefPaths(oldPrefix: String, newPrefix: String)
 
   @Query("UPDATE bookmark_media_links SET groupKey = :newGroupKey, updatedAt = :updatedAt WHERE groupKey = :oldGroupKey")
   suspend fun reassignLinks(

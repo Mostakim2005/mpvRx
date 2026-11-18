@@ -27,7 +27,6 @@ import kotlinx.coroutines.withContext
  * registered with MediaStore, keeping them invisible to Android Gallery and other apps.
  */
 object BookmarkThumbnailStore {
-  private const val THUMBNAIL_DIR_NAME = "bookmark-thumbnails"
   private const val CAPTURE_TEMP_DIR_NAME = "bookmark-capture"
   private const val NOMEDIA_FILE_NAME = ".nomedia"
   private const val THUMBNAIL_MAX_PX = 720
@@ -38,7 +37,7 @@ object BookmarkThumbnailStore {
   private val bitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
 
   fun privateDirectory(context: Context): File {
-    val dir = File(context.applicationContext.filesDir, THUMBNAIL_DIR_NAME)
+    val dir = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.thumbnailsDirectory(context)
     if (!dir.exists()) dir.mkdirs()
     val nomedia = File(dir, NOMEDIA_FILE_NAME)
     if (!nomedia.exists()) runCatching { nomedia.createNewFile() }
@@ -179,9 +178,16 @@ object BookmarkThumbnailStore {
 
   private fun isInsidePrivateDir(context: Context, path: String): Boolean {
     return runCatching {
-      val rootCanonical = privateDirectory(context).canonicalFile.path
       val targetCanonical = File(path).canonicalFile.path
-      targetCanonical.startsWith("$rootCanonical${File.separator}")
+      val roots =
+        listOf(
+          privateDirectory(context),
+          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.legacyThumbnailsDirectory(context),
+        )
+      roots.any { root ->
+        val rootCanonical = root.canonicalFile.path
+        targetCanonical.startsWith("$rootCanonical${File.separator}")
+      }
     }.getOrDefault(false)
   }
 }

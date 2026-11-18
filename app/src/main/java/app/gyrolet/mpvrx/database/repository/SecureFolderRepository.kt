@@ -123,7 +123,16 @@ class SecureFolderRepository(
   }
 
   private fun secureDir(context: Context): File =
-    File(context.filesDir, SECURE_DIR_NAME).apply { if (!exists()) mkdirs() }
+    app.gyrolet.mpvrx.domain.storage.DurableStorageManager.vaultDirectory(context).apply {
+      if (!exists()) mkdirs()
+    }
+
+  /** All stable-id forms for a path/URI, so a bookmark group survives a representation change. */
+  private fun playbackIds(vararg paths: String): List<String> =
+    paths
+      .filter { it.isNotBlank() }
+      .flatMap { SecureMediaRegistry.identitiesForPath(it) }
+      .distinct()
 
   // ============================================================================
   // Move IN (hide) — MediaStore/filesystem video -> app-private secure storage
@@ -205,17 +214,14 @@ class SecureFolderRepository(
           RecentlyPlayedOps.onVideoDeleted(video.path)
           PlaybackStateOps.onVideoDeleted(video.path)
           app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-            oldMediaIds =
-              listOfNotNull(
-                video.path.takeIf { it.isNotBlank() }?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
-                app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(video.uri.toString()),
-              ),
-            newMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(destFile.absolutePath)),
+            oldMediaIds = playbackIds(video.path, video.uri.toString()),
+            newMediaIds = playbackIds(destFile.absolutePath),
             fileSizeBytes = sourceFile.length(),
             width = video.width,
             height = video.height,
             durationSec = (video.duration / 1000L).toInt().coerceAtLeast(0),
             sourceLabel = sourceFile.name,
+            newPlayableUri = destFile.absolutePath,
           )
 
           succeeded += video.id
@@ -341,18 +347,14 @@ class SecureFolderRepository(
             if (move.video.uri in deletedUris) {
               PlaybackStateOps.onScopedVideoDeleted(move.video)
               app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-                oldMediaIds =
-                  listOfNotNull(
-                    move.video.path.takeIf { it.isNotBlank() }
-                      ?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
-                    app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(move.video.uri.toString()),
-                  ),
-                newMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(move.file.absolutePath)),
+                oldMediaIds = playbackIds(move.video.path, move.video.uri.toString()),
+                newMediaIds = playbackIds(move.file.absolutePath),
                 fileSizeBytes = move.file.length(),
                 width = move.video.width,
                 height = move.video.height,
                 durationSec = (move.video.duration / 1000L).toInt().coerceAtLeast(0),
                 sourceLabel = move.file.name,
+                newPlayableUri = move.file.absolutePath,
               )
             } else {
               dao.deleteById(move.entityId)
@@ -458,6 +460,18 @@ class SecureFolderRepository(
             restoreTarget.delete()
             throw IOException("Restore verification failed for ${entity.fileName}")
           }
+
+          // Point bookmark replay back at the restored public file before dropping the vault row.
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
+            oldMediaIds = playbackIds(entity.secureFilePath),
+            newMediaIds = playbackIds(restoreTarget.absolutePath),
+            fileSizeBytes = restoreTarget.length(),
+            width = 0,
+            height = 0,
+            durationSec = 0,
+            sourceLabel = entity.fileName,
+            newPlayableUri = restoreTarget.absolutePath,
+          )
 
           // Only clear the secure copy + DB row once the restored file is confirmed on disk.
           val secureDeleted = secureFile.delete()
@@ -566,7 +580,16 @@ class SecureFolderRepository(
         }
       }
 
-      val leftovers = secureDir(context).listFiles().orEmpty().count { !it.delete() }
+      val durableVault = secureDir(context)
+      val legacyDir = File(context.filesDir, SECURE_DIR_NAME)
+      val legacyFiles: List<File> =
+        if (legacyDir.isDirectory && legacyDir.absolutePath != durableVault.absolutePath) {
+          legacyDir.listFiles()?.toList().orEmpty()
+        } else {
+          emptyList()
+        }
+      val leftovers =
+        (durableVault.listFiles()?.toList().orEmpty() + legacyFiles).count { !it.delete() }
       if (leftovers > 0) {
         return@withContext Result.failure(IOException("Failed to delete $leftovers leftover file(s)"))
       }
@@ -658,17 +681,15 @@ class SecureFolderRepository(
         published = true
         val restoredLocalPath = ScopedHiddenFolderScanner.localPathOf(restoredUri)
         app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-          oldMediaIds = listOf(app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(entity.secureFilePath)),
+          oldMediaIds = playbackIds(entity.secureFilePath),
           newMediaIds =
-            listOfNotNull(
-              app.gyrolet.mpvrx.ui.player.PlaybackIdentity.forLocalPath(restoredUri.toString()),
-              restoredLocalPath?.let(app.gyrolet.mpvrx.ui.player.PlaybackIdentity::forLocalPath),
-            ),
+            (playbackIds(restoredUri.toString()) + playbackIds(restoredLocalPath.orEmpty())).distinct(),
           fileSizeBytes = expectedSize,
           width = 0,
           height = 0,
           durationSec = 0,
           sourceLabel = entity.fileName,
+          newPlayableUri = restoredUri.toString(),
         )
         dao.deleteById(entity.id)
         if (!secureFile.delete()) {

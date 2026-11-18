@@ -27,9 +27,12 @@ import androidx.compose.ui.AndroidComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao
+import app.gyrolet.mpvrx.database.dao.SecureMediaDao
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
 import app.gyrolet.mpvrx.di.DatabaseModule
 import app.gyrolet.mpvrx.di.FileManagerModule
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
 import app.gyrolet.mpvrx.di.PreferencesModule
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
@@ -85,6 +88,7 @@ class App :
   private val fastThumbnailsStarted = AtomicBoolean(false)
   private val imageCacheCleanupStarted = AtomicBoolean(false)
   private val settingsAutoBackupRunning = AtomicBoolean(false)
+  private lateinit var storageMigration: DurableStorageManager.MigrationReport
   private var startedActivityCount = 0
   private val mediaStoreLiveMonitor by lazy { app.gyrolet.mpvrx.utils.media.MediaStoreLiveMonitor(this, applicationScope) }
 
@@ -149,6 +153,10 @@ class App :
       return
     }
 
+    // Copy the live database before Room opens; the vault and thumbnails move in the background
+    // below so a large Secure Folder cannot stall application startup.
+    storageMigration = DurableStorageManager.prepare(this)
+
     configureDebugStrictMode()
 
     // Imports no longer revert later; drop any rollback an older version left behind.
@@ -165,6 +173,8 @@ class App :
         app.gyrolet.mpvrx.di.DownloadModule,
       )
     }
+    applicationScope.launch(Dispatchers.IO) { migrateDurableStorage() }
+
     // Third-party diagnostics require consent; disabled users do not start collection.
     MeasureTelemetry.initialize(this, getKoin().get<AdvancedPreferences>().measureEnabled.get())
     if (!BuildConfig.MPV_SUPPORTS_VULKAN) {
@@ -351,6 +361,41 @@ class App :
       pauseVideoWhenBackgroundPlaybackDisabled(activity)
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppBackgrounded()
       scheduleSettingsAutoBackup()
+    }
+  }
+
+  /**
+   * One-time move of the vault and bookmark thumbnails into the durable root. New writes keep using
+   * the legacy internal folders until both copies and all database path rewrites have succeeded, so
+   * a pending or failed migration can never leave rows pointing at files that do not exist yet.
+   */
+  private suspend fun migrateDurableStorage() {
+    val report = runCatching { storageMigration }.getOrNull() ?: return
+    if (!report.hasDurableRoot) {
+      DurableStorageManager.markMediaReady()
+      return
+    }
+    runCatching {
+      if (!DurableStorageManager.copyMediaDirectories(report)) return@runCatching
+      val bookmarkDao = getKoin().get<PlaybackBookmarkDao>()
+      val secureMediaDao = getKoin().get<SecureMediaDao>()
+      val separator = java.io.File.separator
+      report.legacyThumbnails?.let { legacy ->
+        val target = report.thumbnails
+        if (target != null && legacy.absolutePath != target.absolutePath) {
+          bookmarkDao.rebaseThumbnailPaths(legacy.absolutePath + separator, target.absolutePath + separator)
+        }
+      }
+      report.legacyVault?.let { legacy ->
+        val target = report.vault
+        if (target != null && legacy.absolutePath != target.absolutePath) {
+          secureMediaDao.rebaseSecurePaths(legacy.absolutePath + separator, target.absolutePath + separator)
+          bookmarkDao.rebaseMediaRefPaths(legacy.absolutePath + separator, target.absolutePath + separator)
+        }
+      }
+      DurableStorageManager.markMediaReady()
+    }.onFailure { error ->
+      Log.e(TAG, "Durable storage migration failed; keeping internal files", error)
     }
   }
 
