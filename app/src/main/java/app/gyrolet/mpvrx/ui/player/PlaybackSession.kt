@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
@@ -134,6 +135,8 @@ class PlaybackProperty<T> internal constructor(
 @Suppress("TooManyFunctions")
 object PlaybackSession : MPVLib.EventObserver {
   private const val TAG = "PlaybackSession"
+  /** How long the UI thread may wait for the native lock before reporting its caller's default. */
+  private const val UI_NATIVE_READ_TIMEOUT_MS = 150L
   private const val SPATIAL_AUDIO_LABEL = "mpvrx-spatial"
   // Increase side/mid ratio without adding peak gain: each row's absolute weights sum to 1.
   private const val SPATIAL_AUDIO_FILTER =
@@ -319,11 +322,13 @@ object PlaybackSession : MPVLib.EventObserver {
   private var desiredVideoOutput = "gpu"
   private var activeCoreConfigurationKey: String? = null
   private var activeUserScriptsKey: String? = null
-  private var attachedSurfaceOwner: Any? = null
+  // Mirrors of the attachment fields above, written only under [nativeLock] and read without it by
+  // view callbacks on the UI thread. A reader that needs consistency must still take the lock.
+  @Volatile private var attachedSurfaceOwner: Any? = null
   private var attachedSurfaceWidth = 0
   private var attachedSurfaceHeight = 0
   private var surfaceAttachmentToken = 0L
-  private var rendererOutputReady = false
+  @Volatile private var rendererOutputReady = false
   private val surfaceCallbackHandler = Handler(Looper.getMainLooper())
   private var activeNetworkStream: NetworkStreamRegistration? = null
   private val auxiliaryNetworkStreams = linkedMapOf<String, NetworkStreamRegistration>()
@@ -337,7 +342,7 @@ object PlaybackSession : MPVLib.EventObserver {
   private var loadedAudiobookDurationMs = 0L
   private var loadedAudiobookEnded = false
   private var speedBeforeAudiobook: Float? = null
-  private var attachedOsdOwner: Any? = null
+  @Volatile private var attachedOsdOwner: Any? = null
   private var appliedDolbyVisionOutput: String? = null
   private var defaultUserAgent: String? = null
   private var pendingPositionRestoreGeneration = 0L
@@ -379,7 +384,8 @@ object PlaybackSession : MPVLib.EventObserver {
  */
 internal fun userScriptsNeedReload(currentKey: String): Boolean {
   if (currentKey == AdvancedPreferences.USER_SCRIPTS_DISABLED) return false
-  return nativeLock.withLock { initialized && activeUserScriptsKey != currentKey }
+  // Runs on the open path, i.e. the UI thread: a busy core answers "no reload" instead of freezing.
+  return withReadyCoreRead(false) { initialized && activeUserScriptsKey != currentKey }
 }
 
   fun reloadMpvConfig(configPath: String): Boolean =
@@ -699,7 +705,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     }
 
   fun isSurfaceAttachedTo(owner: Any): Boolean =
-    nativeLock.withLock { _state.value.surfaceAttached && attachedSurfaceOwner === owner }
+    _state.value.surfaceAttached && attachedSurfaceOwner === owner
 
   /**
    * Attaches the transparent overlay that carries subtitles and OSD (FongMi build). Dolby Vision
@@ -738,7 +744,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       true
     }
 
-  fun isOsdSurfaceAttachedTo(owner: Any): Boolean = nativeLock.withLock { attachedOsdOwner === owner }
+  fun isOsdSurfaceAttachedTo(owner: Any): Boolean = attachedOsdOwner === owner
 
   fun unbindOsdSurface(owner: Any): Boolean =
     withCore(default = false) {
@@ -768,7 +774,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
   }
 
   fun isRendererReadyFor(owner: Any): Boolean =
-    nativeLock.withLock { rendererOutputReady && _state.value.surfaceAttached && attachedSurfaceOwner === owner }
+    rendererOutputReady && _state.value.surfaceAttached && attachedSurfaceOwner === owner
 
   fun unbindSurface(owner: Any): Boolean =
     withCore(default = false) {
@@ -1577,9 +1583,29 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     property: String,
     format: Int,
   ) {
-    withCore(Unit, allowInitializing = true) {
-      if (observedProperties.add(property to format)) MPVLib.observeProperty(property, format)
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+      nativeLock.withLock { registerObservedLocked(property, format) }
+      return
     }
+    // Composition reads properties, so this can arrive on the UI thread while a Surface handoff
+    // holds the lock inside libmpv. Try once without waiting and let the pump register it.
+    if (runCatching { nativeLock.tryLock(0, TimeUnit.MILLISECONDS) }.getOrDefault(false)) {
+      try {
+        registerObservedLocked(property, format)
+      } finally {
+        nativeLock.unlock()
+      }
+    } else {
+      nativeEvents.launch { nativeLock.withLock { registerObservedLocked(property, format) } }
+    }
+  }
+
+  private fun registerObservedLocked(
+    property: String,
+    format: Int,
+  ) {
+    if (!nativeCoreReady && _state.value.phase != PlaybackPhase.INITIALIZING) return
+    if (observedProperties.add(property to format)) MPVLib.observeProperty(property, format)
   }
 
   fun setOptionString(
@@ -1621,11 +1647,11 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     return 0
   }
 
-  fun getPropertyInt(property: String): Int? = withReadyCore(null) { MPVLib.getPropertyInt(property) }
+  fun getPropertyInt(property: String): Int? = withReadyCoreRead(null) { MPVLib.getPropertyInt(property) }
 
   // mpvlib's getPropertyLong delegates through Int; string conversion preserves all 64 bits.
   fun getPropertyLong(property: String): Long? =
-    withReadyCore(null) { MPVLib.getPropertyString(property)?.toLongOrNull() }
+    withReadyCoreRead(null) { MPVLib.getPropertyString(property)?.toLongOrNull() }
 
   fun setPropertyInt(
     property: String,
@@ -1666,7 +1692,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     }
   }
 
-  fun getPropertyDouble(property: String): Double? = withReadyCore(null) {
+  fun getPropertyDouble(property: String): Double? = withReadyCoreRead(null) {
     ambientVideoTransform?.get(property) ?: MPVLib.getPropertyDouble(property)
   }
 
@@ -1690,7 +1716,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     }
   }
 
-  fun getPropertyFloat(property: String): Float? = withReadyCore(null) {
+  fun getPropertyFloat(property: String): Float? = withReadyCoreRead(null) {
     ambientVideoTransform?.get(property)?.toFloat() ?: MPVLib.getPropertyFloat(property)
   }
 
@@ -1708,7 +1734,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     }
   }
 
-  fun getPropertyBoolean(property: String): Boolean? = withReadyCore(null) { MPVLib.getPropertyBoolean(property) }
+  fun getPropertyBoolean(property: String): Boolean? = withReadyCoreRead(null) { MPVLib.getPropertyBoolean(property) }
 
   internal fun audiobookProgress(reachedEnd: Boolean = false): AudiobookProgress? = withCore(null) {
     val book = loadedPlaybackItem?.audiobook ?: return@withCore null
@@ -1860,7 +1886,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       nextPaused
     }
 
-  fun getPropertyString(property: String): String? = withReadyCore(null) { MPVLib.getPropertyString(property) }
+  fun getPropertyString(property: String): String? = withReadyCoreRead(null) { MPVLib.getPropertyString(property) }
 
   /**
    * The current item's source in a form that still resolves after this session ends.
@@ -2955,6 +2981,34 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       if (!nativeCoreReady) return@withLock default
       block()
     }
+
+  /**
+   * Read-only native access for callers that may be the UI thread.
+   *
+   * The event pump holds [nativeLock] while it reads properties, and a Surface handoff can leave
+   * libmpv inside one of those reads (video output reconfiguration) for seconds. Background
+   * callers wait that out. The UI thread must not: an ANR report for 3.2.1 shows the main thread
+   * parked on this exact lock while applying a composition, behind a background reader inside
+   * `mpv_get_property`. So UI reads give up after [UI_NATIVE_READ_TIMEOUT_MS] and report the
+   * caller's default; the observed property flows deliver the value once the pump resumes.
+   */
+  private inline fun <T> withReadyCoreRead(
+    default: T,
+    block: () -> T,
+  ): T {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      if (!runCatching { nativeLock.tryLock(UI_NATIVE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+          .getOrDefault(false)
+      ) return default
+    } else {
+      nativeLock.lock()
+    }
+    return try {
+      if (!nativeCoreReady) default else block()
+    } finally {
+      nativeLock.unlock()
+    }
+  }
 
   private inline fun updateState(transform: (PlaybackSessionState) -> PlaybackSessionState) {
     _state.update { previous ->
