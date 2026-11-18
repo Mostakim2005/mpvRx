@@ -87,13 +87,13 @@
 
 ### [FEATURE: Zero-Bloat-Single-Folder-Direct-Hosting] | Aliases: single folder storage, zero bloat, live room db on external storage, survive uninstall, no duplicate backups
 > **1-Line Summary:** Hosts the live Room SQLite database, Secure Vault, bookmark thumbnails, configurations, music, companion videos, and lyrics directly in a single user-selected root folder without duplicate backup bloat.
-* **User Intention (Non-Negotiable):** The user selects a single directory in basic storage (e.g. `/sdcard/Documents/mpvRx/`). The active Room database (`mpvrx.db`), private media vault, thumbnails, and settings live directly inside this folder. No separate or redundant backup files are created, avoiding storage duplication and bloat. If the app is uninstalled, updated, or wiped, reinstalling and pointing to this folder instantly restores the complete library and state.
+* **User Intention (Non-Negotiable):** The user selects a single directory in basic storage (e.g. `/sdcard/Documents/mpvRx/`). The active Room database (`mpvrx.db`), private media vault and thumbnails live directly inside this folder. No separate or redundant backup files are created, avoiding storage duplication and bloat. If the app is uninstalled, updated, or wiped, reinstalling finds the same library, vault and thumbnails. The PIN hash is deliberately app-private and is re-created after a reinstall, so the vault needs a new app PIN rather than the old one.
 * **Directory Layout:**
   * `<UserRoot>/.nomedia` (blocks media scanner from indexing vault / internal assets)
   * `<UserRoot>/database/mpvrx.db` (LIVE active Room database, WAL and SHM files)
-  * `<UserRoot>/vault/` (encrypted Secure Folder media)
+  * `<UserRoot>/vault/` (relocated Secure Folder media, hidden by `.nomedia`)
   * `<UserRoot>/thumbnails/` (16:9 bookmark thumbnail image cache)
-  * `<UserRoot>/config/` (PIN verification salt & user player settings)
+  * `<UserRoot>/config/` (optional app config; the PIN salt/hash stays in app-private preferences)
   * `<UserRoot>/music/` (audio files with clean metadata-matched filenames)
   * `<UserRoot>/companion_videos/` (downloaded audio-less / full MP4 companion videos)
   * `<UserRoot>/lyrics/` (dedicated `.lrc` files)

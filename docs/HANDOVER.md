@@ -27,9 +27,21 @@ gh run view <run-id> --repo Mostakim2005/mpvRx --log-failed \
 commit**. Push one logical change, wait for that run to finish (≈12–18 min: JVM unit tests then
 the standard APK build), and only then push the next. A cancelled run proves nothing.
 
+**Verify against `origin`, not the default `gh` repo.** In this checkout `gh` resolves to the
+`upstream` remote (`Riteshp2001/mpvRx`), which has unrelated runs. Always pass
+`--repo Mostakim2005/mpvRx`.
+
 **Current runs**
 
-Query the workflow after every push and record the run IDs here. A cancelled run proves nothing:
+| Run | Commit | Workflow | Result |
+| --- | --- | --- | --- |
+| `44240833002` | `c0d03734` | CI/CD Build | **success** — JVM unit tests, standard release APK, signing, upload |
+| `44242561708` | `3f3ea718` | CI/CD Build | **success** — same pipeline on the release commit |
+| `44242573783` | `3f3ea718` (`v3.2.2`) | Make release | **success** — tag/version/CHANGELOG validation, signed APK, release published |
+
+GitHub Release `v3.2.2` (published 2026-11-18) carries one asset:
+`mpvRx-arm64-v8a-v3.2.2.apk` (≈63 MB, sha256 `30edbdf8…980`).
+Query the workflow after every new push and extend this table. A cancelled run proves nothing:
 `build.yml` cancels the in-progress run for the same ref, so wait for each run to finish before
 pushing again.
 
@@ -80,7 +92,11 @@ the compile error CI caught.
 
 ## 3. Remaining work
 
-**None — the repair backlog (R-01 … R-09) is complete.** Statuses mirror `PRODUCT.md` § 4; the
+**v3.2.2 is shipped and released** (commits `69ee22c0`…`3f3ea718`, tag `v3.2.2`, GitHub Release
+with the arm64 APK). The only outstanding item is on-device confirmation of R-10…R-13 and the
+ANR fix — CI proves it compiles, unit-tests and packages, not that it behaves correctly on a phone.
+
+**No repair items remain open — the backlog (R-01 … R-13) is complete.** Statuses mirror `PRODUCT.md` § 4; the
 per-item fixes are in § 2 and `DECISIONS_AND_TRAPS.md`. One deliberate scope boundary: R-06
 shipped the download *affordances* only (its item spec said "no downloader logic changes"); the
 companion-video downloader sheet, `MusicCompanionDao` attach-binding and audio-replacement prompt
@@ -97,6 +113,11 @@ from `PRODUCT.md`'s music-side spec remain their own feature
 - **TRAP 3 (git):** always `GIT_TERMINAL_PROMPT=0`.
 - **TRAP 4 (dual orientation):** portrait and landscape get separate mocks and separate layout
   budgets — never one drawing stretched.
+- **TRAP 5 (wrong repo):** `gh` defaults to the `upstream` remote here (`Riteshp2001/mpvRx`), so
+  `gh run list` and `gh release view` report that fork's history. Pass `--repo
+  Mostakim2005/mpvRx` or a green/red result is meaningless.
+- **TRAP 6 (native lock):** never block the UI thread on `nativeLock`; a Surface handoff holds it
+  inside libmpv. Use the bounded read helper and let the observed flow correct the value.
 - New: landscape status-bar insets must be a window-condition check, not a preference check;
   portrait-only editors must capture and restore the player's orientation.
 

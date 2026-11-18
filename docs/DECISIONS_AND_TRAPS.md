@@ -140,6 +140,34 @@ flowchart LR
 
 ---
 
+### [DECISION: Bounded-UI-Thread-Native-Reads-Instead-Of-Blocking-The-Main-Thread] | Aliases: playback ANR, mpv property lock, surface handoff freeze, 150ms timeout
+> **1-Line Summary:** Compose property reads take the session-wide native lock with a 150 ms `tryLock` and fall back to a default, because a Surface handoff can hold that lock inside libmpv indefinitely.
+* **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
+* **Original User Intention:** Stop the player from freezing and triggering "mpvRx isn't responding" while a video is starting, changing Surface, or entering picture-in-picture.
+* **Options Considered:**
+  * **Option A (Rejected):** Keep `nativeLock.lock()` for all reads. Correct values, but the UI thread blocks behind `mpv_get_property` for the whole handoff, which is the ANR itself.
+  * **Option B (Chosen):** One helper for every property read. On the main looper it attempts `tryLock(150 ms)` and returns the caller's default on timeout; off the main thread it keeps a blocking lock. Observed-property registration never waits (zero-timeout attempt, deferred to the pump), and Surface/attachment flags are `@Volatile` so composition can read them without the lock.
+* **Trade-off accepted:** A timed-out read briefly renders a stale/default value. That is safe because the observed flows re-emit once the lock is free, and it is strictly better than a frozen UI. Do not "fix" a default by re-introducing an unbounded UI-thread lock.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `UI_NATIVE_READ_TIMEOUT_MS`, `tryLock`, `registerObserved`
+
+---
+
+### [DECISION: Secure-Bookmark-Membership-Follows-The-Whole-Link-Group] | Aliases: secure bookmark leaks into global, moved file bookmark, bookmark_media_links, identitiesForPath
+> **1-Line Summary:** A bookmark is classified by every identity form of the vault file **and** by its `bookmark_media_links` group key, never by the row's stored `mediaId` alone.
+* **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
+* **Original User Intention:** Secure and non-secure bookmarks must never mix, including for files moved into or out of the vault after the bookmark was created.
+* **Options Considered:**
+  * **Option A (Rejected, pre-3.2.2):** Compare `bookmark.mediaId` with the vault file's identity. Moving a file into the vault kept the old group key, so the bookmark stayed in the public gallery and disappeared from the secure one until re-bookmarked.
+  * **Option B (Chosen):** `SecureMediaRegistry.identitiesForPath()` returns all three representations (local path, `forUri(path)`, `forUri("file://…")`). `BookmarkGalleryRepository` expands those into a `secureKeys` set that also contains each matching `bookmark_media_links.groupKey`, then filters `AllVideos` with `filterNot` and `SecureVideos` with `filter`.
+* **Consequence:** Anything that moves media between vault and public storage must keep the link group updated (`PlaybackBookmarkOps.onMediaMoved`), or the bookmark will land on the wrong side.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `secureIds`, `secureKeys`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `identitiesForPath`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/PlaybackBookmarkOps.kt` -> `onMediaMoved`, `newPlayableUri`
+
+---
+
 ### [DECISION: Configurable-Landscape-Music-Split-And-Multi-Line-Lyrics] | Aliases: music player split, landscape 50-50, 40-60, 2-line lyrics
 > **1-Line Summary:** Music player provides 2-line (default) or 3-line lyrics in portrait with dynamic artwork scaling, and configurable split ratios (`50/50`, `40/60`, `60/40`) in landscape.
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`

@@ -71,7 +71,7 @@ flowchart TB
 | Dependency Injection | Koin | Lightweight Kotlin-native DI with zero reflection overhead and immediate startup speeds. |
 | Persistence | AndroidX Room (SQLite) + AtomicFile | Robust schema migrations for bookmarks/tags/music and atomic file writes for JSON statistics snapshots. |
 | Media ID Hash | Java `MessageDigest` (SHA-256) | Generates collision-resistant stable identifiers for media across URI schemes and filesystem paths. |
-| Persistent Vault | `/sdcard/Documents/mpvRx/` (with `.nomedia`) | Ensures private media, bookmark thumbnails, database backups, and PIN credentials survive app uninstallation. |
+| Durable Storage | `/sdcard/Documents/mpvRx/` (with `.nomedia`) | Hosts the live Room database, vault media and bookmark thumbnails outside app-private storage, so uninstalling or clearing the app cannot delete them. The PIN hash stays app-private on purpose and is re-created after a reinstall. |
 
 ---
 
@@ -102,13 +102,13 @@ flowchart TD
 ---
 
 ### [SUBSYSTEM: Landscape-Sidebar-With-Global-Scope-Toggle] | Aliases: landscape sidebar, 20-35 width, non-overflow toolbar, global scope toggle
-> **1-Line Summary:** Landscape bookmark sidebar maintaining 20% to 35% width steps with a non-overflow 2-tier toolbar, floating tag overlay, and an in-drawer toggle between this video's bookmarks and all library bookmarks.
+> **1-Line Summary:** Landscape bookmark sidebar maintaining 20% to 35% width steps with a non-overflow 2-tier toolbar, floating tag overlay, and a `Video ⇄ Global` scope toggle shared with the Chapters sheet and the full gallery.
 * **How It Works (Plain English):**
   * **Width Menu:** Cycles across 20%, 25%, 30%, and 35%.
   * **Non-Overflow 2-Tier Toolbar:**
     * *Tier 1 (Action Icons):* 4 compact icon buttons with tooltips (`🏷️ Filter`, `⊞ Add`, `↗ Gallery`, `✕ Close`).
     * *Tier 2 (Toggle Chips):* Compact chips (`Scope: 🎬/🌐`, `25%`, `1 Col`). Uses short labels and compact paddings to prevent wrapping or overflowing at 20% width.
-  * **In-Player Scope Toggle:** Tapping `🎬 This Video ⇄ 🌐 All Bookmarks` triggers `PlayerViewModel.toggleInPlayerBookmarkScope()`, switching the drawer between the current video's timestamps and all library bookmarks.
+  * **In-Player Scope Toggle:** Tapping `🎬 This Video ⇄ 🌐 All Bookmarks` triggers `PlayerViewModel.toggleInPlayerBookmarkScope()`. The state lives in `PlayerViewModel`, so the portrait drawer, Chapters sheet and full-window gallery all show the same slice instead of keeping private copies that reset when a panel leaves composition.
   * **Floating Tag Filter Popup:** Opens a centered translucent overlay over the video without stopping playback.
 * **Data Flow Diagram:**
 ```mermaid
@@ -123,8 +123,13 @@ sequenceDiagram
     Controls->>VM: toggleInPlayerBookmarkScope()
     VM-->>Drawer: Emits updated bookmark list (Local vs Global)
     User->>Drawer: Taps 16:9 Bookmark Card
-    Drawer->>VM: seekToBookmark(bookmark)
-    VM->>mpv: command("seek", positionSeconds, "absolute")
+    Drawer->>VM: openBookmark(bookmark)
+    alt Bookmark belongs to the current media
+        VM->>mpv: command("seek", positionSeconds, "absolute")
+    else Bookmark points at another media
+        VM->>VM: resolve bookmark_media_refs replay URI
+        VM->>mpv: open that file, then seek to positionSeconds
+    end
 ```
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkListContent`
@@ -132,8 +137,10 @@ sequenceDiagram
 ---
 
 ### [SUBSYSTEM: Natural-Scroll-Gallery] | Aliases: bookmark gallery, vertical scroll grid, tag filter
-> **1-Line Summary:** Fullscreen modal browsing all library bookmarks with natural vertical scrolling (`LazyVerticalGrid`), autocomplete tag search, and orientation column caps (max 3 portrait, max 4 landscape).
+> **1-Line Summary:** Fullscreen modal browsing all library bookmarks with natural vertical scrolling (`LazyVerticalGrid`), `This video` / `All videos` / `Secure videos` scope, autocomplete tag search, and orientation column caps (max 3 portrait, max 4 landscape).
 * **How It Works (Plain English):** Smooth vertical `LazyVerticalGrid`. Top area provides a search bar with clickable autocomplete tag pills directly underneath. Columns are capped at 3 in portrait and 4 in landscape. Cards are 16:9 with gradient labels.
+  * **Scope:** `All videos` and `Secure videos` are always offered; when the caller passes `currentMediaId`, `This video` joins them. The player's bookmark button opens the gallery with the current media id and, for protected playback, `secureOnly = true`.
+  * **Secure classification:** `BookmarkGalleryRepository` treats a bookmark as secure when **any** identity form of a vault file matches, or when the bookmark's `mediaId` belongs to the link group of a secure id. Comparing only the row's stored `mediaId` let a file moved into the vault keep its old public key, so the bookmark stayed public and vanished from secure.
 * **Data Flow Diagram:**
 ```mermaid
 sequenceDiagram
@@ -144,16 +151,48 @@ sequenceDiagram
     participant DB as Room PlaybackBookmarkDao
 
     User->>Gallery: Opens Gallery Modal & Selects Tag
-    Gallery->>Repo: observeGalleryItems(scope, tags)
-    Repo->>DB: observeGallery()
-    DB-->>Repo: raw bookmark rows
-    Repo->>Sec: isProtectedReference(filePath)
-    Sec-->>Repo: filter out secure items
-    Repo-->>Gallery: filtered list of BookmarkGalleryItem
+    Gallery->>Repo: observeGalleryItems(scope, tags, currentMediaId)
+    Repo->>DB: observeGallery() + observeAllLinks()
+    DB-->>Repo: bookmark rows + bookmark_media_links rows
+    Repo->>Sec: identitiesForPath(vault file)
+    Sec-->>Repo: every identity form of each vault file
+    Repo->>Repo: secureKeys = those identities + their link group keys
+    Repo-->>Gallery: scope-filtered list of BookmarkGalleryItem
     Gallery->>User: Displays natural vertically-scrollable grid
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryScreen`, `resolveColumnCount`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryScreen`, `resolveColumnCount`, `onlyCurrentVideo`, `currentMediaId`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `secureIds`, `secureKeys`, `observeAllLinks`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` -> `observeAllLinks`
+
+---
+
+### [SUBSYSTEM: Bounded-UI-Thread-Native-Reads] | Aliases: playback ANR, mpv_get_property freeze, surface handoff lock, 150ms lock timeout
+> **1-Line Summary:** Composition may ask libmpv for properties at any moment, so every UI-thread native read gives up after 150 ms and returns its caller's default instead of blocking on the session-wide lock during a Surface handoff.
+* **How It Works (Plain English):**
+  * `PlaybackSession` guards native mpv calls with a single `ReentrantLock`. A Surface attach/detach can hold that lock inside libmpv for longer than a frame, while Compose re-reads a property during recomposition.
+  * All property reads flow through one helper: on the main looper it uses `nativeLock.tryLock(150 ms)`, and on failure returns the supplied default (0/false/empty) rather than waiting. Off the main thread it still takes a blocking lock, because worker correctness matters more than latency there.
+  * The default is a *stale-but-safe* value, not an error: the observed-property flows emit the real value as soon as the event pump resumes, so the next recomposition corrects the UI.
+  * Registering an observed property never waits at all — a zero-timeout `tryLock` failure is deferred to the pump, which registers it off the UI thread.
+  * Surface attachment flags are `@Volatile`, so the UI thread can check them without taking the native lock.
+* **Data Flow Diagram:**
+```mermaid
+sequenceDiagram
+    participant UI as Compose (main thread)
+    participant PS as PlaybackSession
+    participant Lock as nativeLock (held by Surface handoff)
+    participant Pump as mpv event pump
+
+    UI->>PS: readProperty(default)
+    PS->>Lock: tryLock(150 ms)
+    Lock-->>PS: timeout
+    PS-->>UI: default value (no ANR)
+    Pump->>PS: property-change event after handoff
+    PS-->>UI: observed flow emits the real value
+```
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `UI_NATIVE_READ_TIMEOUT_MS`, `tryLock`, `registerObserved`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `attachedSurfaceOwner`, `attachedSurfaceWidth` (`@Volatile`)
 
 ---
 
@@ -169,17 +208,19 @@ sequenceDiagram
 ---
 
 ### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry
-> **1-Line Summary:** Quarantines private media from history and stats, challenges using the Secure Folder PIN directly, and stores vault media, thumbnails, database backups, and PIN verifiers in persistent public storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) to survive uninstallation.
+> **1-Line Summary:** Quarantines private media from history, stats and the public bookmark slice, prompts with the app-owned Secure Folder PIN (never the phone lock screen), and keeps vault media on durable storage under `Documents/mpvRx/vault/`.
 * **How It Works (Plain English):**
-  * `SecureMediaRegistry` caches private file paths in memory; history/stats repos query `isProtectedReference()` synchronously.
-  * Starting any private URI routes through `SecureUnlockActivity` using the Secure Folder PIN (no device PIN double prompt).
-  * All encrypted media, bookmark thumbnails, database snapshots, and salt/verifier credentials are stored under `/sdcard/Documents/mpvRx/`.
-  * A `.nomedia` file blocks standard Android media scanner from discovering private files.
-  * On app reinstallation, mpvRx detects the existing `/sdcard/Documents/mpvRx/` folder, authenticates using the existing PIN verifier, and restores the library seamlessly.
+  * `SecureMediaRegistry` caches private paths in memory and exposes `identitiesForPath()`, which returns all three identity forms (local path, `forUri(path)` and `forUri("file://…")`). History and stats query `isProtectedReference()` synchronously; the bookmark gallery compares the whole link group so a moved file cannot straddle the two slices.
+  * Starting any private URI routes through `SecureUnlockActivity`, whose playback gate renders the app's own PIN entry (`SecurePinPrompt`) and verifies `SecureFolderPreferences.verifyPin()`. It never calls `BiometricPrompt` with `DEVICE_CREDENTIAL`, so the phone's pattern/password cannot appear on the way from the vault to the player.
+  * `SecureFolderSession` records one unlock for the app session: entering the folder satisfies the playback gate, and `App.onActivityStopped` clears the token when the app is backgrounded.
+  * Vault files live in `<DurableRoot>/vault/`, thumbnails in `<DurableRoot>/thumbnails/`, and the live database in `<DurableRoot>/database/`. A `.nomedia` marker blocks the Android media scanner from indexing the root.
+  * The PIN salt/hash is deliberately app-private, so it does **not** survive uninstall. After a reinstall the durable database, vault and thumbnails are already on disk, and the user sets a new PIN to re-open the vault.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `isProtectedReference`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `launch`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `isProtectedReference`, `identitiesForPath`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `markUnlocked`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `SecurePinPrompt`, `launch`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `showBiometricPrompt` (`BIOMETRIC_STRONG` only)
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
 
 ---
 
@@ -195,9 +236,9 @@ sequenceDiagram
 flowchart TD
     UserPickedRoot["User-Selected Storage Root (/sdcard/Documents/mpvRx/)"] --> Nomedia[".nomedia file"]
     UserPickedRoot --> LiveDB["Live Room SQLite DB (database/mpvrx.db + WAL)"]
-    UserPickedRoot --> Vault["Encrypted Vault Files (vault/)"]
+    UserPickedRoot --> Vault["Vault Files (vault/, .nomedia-hidden)"]
     UserPickedRoot --> Thumbnails["Bookmark Thumbnails (thumbnails/)"]
-    UserPickedRoot --> Config["PIN Salt & Settings (config/)"]
+    UserPickedRoot --> Config["Optional App Config (config/)"]
     UserPickedRoot --> Media["Music, Companion Videos & Lyrics (music/, companion_videos/, lyrics/)"]
     LiveDB --> App["mpvRx App Live Queries (Zero Backup Duplication)"]
 ```
@@ -277,9 +318,11 @@ flowchart LR
 ## 4. Verification & Health Checks
 
 ### [VERIFY: Cloud-And-Unit-TestSuite] | Aliases: test commands, gradle check, unit tests
-> **1-Line Summary:** Standard commands and CI pipelines for verifying logic and building release APKs.
-* **Local Unit Tests:** `./gradlew test` (or `./gradlew testStandardReleaseUnitTest --tests app.gyrolet.mpvrx.ui.player.PlaybackIdentityTest`)
-* **Tag-Triggered Release Pipeline:** Push annotated git tag `vX.Y.Z` to trigger `.github/workflows/release.yml`.
+> **1-Line Summary:** GitHub Actions is the only verification path; local Gradle builds and unit tests are not part of this project's workflow.
+* **CI Build:** `.github/workflows/build.yml` runs the JVM unit tests and builds the standard release APK on every push to `master`.
+* **Tag-Triggered Release Pipeline:** Push annotated git tag `vX.Y.Z` to trigger `.github/workflows/release.yml`, which re-validates the tag against `versionName` and `CHANGELOG.md`, builds and signs the APK, and publishes the GitHub Release asset.
+* **Reading results:** `gh` in this checkout defaults to the `upstream` remote (`Riteshp2001/mpvRx`), not `origin`, so always pass `--repo Mostakim2005/mpvRx` to `gh run list` / `gh run view` / `gh release view`.
+* **Caveat:** `build.yml` cancels the in-progress run for the same ref, so wait for a run to finish before pushing again; a cancelled run proves nothing.
 
 ---
 
