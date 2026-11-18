@@ -87,9 +87,10 @@ flowchart LR
   * **Option B (Chosen):** `domain/secure/SecureFolderSession.kt` marks the session unlocked on any gate success (folder entry PIN/biometric/setup, or the playback credential); every gate reads the token before prompting; `App.onActivityStopped` clears it when the app goes background (same contract as Secret Mode). Per-action prompts — destroy vault, PIN change, secret stats — intentionally keep asking.
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `SecureFolderSession`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `authenticate`, `continueToTarget`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `Content`, `onAuthenticationSucceeded`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `SecurePinPrompt`, `continueToTarget`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `Content`, `showBiometricPrompt`
   * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `onActivityStopped`
+  * **3.2.2 extension:** the playback gate verifies `SecureFolderPreferences.verifyPin()` and never calls `BiometricPrompt` with `DEVICE_CREDENTIAL`, so the phone lock screen cannot appear on the way from the vault to the player. Biometric entry in the folder gate is `BIOMETRIC_STRONG` only; its negative button returns to the app PIN.
 
 ---
 
@@ -100,9 +101,12 @@ flowchart LR
 * **Options Considered:**
   * **Option A (Rejected):** `rememberSaveable` inside `BookmarkSplitPanel`. The panel leaves composition whenever the drawer closes, so the toggle silently reset to `Video` on reopen, and the portrait header shipped without any scope chip at all — "toggling" in portrait was impossible.
   * **Option B (Chosen):** Scope state and `toggleInPlayerBookmarkScope()` live in `PlayerViewModel` (matching the `ARCHITECTURE.md` data-flow for this subsystem); `currentMediaId` comes from `bookmarkMediaId` so bookmark-less videos still classify rows correctly; a global row with no replay ref shows a toast instead of seeking the current file to a foreign timestamp.
+  * **3.2.2 extension:** every surface shares that state. The Chapters sheet renders the same `Video ⇄ Global` chip and the full-window gallery accepts `currentMediaId`, so `This video` joins `All videos` / `Secure videos`. `PlayerViewModel.openBookmark()` owns foreign playback, so the drawer, sheet and gallery all launch the target video at its timestamp instead of duplicating the logic.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `toggleInPlayerBookmarkScope`, `inPlayerBookmarkScope`, `bookmarkMediaId`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `isGlobalScope`, `onCardClick`, `currentMediaId`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `toggleInPlayerBookmarkScope`, `inPlayerBookmarkScope`, `bookmarkMediaId`, `openBookmark`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `isGlobalScope`, `onCardClick`, `currentMediaId`, `galleryScope`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `ChaptersSheetWithBookmarks`, `isGlobalScope`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `onlyCurrentVideo`, `currentMediaId`
 
 ---
 
@@ -121,15 +125,18 @@ flowchart LR
 ---
 
 ### [DECISION: Vault-Storage-Persistence-Strategy-Survive-Uninstall] | Aliases: survive uninstall, external app storage, nomedia vault, sdcard documents mpvrx
-> **1-Line Summary:** Private vault media, bookmark thumbnails, database backups, settings, and PIN verifiers are relocated to persistent storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) so uninstalling the app never destroys user data.
+> **1-Line Summary:** Private vault media, bookmark thumbnails and the live Room database are hosted in persistent storage (`/sdcard/Documents/mpvRx/` with `.nomedia`) so uninstalling the app never destroys the collection or its bookmarks.
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
-* **Original User Intention:** Prevent catastrophic data loss where deleting or reinstalling the app destroys the private video collection, database bookmarks, and PIN settings.
+* **Original User Intention:** Prevent catastrophic data loss where deleting or reinstalling the app destroys the private video collection, database bookmarks and thumbnails.
 * **Options Considered:**
   * **Option A (Rejected):** Storing in `context.filesDir` or `context.getExternalFilesDir()`. Android automatically wipes these directories on uninstallation, permanently deleting all user files.
-  * **Option B (Chosen):** Persistent directory at `/sdcard/Documents/mpvRx/` with `.nomedia`. Encrypted files, thumbnails, Room DB backups, and salted Argon2id/PBKDF2 PIN verifiers persist permanently. On reinstallation, mpvRx recognizes the vault and prompts the existing PIN.
+  * **Option B (Chosen):** `DurableStorageManager` resolves `Documents/mpvRx/` on standard builds. Room opens `database/mpvrx.db` there, the Secure Vault uses `vault/`, and bookmark thumbnails use `thumbnails/`, all behind a `.nomedia` marker. Existing internal files are copied once at startup and their Room paths are rebased before new writes switch over. The app-private PIN hash deliberately stays private: after reinstall the user sets a new PIN and the surviving database, vault and thumbnails appear. Play Store scoped-storage builds keep internal storage and add Auto Backup rules for the same paths.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `BookmarkThumbnailStore`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `prepare`, `databaseFile`, `vaultDirectory`, `thumbnailsDirectory`, `copyMediaDirectories`
+  * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `migrateDurableStorage`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `privateDirectory`
 
 ---
 
@@ -160,8 +167,8 @@ flowchart LR
     end
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `resolveRootDirectory`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`
 
 ---
 
@@ -250,7 +257,8 @@ flowchart LR
 > **1-Line Summary:** On Android 11+ (API 30+), SQLite WAL mode requires direct filesystem access (`MANAGE_EXTERNAL_STORAGE` or direct POSIX `File` access), never content URI streams.
 * **Strict Rule:** **NEVER** attempt to run an active Room SQLite database through `ContentResolver` / `DocumentFile` stream wrappers. SQLite requires direct file descriptor locking (`fcntl` / flock) and SHM memory mapping. The user-selected directory must be located in standard external storage (`/sdcard/Documents/mpvRx/`) using direct `File` paths.
 * **Protected Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`
 
 ---
 

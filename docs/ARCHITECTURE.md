@@ -202,8 +202,9 @@ flowchart TD
     LiveDB --> App["mpvRx App Live Queries (Zero Backup Duplication)"]
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `resolveRootDirectory`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`, `vaultDirectory`, `thumbnailsDirectory`, `prepare`, `copyMediaDirectories`
+  * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `migrateDurableStorage` (copies legacy media, then rebases Room paths before switching new writes to the durable root)
 
 ---
 

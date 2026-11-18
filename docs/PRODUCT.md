@@ -98,9 +98,9 @@
   * `<UserRoot>/companion_videos/` (downloaded audio-less / full MP4 companion videos)
   * `<UserRoot>/lyrics/` (dedicated `.lrc` files)
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/AppDatabase.kt` -> `buildExternalDatabase`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `SecureFolderRepository`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `getLiveDatabasePath`, `resolveRootDirectory`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`, `vaultDirectory`, `thumbnailsDirectory`, `prepare`, `copyMediaDirectories`
 
 ### [FEATURE: Player-Controls-Pencil-Tag-Editor-And-Auto-Fetch] | Aliases: pencil edit icon, metadata editor, auto fetch artwork, tag editor, id3 edit, fullscreen tag editor
 > **1-Line Summary:** Dedicated pencil icon in player controls opening an in-app fullscreen metadata editor with multi-artwork carousel and multi-source metadata candidate browsing.
@@ -186,6 +186,10 @@
 | `R-07` | P1 | Bookmark scope toggle (`Video` ⇄ `Global`) | `SHIPPED` (`5ceb475a`) |
 | `R-08` | P3 | Now Playing sheet compactness | `SHIPPED` (`e2859d14`) |
 | `R-09` | P2 | Landscape music layout: browse left, now playing right | `SHIPPED` (`b187233d`) |
+| `R-10` | P1 | Bookmark scope + foreign playback + tags in every surface | `SHIPPED` (`v3.2.2`) |
+| `R-11` | P1 | Secure/non-secure bookmark segregation | `SHIPPED` (`v3.2.2`) |
+| `R-12` | P1 | Secure playback asks for the app PIN, once per session | `SHIPPED` (`v3.2.2`) |
+| `R-13` | P1 | Library, vault and thumbnails survive uninstall | `SHIPPED` (`v3.2.2`) |
 
 **Handover:** current state, verification workflow and per-item implementation plans live in
 [`HANDOVER.md`](HANDOVER.md). Read it before resuming this table.
@@ -308,4 +312,60 @@
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/PlaylistSheet.kt` -> `PlaylistSheet`, `ui_now_playing` header
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> sheet host sizing
+
+### [ISSUE: R-10-Bookmark-Scope-Must-Work-In-Every-Surface] | Aliases: scope toggle chapters sheet, full gallery video scope, global bookmark does nothing, bookmark tags missing
+> **1-Line Summary:** `Video ⇄ Global` must work in the landscape sidebar, portrait drawer, Chapters sheet and full-window gallery, and a global card must open its own video.
+* **Reported Behavior (v3.2.1):** The chip exists only in the split sidebar; the Chapters sheet always shows the current video, and the full gallery has no current-video scope. Global cards from other videos can be shown but may not play, and tags can disappear when the media title replaces the bookmark name.
+* **User Intention (Non-Negotiable):** One scope choice shared by every bookmark surface. Global lists every bookmark with its tag chips; tapping another video's card launches that video at the saved timestamp. Losing the bookmark name on a global card is acceptable; losing its tags is not.
+* **Acceptance Criteria:**
+  * The toggle appears in both orientations, in the Chapters sheet and in the full-window gallery (`This video` / `All videos` / `Secure videos`).
+  * A foreign card starts the correct media at its timestamp; a row with no replay reference reports unavailable rather than seeking the current file.
+  * Global cards and Chapters rows show tag chips; tag filters still apply.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `openBookmark`, `isCurrentMediaSecure`, `recordBookmarkMediaRef`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `ChaptersSheetWithBookmarks`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `galleryScope`, `onCardClick`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `onlyCurrentVideo`
+
+### [ISSUE: R-11-Secure-And-Public-Bookmarks-Must-Never-Mix] | Aliases: secure bookmark in global, public bookmark in secure, vault leak, moved file bookmark
+> **1-Line Summary:** A bookmark follows its media's whole link group, so moving a file into or out of the Secure Folder moves the bookmark with it in every list.
+* **Reported Behavior (v3.2.1):** The gallery compared only the bookmark row's stored `mediaId` with the secure file's identity. Moving a file into the vault kept the old group key, so its bookmark stayed in the public gallery and vanished from the secure one.
+* **User Intention (Non-Negotiable):** Secure and non-secure content are segregated everywhere. A secure bookmark or video never appears in public/global mode; a public bookmark never appears in secure mode.
+* **Acceptance Criteria:**
+  * Move-in: the bookmark disappears from All/Global and appears in Secure.
+  * Restore: the reverse happens, and the replay URI points at the restored file.
+  * A secure current video scopes Global to secure bookmarks only; the player gallery opens with `secureOnly = true`.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `secureKeys`, `observeAllLinks`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `identitiesForPath`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/PlaybackBookmarkOps.kt` -> `onMediaMoved`, `newPlayableUri`
+
+### [ISSUE: R-12-Secure-Playback-Must-Ask-For-The-App-PIN-Once] | Aliases: phone screen lock again, device credential in player, double prompt vault, secure video asks password twice
+> **1-Line Summary:** Playback of protected media asks for the Secure Folder PIN the user set, not the phone's lock-screen credential, and only once per unlocked session.
+* **Reported Behavior (v3.2.1):** Opening the vault and then a video could bring up the phone screen-lock prompt again because the playback gate used `BiometricPrompt` with `DEVICE_CREDENTIAL` independently of the folder gate.
+* **User Intention (Non-Negotiable):** One app-owned password. Entering the vault unlocks the session; opening a video, going back and opening another video must not prompt again. The device PIN/pattern/password is never requested by playback.
+* **Acceptance Criteria:**
+  * Vault unlock → protected video: exactly one app-PIN prompt in total.
+  * The playback gate renders the app PIN entry; cancelling cancels playback.
+  * Biometric entry, when enabled, is strong-biometric only and offers the app PIN as the negative action.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `SecurePinPrompt`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `showBiometricPrompt`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `markUnlocked`
+
+### [ISSUE: R-13-Library-Must-Survive-App-Uninstall] | Aliases: bookmarks lost after uninstall, vault deleted, thumbnails gone, persistent database
+> **1-Line Summary:** The live Room database, Secure Vault and bookmark thumbnails live in `Documents/mpvRx/`, outside the app's private data, so uninstalling the app cannot delete them.
+* **Reported Behavior (v3.2.1):** The documented durable-storage feature was not wired: Room still opened `databases/mpvrx.db`, the vault used `filesDir/secure_media`, and thumbnails used `filesDir/bookmark-thumbnails`. All three are deleted with the app.
+* **User Intention (Non-Negotiable):** Database, bookmarks, thumbnails and secure-folder files survive uninstall or app-data deletion. Reinstalling the app finds the library again.
+* **Acceptance Criteria:**
+  * Standard build: `Documents/mpvRx/database/mpvrx.db`, `vault/` and `thumbnails/` are populated; a reinstall opens the same database.
+  * Existing internal files are copied once and Room paths are rebased without losing rows.
+  * If all-files access is unavailable, the app still starts on internal storage and retries the durable root on a later launch.
+  * Play Store scoped-storage builds keep internal storage and include the same files in Auto Backup.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `prepare`, `copyMediaDirectories`
+  * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `migrateDurableStorage`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `privateDirectory`
 

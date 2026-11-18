@@ -1,16 +1,12 @@
-# Handover — mpvRx v3.2.1 repair batch
+# Handover — mpvRx v3.2.2 bookmark, secure-folder and storage batch
 
-Last updated: 2026-11-16 (batch 3: R-02, R-06, R-08, R-09 — backlog complete) · Branch `master` · Base `63c56493`
+Last updated: 2026-11-18 (v3.2.2: bookmark scope, secure segregation, PIN gate, durable storage) · Branch `master` · Tag `v3.2.2`
 
 ## 1. How this batch is verified
 
-There is **no usable local Android toolchain on this machine**: `JAVA_HOME` points at a 32-bit
-JRE (`C:\Program Files (x86)\Eclipse Adoptium\jre-19.0.2.7-hotspot`) with no `javac`, and no
-Android SDK is installed (`ANDROID_HOME` unset, no `local.properties`). Gradle dies with
-`Could not reserve enough space for 2097152KB object heap` followed by
-`GeneratedClassCompilationException: No Java compiler found`.
-
-Verification therefore runs on GitHub:
+Verification runs on **GitHub Actions only**. Local Android SDK installs, Gradle builds and unit
+tests are not part of this project's workflow; the machine may not have a usable 64-bit JDK or
+SDK at all. Push the commits and read the workflow result:
 
 ```bash
 # what ran, newest first
@@ -33,23 +29,25 @@ the standard APK build), and only then push the next. A cancelled run proves not
 
 **Current runs**
 
-| Run | Commit | Result |
-| --- | --- | --- |
-| `43804923099` | `afbc30b0` | **failure** — my `Unresolved reference 'audioPreferences'` in `MiniPlayer.kt:455`, fixed in `4a1d29ba` |
-| `43805359408` | `4a1d29ba` | **cancelled** by the docs push that followed |
-| `43806394165` | `8963bee5` | first complete check of the shipped code |
-
-**Batch 2** (R-04, R-05, R-07 + this doc) landed in one push after `8db4aa2e`. Its `build.yml`
-run is the one that matters for § 5 — confirm it is green with `gh run list` before release
-work (a cancelled run proves nothing).
-
-**Batch 3** (R-02, R-06, R-08, R-09 + docs) completes the repair backlog and runs the release
-path in § 5.
+Query the workflow after every push and record the run IDs here. A cancelled run proves nothing:
+`build.yml` cancels the in-progress run for the same ref, so wait for each run to finish before
+pushing again.
 
 Nothing in this batch has been exercised on a device. "Shipped" below means *committed and
-pushed*, not *seen working*.
+pushed*; the only automated check is the GitHub Actions unit-test + APK job. Device verification
+is still outstanding.
 
-## 2. Shipped in this batch
+## 2. Shipped in this batch (v3.2.2)
+
+| Item | Surface | Change | Behaviour |
+| --- | --- | --- | --- |
+| R-10 | `PlayerViewModel.kt`, `BookmarkListContent.kt`, `PlayerSheets.kt`, `ChaptersSheet.kt`, `BookmarkGalleryScreen.kt` | Scope is shared by the drawer, Chapters sheet and full gallery; `openBookmark()` launches foreign media; global cards keep tag chips | `Video ⇄ Global` works in every surface, and a global card opens its own video at the saved timestamp |
+| R-11 | `BookmarkGalleryRepository.kt`, `PlaybackBookmarkDao.kt` | Secure membership follows `bookmark_media_links` group keys, not only the bookmark's stored `mediaId` | A file moved into the vault leaves the public/global list and appears in the secure list; restore reverses it |
+| R-12 | `SecureUnlockActivity.kt`, `SecureFolderGateScreen.kt` | Playback gate asks for the app PIN; biometric entry is strong-biometric only | No phone screen-lock prompt on the way from the vault to the player |
+| R-13 | `DurableStorageManager.kt`, `App.kt`, `DatabaseModule.kt`, `SecureFolderRepository.kt`, `BookmarkThumbnailStore.kt`, backup XML | Live DB, vault and thumbnails under `Documents/mpvRx/`; one-time copy + Room path rebase; Auto Backup fallback | Uninstall no longer deletes the library, vault or thumbnails |
+| ANR | `PlaybackSession.kt` | UI-thread property reads use a 150 ms bounded lock attempt | Composition no longer ANRs behind `mpv_get_property` during a Surface handoff |
+
+## 2b. Earlier v3.2.1 batch
 
 | Item | Commit | Change | Behaviour |
 | --- | --- | --- | --- |
@@ -105,9 +103,9 @@ from `PRODUCT.md`'s music-side spec remain their own feature
 ## 5. Release path when the batch is done
 
 1. Confirm the final `build.yml` run for `master` is green.
-2. Bump `versionName`/`versionCode` and `CHANGELOG.md` (v3.2.1).
-3. `git commit -m "chore(release): v3.2.1"`.
-4. `git tag -a v3.2.1 -m "Release v3.2.1"` then `git push origin master --tags`
+2. Bump `versionName`/`versionCode` and `CHANGELOG.md` (v3.2.2).
+3. `git commit -m "chore(release): v3.2.2"`.
+4. `git tag -a v3.2.2 -m "Release v3.2.2"` then `git push origin master --tags`
    (`GIT_TERMINAL_PROMPT=0`), which triggers `release.yml`.
 
 Do not tag until every item above is either shipped and built green or explicitly deferred.
