@@ -2,6 +2,17 @@
 
 These notes are written in plain English and focus on what changed for real use.
 
+## 3.2.2 — Bookmark Scope Everywhere, Secure Segregation & Durable Storage
+
+- **No more playback ANR:** The UI thread no longer waits on the session-wide native lock while libmpv is mid–Surface-handoff. Composition property reads now give up after 150 ms and report their default; the observed property flows deliver the value once the event pump resumes.
+- **Bookmark scope in every surface:** `Video ⇄ Global` now lives in the landscape sidebar, the portrait drawer, the Chapters sheet and the full-window bookmark gallery. Choosing Global lists every bookmark, and the choice survives closing the drawer or sheet.
+- **Global bookmarks really play:** Tapping a bookmark from another video resolves its stored replay URI and starts that video at the saved timestamp. Rows without a replay reference show the existing unavailable message instead of seeking the current file to a foreign position. The replay row now stores the durable source, not a one-shot proxy or `fd://` handle.
+- **Tags stay on global cards:** Global cards keep their tag chips even when the bookmark name is replaced by the media title, and the Chapters sheet now shows tags on every bookmark row.
+- **Secure and public bookmarks never mix:** A bookmark follows its media's whole link group, so moving a file into the Secure Folder removes it from the public/global list and adds it to the secure list; restoring it reverses that. A secure current video scopes Global to secure bookmarks only.
+- **One app PIN, no phone screen lock:** Playback of a protected file now asks for the Secure Folder PIN that the user set, never the device lock-screen credential. Entering the folder marks the session unlocked, so opening a video immediately afterwards does not prompt again. Biometric entry is limited to strong biometrics and offers the app PIN instead of the phone credential.
+- **Library survives uninstall:** The live Room database, Secure Vault and bookmark thumbnails now live under `Documents/mpvRx/` (`database/`, `vault/`, `thumbnails/`) on standard builds. Existing internal files are copied once and their database paths are rebased; uninstalling the app no longer deletes the library, vault or thumbnails. Play Store scoped-storage builds keep internal storage and add Auto Backup rules for the same files.
+- **Release tag:** `v3.2.2`.
+
 ## 3.2.1 — Repair Batch: Insets, Secure Folder Session, Bookmark Scope & Music Polish
 
 - **Status-bar insets follow the real window:** The player's top rows (update toast, unlock button, top controls) clear the status bar whenever it is actually visible — including transient immersive reveals — instead of trusting a preference that can disagree with the window, and the bookmark gallery header clears the system bars in landscape.
