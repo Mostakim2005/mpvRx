@@ -330,6 +330,8 @@ object VaultCrypto {
     return if (expected == decrypted.size) decrypted else decrypted.copyOf(expected)
   }
 
+  fun isEncryptedString(value: String): Boolean = value.startsWith(STRING_PREFIX)
+
   fun encryptString(plain: String): String {
     if (plain.isEmpty()) return ""
     val iv = ByteArray(IV_BYTES).also(random::nextBytes)

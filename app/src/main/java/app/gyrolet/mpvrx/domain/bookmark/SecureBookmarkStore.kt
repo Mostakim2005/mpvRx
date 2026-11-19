@@ -640,7 +640,7 @@ class SecureBookmarkStore(
         )
       ensureGroupMetadata(canonicalId, meta, forceLinkRawMediaId = true)
       if (!sourceGroup?.presetCode.isNullOrBlank() && getGroup(canonicalId)?.presetCode.isNullOrBlank()) {
-        bookmarkDao.updatePresetCode(canonicalId, encNullable(sourceGroup?.presetCode))
+        bookmarkDao.updatePresetCode(canonicalId, encNullable(sourceGroup.presetCode))
       }
 
       val now = System.currentTimeMillis()
@@ -778,7 +778,7 @@ class SecureBookmarkStore(
         forceLinkRawMediaId = true,
       )
       if (!secGroup?.presetCode.isNullOrBlank()) {
-        publicBookmarkDao.updatePresetCode(restoredMediaId, secGroup?.presetCode)
+        publicBookmarkDao.updatePresetCode(restoredMediaId, secGroup.presetCode)
       }
       SecureMediaRegistry.identitiesForPath(restoredPath).forEach { id ->
         publicBookmarkDao.upsertMediaLink(

@@ -109,8 +109,8 @@ class VaultCryptoTest {
 
       VaultCrypto.encryptStream(
         input = ByteArrayInputStream(plain),
-        plaintextLength = plain.size.toLong(),
-        destFile = encFile,
+        expectedSize = plain.size.toLong(),
+        target = encFile,
       )
 
       assertTrue(VaultCrypto.isEncryptedFile(encFile))
