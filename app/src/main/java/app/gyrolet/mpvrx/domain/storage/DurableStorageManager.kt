@@ -26,7 +26,7 @@ import java.util.Locale
  *   (`thumbs/`), encrypted normal video thumbnail cache (`thumb_cache/`), encrypted settings mirror
  *   (`settings.mvx`), and encrypted normal watch stats (`watch_stats.mvx`).
  * - `.vault/`: isolated Secure Folder database (`v_idx.dat`), AES-128-CTR encrypted vault media
- *   (`media/*.dat`), encrypted secure bookmark thumbnails (`thumbs/*.dat`), encrypted secure video
+ *   (`media/<uuid>.dat`), encrypted secure bookmark thumbnails (`thumbs/<uuid>.dat`), encrypted secure video
  *   thumbnail cache (`thumb_cache/`), encrypted vault settings (`v_cfg.mvx`), encrypted secure
  *   watch stats (`v_stats.mvx`), and wrapped master key (`.vkey`).
  *

@@ -213,7 +213,7 @@ class SecureFolderRepository(
             VaultCrypto.plaintextLength(destFile) != expectedPlainSize
           ) {
             destFile.delete()
-            throw IOException(context.getString(R.string.secure_folder_verify_failed, sourceFile.name))
+            throw IOException("Copy verification failed for ${sourceFile.name}")
           }
 
           val mime = resolveMimeType(video.mimeType, sourceFile.name)
@@ -464,7 +464,7 @@ class SecureFolderRepository(
         (expectedSize != null && copiedPlain != expectedSize)
       ) {
         discardPrivateCopy(destination)
-        throw IOException(context.getString(R.string.secure_folder_verify_failed, video.displayName))
+        throw IOException("Copy verification failed for ${video.displayName}")
       }
       copiedPlain
     }
@@ -524,7 +524,7 @@ class SecureFolderRepository(
             restoreTarget.length() != expectedPlainSize
           ) {
             restoreTarget.delete()
-            throw IOException(context.getString(R.string.secure_folder_restore_verify_failed, entity.fileName))
+            throw IOException("Restore verification failed for ${entity.fileName}")
           }
 
           val restoredId = PlaybackIdentity.forLocalPath(restoreTarget.absolutePath)
