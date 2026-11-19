@@ -90,6 +90,10 @@ data object SecureFolderScreen : Screen {
   override fun Content() {
     val context = LocalContext.current
     val backstack = LocalBackStack.current
+    val isUnlocked by app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState.collectAsState()
+    LaunchedEffect(isUnlocked) {
+      if (!isUnlocked) backstack.popSafely()
+    }
     val viewModel: SecureFolderViewModel =
       viewModel(factory = SecureFolderViewModel.factory(context.applicationContext as android.app.Application))
 
@@ -251,6 +255,14 @@ data object SecureFolderScreen : Screen {
           },
           onCancelSelection = { viewModel.clearSelection() },
           additionalActions = {
+            androidx.compose.material3.IconButton(
+              onClick = { app.gyrolet.mpvrx.domain.secure.SecureFolderSession.lockNow() },
+            ) {
+              Icon(
+                imageVector = Icons.RoundedFilled.Lock,
+                contentDescription = "Lock Secure Folder",
+              )
+            }
             // The secure slice of the gallery: only bookmarks whose video is in this folder.
             androidx.compose.material3.IconButton(
               onClick = {

@@ -732,7 +732,7 @@ class PlayerActivity :
       return
     }
     // Read from the actual launch intent now that it's safe to (see isSecureFolderLaunch kdoc).
-    isSecureFolderLaunch = intent.getStringExtra("launch_source") == "secure_folder"
+    isSecureFolderLaunch = isSecurePlaybackIntent(intent)
     // Decide whether a live background core is being adopted before native initialization can
     // change session state, then overlap MPVLib.init() with the remaining Android window setup.
     releaseDetachedBackgroundPlaybackBeforeFreshLaunch()
@@ -4046,8 +4046,32 @@ class PlayerActivity :
       it.isFile && it.name?.equals(name, ignoreCase = true) == true
     }
 
+  private fun isSecurePlaybackIntent(targetIntent: Intent?): Boolean {
+    if (targetIntent == null) return false
+    if (targetIntent.getStringExtra("launch_source") == "secure_folder") return true
+    val candidates = listOfNotNull(targetIntent.dataString, targetIntent.getStringExtra("local_media_path"))
+    return candidates.any { candidate ->
+      app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(candidate) ||
+        app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(candidate)
+    }
+  }
+
   override fun onResume() {
     super.onResume()
+    val currentlyVaultMedia =
+      isSecureFolderLaunch ||
+        isSecurePlaybackIntent(intent) ||
+        PlaybackSession.state.value.currentItem?.let { item ->
+          app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(item.originalUri) ||
+            app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(item.originalUri) ||
+            app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(item.playableUri)
+        } == true
+    if (currentlyVaultMedia && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+      runCatching { PlaybackSession.setPropertyBoolean("pause", true) }
+      app.gyrolet.mpvrx.ui.securefolder.SecureUnlockActivity.launch(this, Intent(intent))
+      finish()
+      return
+    }
     app.gyrolet.mpvrx.ui.preferences.LauncherIconManager.refreshTaskIcon(this)
     onPlaybackResumed()
   }
@@ -6177,7 +6201,7 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
     // (after the notification prev/next and background-resume branches already returned above)
     // means it only changes when genuinely new media is being loaded, not on every onNewIntent
     // call, so a stale true/false from the previous file never leaks into the next one.
-    isSecureFolderLaunch = intent.getStringExtra("launch_source") == "secure_folder"
+    isSecureFolderLaunch = isSecurePlaybackIntent(intent)
 
     // Check if this intent has playlist information
     val hasPlaylistExtras =

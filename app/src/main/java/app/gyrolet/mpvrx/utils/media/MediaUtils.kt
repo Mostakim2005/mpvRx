@@ -592,12 +592,28 @@ object MediaUtils {
    * A private file is never handed to the player until the device credential is confirmed.
    */
   private fun startGuarded(context: Context, intent: Intent) {
+    if (context !is android.app.Activity) {
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
     val protected =
       runCatching {
         SecureMediaRegistry.isProtectedReference(intent.dataString) ||
-          SecureMediaRegistry.isProtectedReference(intent.getStringExtra("local_media_path"))
+          SecureMediaRegistry.isProtectedReference(intent.getStringExtra("local_media_path")) ||
+          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(intent.dataString) ||
+          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(
+            intent.getStringExtra("local_media_path"),
+          )
       }.getOrDefault(false)
-    if (protected) SecureUnlockActivity.launch(context, intent) else context.startActivity(intent)
+    if (protected) {
+      intent.putExtra("launch_source", "secure_folder")
+      if (!app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+        SecureUnlockActivity.launch(context, intent)
+      } else {
+        context.startActivity(intent)
+      }
+    } else {
+      context.startActivity(intent)
+    }
   }
 
   /**

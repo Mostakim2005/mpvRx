@@ -99,7 +99,10 @@ class BookmarkMediaMatcherTest {
       assertNotNull(extractedPath)
       val extractedFile = File(extractedPath)
       assertTrue(extractedFile.isFile)
-      assertEquals(thumbFile.readBytes().toList(), extractedFile.readBytes().toList())
+      assertEquals(
+        thumbFile.readBytes().toList(),
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(extractedFile.readBytes()).toList(),
+      )
       assertTrue(File(dstDir, ".nomedia").exists())
       assertNull(imported.bookmarks[1].thumbnailPath)
     } finally {

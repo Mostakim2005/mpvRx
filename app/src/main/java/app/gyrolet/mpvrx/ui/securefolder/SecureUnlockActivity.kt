@@ -70,6 +70,9 @@ class SecureUnlockActivity : FragmentActivity() {
         Intent(context, SecureUnlockActivity::class.java).apply {
           putExtra(EXTRA_TARGET_INTENT, target)
           addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+          if (context !is android.app.Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
         },
       )
     }

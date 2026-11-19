@@ -74,6 +74,12 @@ interface BookmarkTagDao {
 
   @Query("SELECT * FROM bookmark_media_refs")
   fun observeMediaRefs(): Flow<List<BookmarkMediaRefEntity>>
+
+  @Query("SELECT * FROM bookmark_media_refs")
+  suspend fun getAllMediaRefs(): List<BookmarkMediaRefEntity>
+
+  @Query("DELETE FROM bookmark_media_refs WHERE mediaId = :mediaId")
+  suspend fun deleteMediaRef(mediaId: String)
 }
 
 /** Projection for the (bookmarkId -> tagName) join the gallery uses. */

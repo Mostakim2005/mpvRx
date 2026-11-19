@@ -80,6 +80,7 @@ object SecureMediaRegistry {
    */
   fun isProtectedReference(value: String?): Boolean {
     if (value.isNullOrBlank()) return false
+    if (app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(value)) return true
     val current = snapshot
     if (current.paths.isEmpty() && current.identities.isEmpty()) return false
     val trimmed = value.trim()

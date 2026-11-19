@@ -936,6 +936,14 @@ private fun ChaptersSheetWithBookmarks(
     }
   val globalGalleryItems by remember(galleryScope) { galleryRepository.observeItems(galleryScope) }
     .collectAsStateWithLifecycle(initialValue = emptyList())
+  val globalTagsById =
+    remember(globalGalleryItems) {
+      globalGalleryItems.associate { it.row.id to it.tags }
+    }
+  val globalRawTitleById =
+    remember(globalGalleryItems) {
+      globalGalleryItems.associate { it.row.id to it.row.title }
+    }
   val globalBookmarks =
     remember(globalGalleryItems) {
       globalGalleryItems.map { item ->
@@ -943,7 +951,10 @@ private fun ChaptersSheetWithBookmarks(
           id = item.row.id,
           mediaId = item.row.mediaId,
           positionMs = item.row.positionMs,
-          title = item.mediaTitle ?: item.row.title,
+          title = app.gyrolet.mpvrx.ui.player.controls.components.formatGlobalBookmarkTitle(
+            item.mediaTitle,
+            item.row.title,
+          ),
           createdAt = item.row.createdAt,
           thumbnailPath = item.row.thumbnailPath,
         )
@@ -958,12 +969,14 @@ private fun ChaptersSheetWithBookmarks(
   var showGallery by remember { mutableStateOf(false) }
 
   val nearestBookmarkId =
-    remember(shownBookmarks, currentPositionSec) {
-      shownBookmarks.minByOrNull { bookmark ->
-        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec)
-      }?.takeIf { bookmark ->
-        kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec) <= 2f
-      }?.id
+    remember(shownBookmarks, currentPositionSec, isGlobalScope, bookmarkMediaId) {
+      shownBookmarks
+        .filter { bookmark -> !isGlobalScope || bookmark.mediaId == bookmarkMediaId }
+        .minByOrNull { bookmark ->
+          kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec)
+        }?.takeIf { bookmark ->
+          kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec) <= 2f
+        }?.id
     }
 
   val displayChapters =
@@ -981,10 +994,14 @@ private fun ChaptersSheetWithBookmarks(
     bookmarks = shownBookmarks,
     bookmarkPositionSec = { (viewModel.bookmarkPositionMs(it) / 1000L).toInt().coerceAtLeast(0) },
     selectedBookmarkId = nearestBookmarkId,
-    bookmarkTags = { bookmark -> tagsByBookmark[bookmark.id].orEmpty() },
+    isSecureBookmarks = isSecureScope,
+    bookmarkTags = { bookmark ->
+      if (isGlobalScope) globalTagsById[bookmark.id] ?: tagsByBookmark[bookmark.id].orEmpty()
+      else tagsByBookmark[bookmark.id].orEmpty()
+    },
     onBookmarkClick = { bookmark ->
       scope.launch {
-        if (!viewModel.openBookmark(bookmark)) {
+        if (!viewModel.openBookmark(bookmark, context)) {
           Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
         }
       }
@@ -1065,8 +1082,10 @@ private fun ChaptersSheetWithBookmarks(
     BookmarkActionMenuDialog(
       bookmark = target,
       formattedTimestamp = Utils.prettyTime(targetPosSec),
+      isSecure = isSecureScope,
       onRename = {
-        if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.Chapters)) {
+        val editableTarget = globalRawTitleById[target.id]?.let { raw -> target.copy(title = raw) } ?: target
+        if (viewModel.preparePlaybackBookmark(editableTarget, returnSheet = Sheets.Chapters)) {
           onShowSheet(Sheets.BookmarkEditor)
         }
       },
@@ -1095,6 +1114,7 @@ private fun ChaptersSheetWithBookmarks(
       onClose = { showGallery = false },
       secureOnly = isSecureScope,
       currentMediaId = bookmarkMediaId,
+      initialOnlyCurrentVideo = !isGlobalScope,
     )
   }
 }

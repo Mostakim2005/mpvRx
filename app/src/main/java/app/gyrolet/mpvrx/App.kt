@@ -27,12 +27,12 @@ import androidx.compose.ui.AndroidComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao
-import app.gyrolet.mpvrx.database.dao.SecureMediaDao
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
 import app.gyrolet.mpvrx.di.DatabaseModule
 import app.gyrolet.mpvrx.di.FileManagerModule
+import app.gyrolet.mpvrx.domain.storage.DurablePreferencesSync
 import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
+import app.gyrolet.mpvrx.domain.storage.DurableVaultMigration
 import app.gyrolet.mpvrx.di.PreferencesModule
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
@@ -88,7 +88,6 @@ class App :
   private val fastThumbnailsStarted = AtomicBoolean(false)
   private val imageCacheCleanupStarted = AtomicBoolean(false)
   private val settingsAutoBackupRunning = AtomicBoolean(false)
-  private lateinit var storageMigration: DurableStorageManager.MigrationReport
   private var startedActivityCount = 0
   private val mediaStoreLiveMonitor by lazy { app.gyrolet.mpvrx.utils.media.MediaStoreLiveMonitor(this, applicationScope) }
 
@@ -153,9 +152,10 @@ class App :
       return
     }
 
-    // Copy the live database before Room opens; the vault and thumbnails move in the background
-    // below so a large Secure Folder cannot stall application startup.
-    storageMigration = DurableStorageManager.prepare(this)
+    // Migrate the normal library database and restore encrypted durable preferences BEFORE
+    // Room and Koin preference singletons initialize.
+    DurableStorageManager.prepare(this)
+    DurablePreferencesSync.restoreIfNeeded(this)
 
     configureDebugStrictMode()
 
@@ -173,7 +173,25 @@ class App :
         app.gyrolet.mpvrx.di.DownloadModule,
       )
     }
-    applicationScope.launch(Dispatchers.IO) { migrateDurableStorage() }
+    applicationScope.launch(Dispatchers.IO) {
+      runCatching {
+        // Eagerly resolve repositories so SecureFolderSession lock listeners and registry attach immediately.
+        val secureFolderRepo = getKoin().get<app.gyrolet.mpvrx.database.repository.SecureFolderRepository>()
+        getKoin().get<app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository>()
+        DurableVaultMigration.run(
+          context = this@App,
+          publicDb = getKoin().get(),
+          secureDb = getKoin().get(),
+          secureBookmarkStore = getKoin().get(),
+          playbackStateRepository = getKoin().get(),
+          secureFolderRepository = secureFolderRepo,
+        )
+        DurablePreferencesSync.startObserving(this@App, applicationScope)
+        DurablePreferencesSync.flushNow(this@App)
+      }.onFailure { error ->
+        Log.e(TAG, "Durable vault initialization/migration failed", error)
+      }
+    }
 
     // Third-party diagnostics require consent; disabled users do not start collection.
     MeasureTelemetry.initialize(this, getKoin().get<AdvancedPreferences>().measureEnabled.get())
@@ -341,6 +359,7 @@ class App :
     isInForeground = true
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_STARTED")
     if (startedActivityCount++ == 0) {
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.onAppForegrounded()
       mediaStoreLiveMonitor.start()
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppForegrounded()
       TvRemoteServer.onAppForeground(this)
@@ -355,47 +374,15 @@ class App :
     startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
     if (startedActivityCount == 0 && !activity.isChangingConfigurations) {
       isInForeground = false
-      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.clear()
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.onAppBackgrounded()
+      applicationScope.launch(Dispatchers.IO) {
+        runCatching { DurablePreferencesSync.flushNow(this@App) }
+      }
       mediaStoreLiveMonitor.stop()
       TvRemoteServer.onAppBackground(this)
       pauseVideoWhenBackgroundPlaybackDisabled(activity)
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppBackgrounded()
       scheduleSettingsAutoBackup()
-    }
-  }
-
-  /**
-   * One-time move of the vault and bookmark thumbnails into the durable root. New writes keep using
-   * the legacy internal folders until both copies and all database path rewrites have succeeded, so
-   * a pending or failed migration can never leave rows pointing at files that do not exist yet.
-   */
-  private suspend fun migrateDurableStorage() {
-    val report = runCatching { storageMigration }.getOrNull() ?: return
-    if (!report.hasDurableRoot) {
-      DurableStorageManager.markMediaReady()
-      return
-    }
-    runCatching {
-      if (!DurableStorageManager.copyMediaDirectories(report)) return@runCatching
-      val bookmarkDao = getKoin().get<PlaybackBookmarkDao>()
-      val secureMediaDao = getKoin().get<SecureMediaDao>()
-      val separator = java.io.File.separator
-      report.legacyThumbnails?.let { legacy ->
-        val target = report.thumbnails
-        if (target != null && legacy.absolutePath != target.absolutePath) {
-          bookmarkDao.rebaseThumbnailPaths(legacy.absolutePath + separator, target.absolutePath + separator)
-        }
-      }
-      report.legacyVault?.let { legacy ->
-        val target = report.vault
-        if (target != null && legacy.absolutePath != target.absolutePath) {
-          secureMediaDao.rebaseSecurePaths(legacy.absolutePath + separator, target.absolutePath + separator)
-          bookmarkDao.rebaseMediaRefPaths(legacy.absolutePath + separator, target.absolutePath + separator)
-        }
-      }
-      DurableStorageManager.markMediaReady()
-    }.onFailure { error ->
-      Log.e(TAG, "Durable storage migration failed; keeping internal files", error)
     }
   }
 

@@ -53,9 +53,15 @@ data class WatchMediaStats(
  *   [snapshot]`(includeSecure = true)`, which only the stealth-unlocked Secret Statistics view asks
  *   for, so private files never reach Profile "Most watched" or the weekly totals.
  */
-class WatchStatsRepository(context: Context) {
-  private val publicFile = AtomicFile(File(context.filesDir, STATS_FILE_NAME))
-  private val secureFile = AtomicFile(File(context.filesDir, SECURE_STATS_FILE_NAME))
+class WatchStatsRepository(
+  private val context: Context,
+) {
+  private val publicFile =
+    android.util.AtomicFile(app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalWatchStatsFile(context))
+  private val secureFile =
+    android.util.AtomicFile(app.gyrolet.mpvrx.domain.storage.DurableStorageManager.secureWatchStatsFile(context))
+  private val legacyPublicFile = File(context.filesDir, STATS_FILE_NAME)
+  private val legacySecureFile = File(context.filesDir, SECURE_STATS_FILE_NAME)
   private val json = Json { ignoreUnknownKeys = true }
   private val mutex = Mutex()
   private val _resetVersion = MutableStateFlow(0L)
@@ -65,8 +71,15 @@ class WatchStatsRepository(context: Context) {
 
   // Only this repository writes the files, so the decoded copies stay current. Playback records
   // every 15 s; re-reading and decoding the whole file each time was steady garbage during playback.
-  private var cachedPublic: WatchStatsSnapshot? = null
-  private var cachedSecure: WatchStatsSnapshot? = null
+  @Volatile private var cachedPublic: WatchStatsSnapshot? = null
+
+  @Volatile private var cachedSecure: WatchStatsSnapshot? = null
+
+  init {
+    app.gyrolet.mpvrx.domain.secure.SecureFolderSession.registerOnLockListener {
+      cachedSecure = null
+    }
+  }
 
   suspend fun recordSession(item: PlaybackItem) {
     val secure = isProtected(item)
@@ -115,10 +128,21 @@ class WatchStatsRepository(context: Context) {
     withContext(Dispatchers.IO) {
       publicFile.delete()
       secureFile.delete()
+      legacyPublicFile.delete()
+      legacySecureFile.delete()
     }
     cachedPublic = WatchStatsSnapshot()
     cachedSecure = WatchStatsSnapshot()
     _resetVersion.value++
+    _revision.value++
+  }
+
+  suspend fun clearSecure() = mutex.withLock {
+    withContext(Dispatchers.IO) {
+      secureFile.delete()
+      legacySecureFile.delete()
+    }
+    cachedSecure = WatchStatsSnapshot()
     _revision.value++
   }
 
@@ -133,7 +157,9 @@ class WatchStatsRepository(context: Context) {
       val file = if (secure) secureFile else publicFile
       val output = file.startWrite()
       try {
-        output.write(json.encodeToString(updated).toByteArray(Charsets.UTF_8))
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+        val encoded = json.encodeToString(updated).toByteArray(Charsets.UTF_8)
+        output.write(app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(encoded))
         file.finishWrite(output)
         _revision.value++
       } catch (cancelled: CancellationException) {
@@ -147,16 +173,57 @@ class WatchStatsRepository(context: Context) {
   }
 
   private fun readCachedPublic(): WatchStatsSnapshot =
-    cachedPublic ?: read(publicFile).sanitized().also { cachedPublic = it }
+    cachedPublic ?: readWithLegacyMigration(publicFile, legacyPublicFile).sanitized().also { cachedPublic = it }
 
-  private fun readCachedSecure(): WatchStatsSnapshot = cachedSecure ?: read(secureFile).also { cachedSecure = it }
+  private fun readCachedSecure(): WatchStatsSnapshot =
+    cachedSecure ?: readWithLegacyMigration(secureFile, legacySecureFile).also { cachedSecure = it }
+
+  private fun readWithLegacyMigration(
+    target: android.util.AtomicFile,
+    legacy: File,
+  ): WatchStatsSnapshot {
+    app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+    val hasTarget = target.baseFile.exists() || File("${target.baseFile.path}.bak").exists()
+    if (hasTarget) {
+      return read(target)
+    }
+    if (!legacy.isFile || legacy.length() <= 0L) {
+      return WatchStatsSnapshot()
+    }
+    val snapshot =
+      runCatching {
+        val raw = legacy.readBytes()
+        val plain = app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(raw)
+        json.decodeFromString<WatchStatsSnapshot>(String(plain, Charsets.UTF_8))
+      }.getOrNull() ?: return WatchStatsSnapshot()
+
+    val migratedOutput = target.startWrite()
+    val migrated =
+      try {
+        val encoded = json.encodeToString(snapshot).toByteArray(Charsets.UTF_8)
+        migratedOutput.write(app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(encoded))
+        target.finishWrite(migratedOutput)
+        true
+      } catch (_: Exception) {
+        target.failWrite(migratedOutput)
+        false
+      }
+    if (migrated && target.baseFile.isFile && target.baseFile.length() > 0L) {
+      runCatching { legacy.delete() }
+      runCatching { File("${legacy.path}.bak").delete() }
+    }
+    return snapshot
+  }
 
   private fun read(file: AtomicFile): WatchStatsSnapshot =
     if (!file.baseFile.exists() && !File("${file.baseFile.path}.bak").exists()) {
       WatchStatsSnapshot()
     } else {
       runCatching {
-        file.openRead().bufferedReader().use { json.decodeFromString<WatchStatsSnapshot>(it.readText()) }
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+        val raw = file.openRead().use { it.readBytes() }
+        val plain = app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(raw)
+        json.decodeFromString<WatchStatsSnapshot>(String(plain, Charsets.UTF_8))
       }.onFailure { error -> Log.e(TAG, "Unable to read watch statistics", error) }
         .getOrDefault(WatchStatsSnapshot())
     }

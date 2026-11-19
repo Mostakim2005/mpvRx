@@ -114,20 +114,38 @@ internal fun bookmarkPanelFraction(percent: Int): Float {
   return clamped / 100f
 }
 
+internal fun formatGlobalBookmarkTitle(
+  mediaTitle: String?,
+  bookmarkTitle: String,
+): String {
+  val media = mediaTitle?.trim()?.takeIf { it.isNotEmpty() } ?: return bookmarkTitle
+  val title = bookmarkTitle.trim()
+  return if (
+    title.isEmpty() ||
+    title.equals(media, ignoreCase = true) ||
+    title.startsWith("$media · ", ignoreCase = true)
+  ) {
+    title.ifEmpty { media }
+  } else {
+    "$media · $title"
+  }
+}
+
 @Composable
 internal fun BookmarkThumbnailImage(
   thumbnailPath: String?,
   modifier: Modifier = Modifier,
+  isSecure: Boolean = false,
   cornerRadius: Dp = 8.dp,
   placeholderTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
   contentScale: ContentScale = ContentScale.Crop,
   containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
 ) {
   val context = LocalContext.current
-  var bitmap by remember(thumbnailPath) { mutableStateOf<Bitmap?>(null) }
+  var bitmap by remember(thumbnailPath, isSecure) { mutableStateOf<Bitmap?>(null) }
 
-  LaunchedEffect(thumbnailPath) {
-    bitmap = BookmarkThumbnailStore.loadBitmap(context, thumbnailPath)
+  LaunchedEffect(thumbnailPath, isSecure) {
+    bitmap = BookmarkThumbnailStore.loadBitmap(context, thumbnailPath, isSecure = isSecure)
   }
 
   Box(
@@ -160,6 +178,7 @@ internal fun BookmarkActionMenuDialog(
   onRename: () -> Unit,
   onDelete: () -> Unit,
   onDismiss: () -> Unit,
+  isSecure: Boolean = false,
 ) {
   app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
     onDismissRequest = onDismiss,
@@ -172,6 +191,7 @@ internal fun BookmarkActionMenuDialog(
         if (!bookmark.thumbnailPath.isNullOrBlank()) {
           BookmarkThumbnailImage(
             thumbnailPath = bookmark.thumbnailPath,
+            isSecure = isSecure,
             cornerRadius = 8.dp,
             contentScale = ContentScale.Crop,
             modifier = Modifier.width(88.dp).aspectRatio(16f / 9f),
@@ -262,6 +282,7 @@ internal fun BookmarkListRow(
   onClick: () -> Unit,
   onLongClick: () -> Unit,
   tagNames: List<String> = emptyList(),
+  isSecure: Boolean = false,
   trailingContent: @Composable (() -> Unit)? = null,
   modifier: Modifier = Modifier,
 ) {
@@ -299,6 +320,7 @@ internal fun BookmarkListRow(
     ) {
       BookmarkThumbnailImage(
         thumbnailPath = bookmark.thumbnailPath,
+        isSecure = isSecure,
         cornerRadius = 6.dp,
         contentScale = ContentScale.Fit,
         modifier = Modifier.width(if (compact) 64.dp else 84.dp).aspectRatio(16f / 9f),
@@ -345,6 +367,7 @@ private fun BookmarkGridCard(
   onClick: () -> Unit,
   onLongClick: () -> Unit,
   tagNames: List<String> = emptyList(),
+  isSecure: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   val shape = RoundedCornerShape(10.dp)
@@ -370,6 +393,7 @@ private fun BookmarkGridCard(
     Box(modifier = Modifier.fillMaxSize()) {
       BookmarkThumbnailImage(
         thumbnailPath = bookmark.thumbnailPath,
+        isSecure = isSecure,
         cornerRadius = 0.dp,
         contentScale = ContentScale.Crop,
         modifier = Modifier.fillMaxSize(),
@@ -596,10 +620,23 @@ internal fun BookmarkSplitPanel(
     if (isSecureScope) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos
   val globalGalleryItems by remember(galleryScope) { galleryRepository.observeItems(galleryScope) }
     .collectAsStateWithLifecycle(initialValue = emptyList())
-  val availableTags by galleryRepository.observeFilterTags()
+  val availableTags by remember(galleryScope) { galleryRepository.observeFilterTags(galleryScope) }
     .collectAsStateWithLifecycle(initialValue = emptyList())
   val tagsByBookmark by viewModel.bookmarkTags.collectAsStateWithLifecycle()
-  fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> = tagsByBookmark[bookmark.id].orEmpty()
+  val globalTagsById =
+    remember(globalGalleryItems) {
+      globalGalleryItems.associate { it.row.id to it.tags }
+    }
+  val globalRawTitleById =
+    remember(globalGalleryItems) {
+      globalGalleryItems.associate { it.row.id to it.row.title }
+    }
+  fun tagsFor(bookmark: PlaybackBookmarkEntity): List<String> =
+    if (isGlobalScope) {
+      globalTagsById[bookmark.id] ?: tagsByBookmark[bookmark.id].orEmpty()
+    } else {
+      tagsByBookmark[bookmark.id].orEmpty()
+    }
 
   val bookmarkMediaId by viewModel.bookmarkMediaId.collectAsStateWithLifecycle()
   val currentMediaId = bookmarkMediaId ?: bookmarks.firstOrNull()?.mediaId
@@ -610,7 +647,7 @@ internal fun BookmarkSplitPanel(
           id = item.row.id,
           mediaId = item.row.mediaId,
           positionMs = item.row.positionMs,
-          title = item.mediaTitle ?: item.row.title,
+          title = formatGlobalBookmarkTitle(item.mediaTitle, item.row.title),
           createdAt = item.row.createdAt,
           thumbnailPath = item.row.thumbnailPath,
         )
@@ -620,7 +657,7 @@ internal fun BookmarkSplitPanel(
     }
   }
 
-  val displayedBookmarks = remember(baseBookmarks, selectedTags, tagsByBookmark) {
+  val displayedBookmarks = remember(baseBookmarks, selectedTags, tagsByBookmark, globalTagsById, isGlobalScope) {
     if (selectedTags.isEmpty()) {
       baseBookmarks
     } else {
@@ -635,7 +672,7 @@ internal fun BookmarkSplitPanel(
   val onCardClick: (PlaybackBookmarkEntity) -> Unit = { bookmark ->
     scope.launch {
       // Same video seeks in place; a global row launches its own video at the saved timestamp.
-      if (!viewModel.openBookmark(bookmark)) {
+      if (!viewModel.openBookmark(bookmark, context)) {
         Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
       }
     }
@@ -875,12 +912,16 @@ internal fun BookmarkSplitPanel(
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
+                val isSelected =
+                  (!isGlobalScope || bookmark.mediaId == currentMediaId) &&
+                    abs(posSec - currentSecInt) <= 2
                 BookmarkGridCard(
                   bookmark = bookmark,
                   positionSeconds = posSec,
-                  selected = abs(posSec - currentSecInt) <= 2,
+                  selected = isSelected,
                   compactLabels = cardCount >= 5,
                   tagNames = tagsFor(bookmark),
+                  isSecure = isSecureScope,
                   onClick = { onCardClick(bookmark) },
                   onLongClick = {
                     haptics.tick()
@@ -958,12 +999,16 @@ internal fun BookmarkSplitPanel(
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
+                val isSelected =
+                  (!isGlobalScope || bookmark.mediaId == currentMediaId) &&
+                    abs(posSec - currentSecInt) <= 2
                 BookmarkGridCard(
                   bookmark = bookmark,
                   positionSeconds = posSec,
-                  selected = abs(posSec - currentSecInt) <= 2,
+                  selected = isSelected,
                   compactLabels = cardCount >= 5,
                   tagNames = tagsFor(bookmark),
+                  isSecure = isSecureScope,
                   onClick = { onCardClick(bookmark) },
                   onLongClick = {
                     haptics.tick()
@@ -1037,8 +1082,10 @@ internal fun BookmarkSplitPanel(
     BookmarkActionMenuDialog(
       bookmark = target,
       formattedTimestamp = formatBookmarkTimecode(targetPosSec),
+      isSecure = isSecureScope,
       onRename = {
-        if (viewModel.preparePlaybackBookmark(target, returnSheet = Sheets.None)) {
+        val editableTarget = globalRawTitleById[target.id]?.let { raw -> target.copy(title = raw) } ?: target
+        if (viewModel.preparePlaybackBookmark(editableTarget, returnSheet = Sheets.None)) {
           onOpenSheet(Sheets.BookmarkEditor)
         }
       },
@@ -1064,6 +1111,7 @@ internal fun BookmarkSplitPanel(
       onClose = { showGallery = false },
       secureOnly = isSecureScope,
       currentMediaId = currentMediaId,
+      initialOnlyCurrentVideo = !isGlobalScope,
     )
   }
 

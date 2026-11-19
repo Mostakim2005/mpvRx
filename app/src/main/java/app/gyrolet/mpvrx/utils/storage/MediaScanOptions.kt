@@ -117,7 +117,8 @@ class NoMediaPathFilter(
 
     val result =
       runCatching {
-        (directory.name.startsWith(".") && !options.includeDotFolders) ||
+        app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(path) ||
+          (directory.name.startsWith(".") && !options.includeDotFolders) ||
           excludedMarkerNames.any { File(directory, it).isFile } ||
           (!options.scanHiddenFolders &&
             File(directory, app.gyrolet.mpvrx.domain.audiobook.AudiobookMarkerUtils.AUDIOBOOK_MARKER).isFile) ||

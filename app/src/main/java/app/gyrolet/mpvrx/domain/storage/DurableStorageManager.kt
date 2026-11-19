@@ -1,5 +1,10 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  */
 
 package app.gyrolet.mpvrx.domain.storage
@@ -7,26 +12,46 @@ package app.gyrolet.mpvrx.domain.storage
 import android.content.Context
 import android.os.Environment
 import app.gyrolet.mpvrx.BuildConfig
+import app.gyrolet.mpvrx.domain.secure.VaultCrypto
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 /**
- * Zero-Bloat Single Root Folder Storage Manager.
+ * Unified Durable Storage Manager (`Documents/mpvRx/`).
  *
- * The live Room SQLite database, Secure Vault, bookmark thumbnails, configuration and generated
- * media live under one user-visible root (`Documents/mpvRx/` on standard builds), so uninstalling
- * the app, updating it, or clearing its private data cannot delete them. Internal storage remains
- * the fallback for Play Store scoped-storage builds and for launches before all-files access is
- * granted. Existing internal files are copied once and their database paths are rebased.
+ * Standard builds store all persistent data under `/sdcard/Documents/mpvRx/` inside two segregated,
+ * `.nomedia`-guarded subdirectories:
+ * - `.store/`: normal library database (`library.dat`), encrypted normal bookmark thumbnails
+ *   (`thumbs/`), encrypted normal video thumbnail cache (`thumb_cache/`), encrypted settings mirror
+ *   (`settings.mvx`), and encrypted normal watch stats (`watch_stats.mvx`).
+ * - `.vault/`: isolated Secure Folder database (`v_idx.dat`), AES-128-CTR encrypted vault media
+ *   (`media/*.dat`), encrypted secure bookmark thumbnails (`thumbs/*.dat`), encrypted secure video
+ *   thumbnail cache (`thumb_cache/`), encrypted vault settings (`v_cfg.mvx`), encrypted secure
+ *   watch stats (`v_stats.mvx`), and wrapped master key (`.vkey`).
+ *
+ * Nothing durable remains in internal app data (`filesDir` / `databases`), so clearing App Data or
+ * uninstalling the app preserves the library, settings, stats, bookmarks, thumbnails, and vault.
  */
 object DurableStorageManager {
   private const val DEFAULT_ROOT_NAME = "mpvRx"
-  private const val DATABASE_NAME = "mpvrx.db"
+  private const val STORE_DIR_NAME = ".store"
+  private const val VAULT_DIR_NAME = ".vault"
+  private const val NORMAL_DATABASE_NAME = "library.dat"
+  private const val SECURE_DATABASE_NAME = "v_idx.dat"
+  private const val LEGACY_DATABASE_NAME = "mpvrx.db"
   private const val LEGACY_VAULT_NAME = "secure_media"
   private const val LEGACY_THUMBNAILS_NAME = "bookmark-thumbnails"
+  private const val LEGACY_VIDEO_THUMBS_NAME = "thumbnails"
+  private const val SETTINGS_MIRROR_NAME = "settings.mvx"
+  private const val SECURE_CONFIG_NAME = "v_cfg.mvx"
+  private const val NORMAL_WATCH_STATS_NAME = "watch_stats.mvx"
+  private const val SECURE_WATCH_STATS_NAME = "v_stats.mvx"
+  private const val NOMEDIA_NAME = ".nomedia"
   private const val COPY_BUFFER_SIZE = 64 * 1024
+  private val REPEATED_SLASHES = Regex("/+")
 
-  /** What [prepare] found, so startup can copy large media off the main thread and rebase paths. */
+  /** Retained for startup migration orchestration in `App.onCreate()`. */
   data class MigrationReport(
     val durableRoot: File? = null,
     val legacyVault: File? = null,
@@ -38,15 +63,21 @@ object DurableStorageManager {
   }
 
   @Volatile private var rootResolved = false
+
   @Volatile private var resolvedRoot: File? = null
+
   @Volatile private var mediaReady = false
 
-  /**
-   * Resolves and writability-tests the durable root once per process. A null result means the
-   * caller must keep using internal storage; it is never retried mid-process because a permission
-   * grant should not move an open database underneath Room.
-   */
   @Suppress("DEPRECATION")
+  private fun defaultRootCandidate(): File {
+    val documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+    return File(documents, DEFAULT_ROOT_NAME)
+  }
+
+  /**
+   * Resolves and writability-tests the durable root once per process. A null result means internal
+   * storage fallback is active for this process so an open Room database is never moved mid-flight.
+   */
   fun durableRoot(context: Context): File? {
     if (rootResolved) return resolvedRoot
     synchronized(this) {
@@ -56,8 +87,7 @@ object DurableStorageManager {
           null
         } else {
           runCatching {
-            val documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            File(documents, DEFAULT_ROOT_NAME).takeIf { ensureWritableRoot(it) != null }
+            defaultRootCandidate().takeIf { ensureWritableRoot(it) != null }
           }.getOrNull()
         }
       resolvedRoot = root
@@ -67,98 +97,221 @@ object DurableStorageManager {
   }
 
   /**
-   * Copies the existing internal database (and its journal) to the durable root before Room opens,
-   * then reports the legacy media directories so [copyMediaDirectories] can move them in the
-   * background. Safe to call twice; the second call sees the copied database and does nothing.
+   * True when the process started without durable storage permission (so Room opened internal files)
+   * and all-files access has since been granted, making `Documents/mpvRx/` writable.
+   */
+  fun needsProcessRebindToDurableRoot(context: Context): Boolean {
+    if (BuildConfig.SCOPED_STORAGE_ONLY) return false
+    if (resolvedRoot != null) return false
+    return runCatching { ensureWritableRoot(defaultRootCandidate()) != null }.getOrDefault(false)
+  }
+
+  /** True if a pre-existing durable library/vault already sits under `Documents/mpvRx/`. */
+  fun hasPreexistingDurableLibrary(): Boolean {
+    if (BuildConfig.SCOPED_STORAGE_ONLY) return false
+    val root = defaultRootCandidate()
+    return File(File(root, STORE_DIR_NAME), NORMAL_DATABASE_NAME).isFile ||
+      File(File(root, STORE_DIR_NAME), SETTINGS_MIRROR_NAME).isFile ||
+      File(File(root, VAULT_DIR_NAME), SECURE_DATABASE_NAME).isFile ||
+      File(File(root, VAULT_DIR_NAME), SECURE_CONFIG_NAME).isFile ||
+      File(File(root, "database"), LEGACY_DATABASE_NAME).isFile
+  }
+
+  /**
+   * Prepares the durable root, transfers any internal `.vkey` and legacy `mpvrx.db` into
+   * `.store/library.dat` BEFORE Room opens, and initializes [VaultCrypto].
    */
   fun prepare(context: Context): MigrationReport {
     val root = durableRoot(context)
     if (root == null) {
+      ensureDirectoryWithNomedia(File(context.filesDir, VAULT_DIR_NAME))
+      ensureDirectoryWithNomedia(File(context.filesDir, STORE_DIR_NAME))
+      VaultCrypto.ensureInitialized(context)
       mediaReady = true
       return MigrationReport()
     }
-    copyDatabase(context, root)
 
-    val legacyVault = File(context.filesDir, LEGACY_VAULT_NAME)
-    val vault = getVaultDirectory(root)
-    val legacyThumbnails = File(context.filesDir, LEGACY_THUMBNAILS_NAME)
-    val thumbnails = getThumbnailsDirectory(root)
-    val hasLegacyMedia =
-      legacyVault.isDirectory && legacyVault.listFiles()?.any { it.isFile } == true ||
-        legacyThumbnails.isDirectory && legacyThumbnails.listFiles()?.any { it.isFile } == true
-    if (!hasLegacyMedia) mediaReady = true
-    return MigrationReport(root, legacyVault, vault, legacyThumbnails, thumbnails)
-  }
+    val storeDir = ensureDirectoryWithNomedia(File(root, STORE_DIR_NAME))
+    val vaultRoot = ensureDirectoryWithNomedia(File(root, VAULT_DIR_NAME))
 
-  /** Copies vault files and bookmark thumbnails once; returns true when both roots are complete. */
-  fun copyMediaDirectories(report: MigrationReport): Boolean {
-    if (report.durableRoot == null) {
-      mediaReady = true
-      return true
+    // Carry forward a key created during a pre-permission first launch only if no durable key exists.
+    val internalVaultRoot = File(context.filesDir, VAULT_DIR_NAME)
+    val durableKey = VaultCrypto.keyFile(vaultRoot)
+    val internalKey = VaultCrypto.keyFile(internalVaultRoot)
+    if (!durableKey.isFile && internalKey.isFile) {
+      copyFile(internalKey, durableKey)
     }
-    val vaultOk = report.legacyVault?.let { copyDirectoryContents(it, report.vault) } ?: true
-    val thumbsOk =
-      report.legacyThumbnails?.let { copyDirectoryContents(it, report.thumbnails) } ?: true
-    return vaultOk && thumbsOk
+
+    VaultCrypto.ensureInitialized(context)
+    migrateNormalDatabaseBeforeOpen(context, root, storeDir)
+
+    val legacyVault = legacyVaultDirectory(context)
+    val vaultMedia = vaultMediaDir(context)
+    val legacyThumbs = legacyThumbnailsDirectory(context)
+    val normalThumbs = normalBookmarkThumbnailsDir(context)
+    mediaReady = true
+    return MigrationReport(root, legacyVault, vaultMedia, legacyThumbs, normalThumbs)
   }
 
-  /** Called after the database rows point at the copied files; from then on new files use them. */
   fun markMediaReady() {
     mediaReady = true
   }
 
   fun isMediaReady(): Boolean = mediaReady
 
-  fun databaseFile(context: Context): File {
-    val root = durableRoot(context) ?: return context.getDatabasePath(DATABASE_NAME)
-    return File(getDatabaseDirectory(root), DATABASE_NAME)
-  }
-
-  /**
-   * Vault location for new moves and reads. Until the one-time copy finishes this stays on the
-   * legacy internal folder, which is also where the database rows still point, so a restore cannot
-   * race the migration.
-   */
-  fun vaultDirectory(context: Context): File {
+  private fun storeRoot(context: Context): File {
     val root = durableRoot(context)
-    return if (mediaReady && root != null) getVaultDirectory(root) else legacyVaultDirectory(context)
+    val dir = if (root != null) File(root, STORE_DIR_NAME) else File(context.filesDir, STORE_DIR_NAME)
+    return ensureDirectoryWithNomedia(dir)
   }
 
-  fun thumbnailsDirectory(context: Context): File {
+  fun vaultRootDir(context: Context): File {
     val root = durableRoot(context)
-    return if (mediaReady && root != null) getThumbnailsDirectory(root) else legacyThumbnailsDirectory(context)
+    val dir = if (root != null) File(root, VAULT_DIR_NAME) else File(context.filesDir, VAULT_DIR_NAME)
+    return ensureDirectoryWithNomedia(dir)
   }
 
+  fun vaultKeyDirectory(context: Context): File = vaultRootDir(context)
+
+  fun normalDatabaseFile(context: Context): File {
+    val root = durableRoot(context) ?: return context.getDatabasePath(LEGACY_DATABASE_NAME)
+    return File(ensureDirectoryWithNomedia(File(root, STORE_DIR_NAME)), NORMAL_DATABASE_NAME)
+  }
+
+  fun secureDatabaseFile(context: Context): File = File(vaultRootDir(context), SECURE_DATABASE_NAME)
+
+  fun vaultMediaDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(vaultRootDir(context), "media"))
+
+  fun normalBookmarkThumbnailsDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(storeRoot(context), "thumbs"))
+
+  fun secureBookmarkThumbnailsDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(vaultRootDir(context), "thumbs"))
+
+  fun normalThumbnailCacheLocalDir(context: Context): File {
+    val root = durableRoot(context)
+    val base =
+      if (root != null) File(ensureDirectoryWithNomedia(File(root, STORE_DIR_NAME)), "thumb_cache")
+      else File(context.filesDir, LEGACY_VIDEO_THUMBS_NAME)
+    return ensureDirectoryWithNomedia(File(base, "local"))
+  }
+
+  fun normalThumbnailCacheNetworkDir(context: Context): File {
+    val root = durableRoot(context)
+    val base =
+      if (root != null) File(ensureDirectoryWithNomedia(File(root, STORE_DIR_NAME)), "thumb_cache")
+      else File(context.filesDir, LEGACY_VIDEO_THUMBS_NAME)
+    return ensureDirectoryWithNomedia(File(base, "network"))
+  }
+
+  fun secureThumbnailCacheDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(vaultRootDir(context), "thumb_cache"))
+
+  fun settingsMirrorFile(context: Context): File =
+    File(storeRoot(context), SETTINGS_MIRROR_NAME)
+
+  fun secureConfigFile(context: Context): File =
+    File(vaultRootDir(context), SECURE_CONFIG_NAME)
+
+  fun normalWatchStatsFile(context: Context): File =
+    File(storeRoot(context), NORMAL_WATCH_STATS_NAME)
+
+  fun secureWatchStatsFile(context: Context): File =
+    File(vaultRootDir(context), SECURE_WATCH_STATS_NAME)
+
+  // Legacy path accessors for migration and compatibility cleanup
   fun legacyVaultDirectory(context: Context): File = File(context.filesDir, LEGACY_VAULT_NAME)
 
   fun legacyThumbnailsDirectory(context: Context): File = File(context.filesDir, LEGACY_THUMBNAILS_NAME)
 
-  fun getDatabaseDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "database"))
+  fun legacyV322VaultDirectory(context: Context): File? =
+    durableRoot(context)?.let { File(it, "vault") }
+
+  fun legacyV322ThumbnailsDirectory(context: Context): File? =
+    durableRoot(context)?.let { File(it, "thumbnails") }
+
+  fun legacyV322DatabaseDirectory(context: Context): File? =
+    durableRoot(context)?.let { File(it, "database") }
 
   /**
-   * Resolves the primary root directory (defaults to /sdcard/Documents/mpvRx/).
-   * Kept for callers that already hold a resolved root.
+   * True when [rawPath] points inside mpvRx's durable root (`Documents/mpvRx`) or internal vault.
+   * Used by every library scanner and the built-in file browser to keep app stores invisible.
    */
-  fun getRootDirectory(customPath: String? = null): File {
-    if (!customPath.isNullOrBlank()) {
-      return ensureWritableRoot(File(customPath)) ?: File(customPath)
-    }
-    @Suppress("DEPRECATION")
-    val documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-    return ensureWritableRoot(File(documents, DEFAULT_ROOT_NAME)) ?: File(documents, DEFAULT_ROOT_NAME)
+  fun isAppDurablePath(rawPath: String?): Boolean {
+    val norm = normalizeForMatching(rawPath) ?: return false
+    if (norm.endsWith("/documents/mpvrx") || norm.contains("/documents/mpvrx/")) return true
+    return isVaultPath(norm)
   }
 
-  fun getVaultDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "vault"))
+  /** True when [rawPath] points inside any Secure Folder storage root (current or legacy). */
+  fun isVaultPath(rawPath: String?): Boolean {
+    val norm = normalizeForMatching(rawPath) ?: return false
+    return norm.endsWith("/documents/mpvrx/.vault") ||
+      norm.contains("/documents/mpvrx/.vault/") ||
+      norm.endsWith("/documents/mpvrx/vault") ||
+      norm.contains("/documents/mpvrx/vault/") ||
+      norm.endsWith("/files/.vault") ||
+      norm.contains("/files/.vault/") ||
+      norm.endsWith("/files/secure_media") ||
+      norm.contains("/files/secure_media/")
+  }
 
-  fun getThumbnailsDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "thumbnails"))
+  private fun normalizeForMatching(raw: String?): String? {
+    val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val withoutScheme = when {
+      trimmed.startsWith("file://", ignoreCase = true) -> trimmed.substring(7)
+      trimmed.startsWith("file:", ignoreCase = true) -> trimmed.substring(5)
+      else -> trimmed
+    }
+    if (withoutScheme.contains("://")) return null
+    val collapsed = withoutScheme.replace('\\', '/').replace(REPEATED_SLASHES, "/")
+    val noTrailing = if (collapsed.length > 1) collapsed.trimEnd('/') else collapsed
+    return noTrailing.lowercase(Locale.ROOT)
+  }
 
-  fun getConfigDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "config"))
+  private fun migrateNormalDatabaseBeforeOpen(
+    context: Context,
+    root: File,
+    storeDir: File,
+  ) {
+    val target = File(storeDir, NORMAL_DATABASE_NAME)
+    if (target.isFile && target.length() > 0L) return
 
-  fun getMusicDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "music"))
+    val v322Db = File(File(root, "database"), LEGACY_DATABASE_NAME)
+    val internalDb = context.getDatabasePath(LEGACY_DATABASE_NAME)
+    val hasV322 = v322Db.isFile && v322Db.length() > 0L
+    val hasInternal = internalDb.isFile && internalDb.length() > 0L
+    val source =
+      when {
+        hasV322 && hasInternal -> {
+          // A fresh pre-permission launch after Clear Data/reinstall creates a tiny empty internal
+          // DB with timestamp NOW; only prefer internalDb if it is genuinely larger AND newer.
+          if (
+            internalDb.length() > v322Db.length() &&
+            effectiveDbLastModified(internalDb) > effectiveDbLastModified(v322Db) + 60_000L
+          ) {
+            internalDb
+          } else {
+            v322Db
+          }
+        }
+        hasV322 -> v322Db
+        hasInternal -> internalDb
+        else -> return
+      }
 
-  fun getCompanionVideosDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "companion_videos"))
+    copyFile(source, target)
+    listOf("-wal", "-shm", "-journal").forEach { suffix ->
+      val aux = File(source.path + suffix)
+      if (aux.isFile) copyFile(aux, File(target.path + suffix))
+    }
+  }
 
-  fun getLyricsDirectory(root: File = getRootDirectory()): File = ensureDirectory(File(root, "lyrics"))
+  private fun effectiveDbLastModified(dbFile: File): Long {
+    val wal = File(dbFile.path + "-wal")
+    return if (wal.isFile) maxOf(dbFile.lastModified(), wal.lastModified()) else dbFile.lastModified()
+  }
 
   private fun ensureWritableRoot(root: File): File? {
     if (!root.exists() && !root.mkdirs()) return null
@@ -175,46 +328,21 @@ object DurableStorageManager {
       }
     if (!writable) return null
     runCatching {
-      File(root, ".nomedia").takeIf { !it.exists() }?.createNewFile()
+      File(root, NOMEDIA_NAME).takeIf { !it.exists() }?.createNewFile()
     }
     return root
   }
 
-  private fun ensureDirectory(dir: File): File {
+  private fun ensureDirectoryWithNomedia(dir: File): File {
     if (!dir.exists()) dir.mkdirs()
+    runCatching {
+      val nomedia = File(dir, NOMEDIA_NAME)
+      if (!nomedia.exists()) nomedia.createNewFile()
+    }
     return dir
   }
 
-  private fun copyDatabase(context: Context, root: File) {
-    val legacy = context.getDatabasePath(DATABASE_NAME)
-    val target = File(getDatabaseDirectory(root), DATABASE_NAME)
-    if (!legacy.isFile) return
-    val targetIsStale =
-      target.isFile && target.length() > 0 && target.lastModified() < legacy.lastModified()
-    if (target.isFile && target.length() > 0 && !targetIsStale) return
-
-    copyFile(legacy, target)
-    listOf("-wal", "-shm", "-journal").forEach { suffix ->
-      val source = File(legacy.path + suffix)
-      if (source.isFile) copyFile(source, File(target.path + suffix))
-    }
-  }
-
-  private fun copyDirectoryContents(source: File?, destination: File?): Boolean {
-    if (source == null || destination == null) return true
-    if (!source.isDirectory) return true
-    if (!destination.exists() && !destination.mkdirs()) return false
-    var complete = true
-    source.listFiles().orEmpty().forEach { file ->
-      if (!file.isFile) return@forEach
-      val target = File(destination, file.name)
-      if (target.isFile && target.length() == file.length()) return@forEach
-      if (!copyFile(file, target)) complete = false
-    }
-    return complete
-  }
-
-  private fun copyFile(source: File, target: File): Boolean {
+  fun copyFile(source: File, target: File): Boolean {
     val parent = target.parentFile
     if (parent != null && !parent.exists() && !parent.mkdirs()) return false
     val temp = File(target.path + ".tmp")

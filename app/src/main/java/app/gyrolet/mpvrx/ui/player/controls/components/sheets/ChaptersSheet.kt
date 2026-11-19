@@ -93,6 +93,7 @@ fun ChaptersSheet(
   bookmarks: List<PlaybackBookmarkEntity> = emptyList(),
   bookmarkPositionSec: (PlaybackBookmarkEntity) -> Int = { (it.positionMs / 1000L).toInt().coerceAtLeast(0) },
   selectedBookmarkId: Long? = null,
+  isSecureBookmarks: Boolean = false,
   onBookmarkClick: (PlaybackBookmarkEntity) -> Unit = {},
   onBookmarkLongClick: (PlaybackBookmarkEntity) -> Unit = {},
   bookmarkTags: (PlaybackBookmarkEntity) -> List<String> = { emptyList() },
@@ -146,6 +147,7 @@ fun ChaptersSheet(
             selected = bookmark.id == selectedBookmarkId,
             compact = false,
             tagNames = bookmarkTags(bookmark),
+            isSecure = isSecureBookmarks,
             onClick = { onBookmarkClick(bookmark) },
             onLongClick = { onBookmarkLongClick(bookmark) },
           )

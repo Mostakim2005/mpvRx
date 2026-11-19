@@ -254,9 +254,12 @@ class FileSystemBrowserViewModel(
               app.gyrolet.mpvrx.utils.storage.isMediaPathInFolder(item.path, it)
             }
             when (item) {
-              is FileSystemItem.VideoFile -> if (item.video.isAudio) !audioHidden else !videoHidden
+              is FileSystemItem.VideoFile ->
+                !app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(item.path) &&
+                  (if (item.video.isAudio) !audioHidden else !videoHidden)
               is FileSystemItem.Folder ->
-                !videoHidden || (browserPreferences.includeAudioBrowser.get() && !audioHidden)
+                !app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(item.path) &&
+                  (!videoHidden || (browserPreferences.includeAudioBrowser.get() && !audioHidden))
             }
           }
         }

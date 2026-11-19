@@ -53,6 +53,27 @@ interface PlaybackBookmarkDao {
   @Query("DELETE FROM playback_bookmarks WHERE id = :id")
   suspend fun delete(id: Long)
 
+  @Query("DELETE FROM playback_bookmarks WHERE id IN (:ids)")
+  suspend fun deleteByIds(ids: List<Long>)
+
+  @Query("SELECT * FROM playback_bookmarks")
+  suspend fun getAllBookmarks(): List<PlaybackBookmarkEntity>
+
+  @Query("SELECT * FROM bookmark_media_links")
+  suspend fun getAllLinks(): List<BookmarkMediaLinkEntity>
+
+  @Query("SELECT * FROM bookmark_groups")
+  suspend fun getAllGroups(): List<BookmarkGroupEntity>
+
+  @Query("DELETE FROM bookmark_media_links WHERE mediaId = :mediaId")
+  suspend fun deleteMediaLink(mediaId: String)
+
+  @Query("SELECT COUNT(*) FROM bookmark_media_links WHERE groupKey = :groupKey")
+  suspend fun countLinksForGroup(groupKey: String): Int
+
+  @Query("DELETE FROM bookmark_groups WHERE groupKey = :groupKey")
+  suspend fun deleteGroup(groupKey: String)
+
   @Query("SELECT groupKey FROM bookmark_media_links WHERE mediaId = :mediaId LIMIT 1")
   suspend fun findLinkedGroupKey(mediaId: String): String?
 

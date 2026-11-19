@@ -12,19 +12,22 @@ package app.gyrolet.mpvrx.domain.bookmark
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
+import app.gyrolet.mpvrx.domain.secure.VaultCrypto
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.utils.memory.BitmapMemoryCache
-import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 
 /**
- * Captures, stores, caches, and deletes bookmark frame thumbnails inside app-private internal
- * storage (`filesDir/bookmark-thumbnails`). Files here are outside shared storage and never
- * registered with MediaStore, keeping them invisible to Android Gallery and other apps.
+ * Captures, encrypts, caches, migrates, and deletes bookmark thumbnails with hard separation
+ * between normal `.store/thumbs/` and Secure Vault `.vault/thumbs/`.
  */
 object BookmarkThumbnailStore {
   private const val CAPTURE_TEMP_DIR_NAME = "bookmark-capture"
@@ -34,22 +37,39 @@ object BookmarkThumbnailStore {
   private const val SCREENSHOT_POLL_INTERVAL_MS = 25L
   private const val SCREENSHOT_TIMEOUT_MS = 800L
 
-  private val bitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
+  private val publicBitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
+  private val secureBitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
 
-  fun privateDirectory(context: Context): File {
-    val dir = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.thumbnailsDirectory(context)
+  fun evictSecureMemoryCache() {
+    secureBitmapCache.evictAll()
+  }
+
+  fun privateDirectory(
+    context: Context,
+    isSecure: Boolean = false,
+  ): File {
+    val dir =
+      if (isSecure) {
+        DurableStorageManager.secureBookmarkThumbnailsDir(context)
+      } else {
+        DurableStorageManager.normalBookmarkThumbnailsDir(context)
+      }
     if (!dir.exists()) dir.mkdirs()
     val nomedia = File(dir, NOMEDIA_FILE_NAME)
     if (!nomedia.exists()) runCatching { nomedia.createNewFile() }
     return dir
   }
 
-  suspend fun captureCurrentVideoFrame(context: Context): String? =
+  suspend fun captureCurrentVideoFrame(
+    context: Context,
+    isSecure: Boolean = false,
+  ): String? =
     withContext(Dispatchers.IO) {
+      VaultCrypto.ensureInitialized(context)
       val grabbed = runCatching { PlaybackSession.grabThumbnail(THUMBNAIL_MAX_PX) }.getOrNull()
       if (grabbed != null) {
         try {
-          return@withContext saveScaledBitmap(context, grabbed)
+          return@withContext saveScaledEncryptedBitmap(context, grabbed, isSecure)
         } finally {
           if (!grabbed.isRecycled) grabbed.recycle()
         }
@@ -62,9 +82,10 @@ object BookmarkThumbnailStore {
       try {
         PlaybackSession.command("screenshot-to-file", tempFile.absolutePath, "video")
         if (!awaitWrittenFile(tempFile)) return@withContext null
-        val decoded = decodeSampledFile(tempFile.absolutePath, THUMBNAIL_MAX_PX) ?: return@withContext null
+        val tempBytes = runCatching { tempFile.readBytes() }.getOrNull() ?: return@withContext null
+        val decoded = decodeSampledBytes(tempBytes, THUMBNAIL_MAX_PX) ?: return@withContext null
         try {
-          return@withContext saveScaledBitmap(context, decoded)
+          return@withContext saveScaledEncryptedBitmap(context, decoded, isSecure)
         } finally {
           if (!decoded.isRecycled) decoded.recycle()
         }
@@ -75,25 +96,104 @@ object BookmarkThumbnailStore {
       }
     }
 
-  suspend fun loadBitmap(context: Context, path: String?): Bitmap? {
+  suspend fun loadBitmap(
+    context: Context,
+    path: String?,
+    isSecure: Boolean = false,
+  ): Bitmap? {
     if (path.isNullOrBlank()) return null
-    bitmapCache.get(path)?.takeIf { !it.isRecycled }?.let { return it }
+    if (isSecure && !SecureFolderSession.isUnlocked) return null
+    val cache = if (isSecure) secureBitmapCache else publicBitmapCache
+    cache.get(path)?.takeIf { !it.isRecycled }?.let { return it }
     return withContext(Dispatchers.IO) {
-      bitmapCache.get(path)?.takeIf { !it.isRecycled }?.let { return@withContext it }
-      if (!isInsidePrivateDir(context, path)) return@withContext null
-      val decoded = decodeSampledFile(path, THUMBNAIL_MAX_PX) ?: return@withContext null
-      bitmapCache.put(path, decoded)
+      if (isSecure && !SecureFolderSession.isUnlocked) return@withContext null
+      cache.get(path)?.takeIf { !it.isRecycled }?.let { return@withContext it }
+      if (!isInsidePrivateDir(context, path, isSecure)) return@withContext null
+      val file = File(path)
+      if (!file.isFile) return@withContext null
+      VaultCrypto.ensureInitialized(context)
+      val decrypted =
+        runCatching {
+          VaultCrypto.decryptBytes(file.readBytes())
+        }.getOrNull() ?: return@withContext null
+      val decoded = decodeSampledBytes(decrypted, THUMBNAIL_MAX_PX) ?: return@withContext null
+      if (isSecure && !SecureFolderSession.isUnlocked) {
+        decoded.recycle()
+        return@withContext null
+      }
+      cache.put(path, decoded)
       decoded
     }
   }
 
-  suspend fun deleteThumbnail(context: Context, path: String?) {
+  suspend fun deleteThumbnail(
+    context: Context,
+    path: String?,
+    isSecure: Boolean = false,
+  ) {
     if (path.isNullOrBlank()) return
-    bitmapCache.remove(path)
+    if (isSecure) secureBitmapCache.remove(path) else publicBitmapCache.remove(path)
     withContext(Dispatchers.IO) {
-      if (isInsidePrivateDir(context, path)) {
+      if (isInsidePrivateDir(context, path, isSecure)) {
         runCatching { File(path).delete() }
       }
+    }
+  }
+
+  /**
+   * Moves or encrypts an existing bookmark thumbnail between normal and secure encrypted stores
+   * (or from legacy plaintext storage into `.store/thumbs/` / `.vault/thumbs/`).
+   */
+  fun migrateThumbnailFile(
+    context: Context,
+    existingPath: String?,
+    toSecure: Boolean,
+  ): String? {
+    if (existingPath.isNullOrBlank()) return null
+    VaultCrypto.ensureInitialized(context)
+    val source = File(existingPath)
+    if (!source.isFile) return null
+    val targetDir = privateDirectory(context, isSecure = toSecure)
+    val alreadyInTargetDir =
+      runCatching {
+        val targetRoot = targetDir.canonicalFile.path
+        source.canonicalFile.path.startsWith("$targetRoot${File.separator}")
+      }.getOrDefault(false)
+    val rawBytes = runCatching { source.readBytes() }.getOrNull() ?: return null
+    if (alreadyInTargetDir && VaultCrypto.isEncryptedBytes(rawBytes)) {
+      return source.absolutePath
+    }
+    val plainBytes = runCatching { VaultCrypto.decryptBytes(rawBytes) }.getOrNull() ?: return null
+    val encryptedPayload = VaultCrypto.encryptBytes(plainBytes)
+    val destFile = File(targetDir, "bm_${UUID.randomUUID()}.dat")
+    val tempFile = File(destFile.path + ".tmp")
+    return try {
+      FileOutputStream(tempFile).use { out ->
+        out.write(encryptedPayload)
+        out.flush()
+        out.fd.sync()
+      }
+      if (tempFile.length() != encryptedPayload.size.toLong()) {
+        tempFile.delete()
+        return null
+      }
+      if (!tempFile.renameTo(destFile)) {
+        tempFile.delete()
+        return null
+      }
+      if (VaultCrypto.plaintextLength(destFile) != plainBytes.size.toLong()) {
+        return null
+      }
+      publicBitmapCache.remove(existingPath)
+      secureBitmapCache.remove(existingPath)
+      if (isInsideAnyAppThumbnailDir(context, existingPath) && destFile.absolutePath != source.absolutePath) {
+        runCatching { source.delete() }
+      }
+      destFile.absolutePath
+    } catch (_: Throwable) {
+      runCatching { tempFile.delete() }
+      runCatching { destFile.delete() }
+      null
     }
   }
 
@@ -117,26 +217,42 @@ object BookmarkThumbnailStore {
     return file.exists() && file.length() > 0L
   }
 
-  private fun saveScaledBitmap(context: Context, source: Bitmap): String? {
-    val destDir = privateDirectory(context)
-    val destFile = File(destDir, "bm_${UUID.randomUUID()}.jpg")
+  private fun saveScaledEncryptedBitmap(
+    context: Context,
+    source: Bitmap,
+    isSecure: Boolean,
+  ): String? {
+    val destDir = privateDirectory(context, isSecure = isSecure)
+    val destFile = File(destDir, "bm_${UUID.randomUUID()}.dat")
+    val tempFile = File(destFile.path + ".tmp")
     val scaled = scaleDownToMaxPx(source, THUMBNAIL_MAX_PX)
     return try {
-      FileOutputStream(destFile).use { out ->
-        if (!scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)) {
-          return null
+      val jpegBytes =
+        ByteArrayOutputStream().use { buffer ->
+          if (!scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, buffer)) {
+            return null
+          }
+          buffer.toByteArray()
         }
+      val encrypted = VaultCrypto.encryptBytes(jpegBytes)
+      FileOutputStream(tempFile).use { out ->
+        out.write(encrypted)
         out.flush()
+        out.fd.sync()
       }
-      if (scaled !== source && !scaled.isRecycled) {
-        // Cache a clean copy only on demand or decode via loadBitmap; store compact path now.
-        scaled.recycle()
+      if (!tempFile.renameTo(destFile)) {
+        tempFile.delete()
+        return null
       }
       destFile.absolutePath
     } catch (_: Throwable) {
-      if (scaled !== source && !scaled.isRecycled) scaled.recycle()
+      runCatching { tempFile.delete() }
       runCatching { destFile.delete() }
       null
+    } finally {
+      if (scaled !== source && !scaled.isRecycled) {
+        scaled.recycle()
+      }
     }
   }
 
@@ -144,19 +260,18 @@ object BookmarkThumbnailStore {
     val width = bitmap.width
     val height = bitmap.height
     if (width <= 0 || height <= 0) return bitmap
-    val largest = maxOf(width, height)
-    if (largest <= maxPx) return bitmap
-    val ratio = maxPx.toFloat() / largest.toFloat()
-    val targetW = (width * ratio).toInt().coerceAtLeast(1)
-    val targetH = (height * ratio).toInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+    val longest = maxOf(width, height)
+    if (longest <= maxPx) return bitmap
+    val ratio = maxPx.toFloat() / longest.toFloat()
+    val targetWidth = (width * ratio).toInt().coerceAtLeast(1)
+    val targetHeight = (height * ratio).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
   }
 
-  private fun decodeSampledFile(path: String, maxPx: Int): Bitmap? {
-    val file = File(path)
-    if (!file.exists() || !file.isFile) return null
+  private fun decodeSampledBytes(bytes: ByteArray, maxPx: Int): Bitmap? {
+    if (bytes.isEmpty()) return null
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     val width = bounds.outWidth
     val height = bounds.outHeight
     if (width <= 0 || height <= 0) return null
@@ -168,7 +283,7 @@ object BookmarkThumbnailStore {
       inSampleSize = sampleSize
       inPreferredConfig = Bitmap.Config.RGB_565
     }
-    val decoded = BitmapFactory.decodeFile(path, decodeOpts) ?: return null
+    val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts) ?: return null
     val scaled = scaleDownToMaxPx(decoded, maxPx)
     if (scaled !== decoded && !decoded.isRecycled) {
       decoded.recycle()
@@ -176,18 +291,37 @@ object BookmarkThumbnailStore {
     return scaled
   }
 
-  private fun isInsidePrivateDir(context: Context, path: String): Boolean {
+  private fun isInsidePrivateDir(
+    context: Context,
+    path: String,
+    isSecure: Boolean,
+  ): Boolean {
     return runCatching {
       val targetCanonical = File(path).canonicalFile.path
       val roots =
-        listOf(
-          privateDirectory(context),
-          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.legacyThumbnailsDirectory(context),
-        )
+        if (isSecure) {
+          listOfNotNull(
+            DurableStorageManager.secureBookmarkThumbnailsDir(context),
+            DurableStorageManager.legacyV322VaultDirectory(context)?.let { File(it, "thumbs") },
+          )
+        } else {
+          listOfNotNull(
+            DurableStorageManager.normalBookmarkThumbnailsDir(context),
+            DurableStorageManager.legacyThumbnailsDirectory(context),
+            DurableStorageManager.legacyV322ThumbnailsDirectory(context),
+          )
+        }
       roots.any { root ->
         val rootCanonical = root.canonicalFile.path
         targetCanonical.startsWith("$rootCanonical${File.separator}")
       }
     }.getOrDefault(false)
   }
+
+  private fun isInsideAnyAppThumbnailDir(
+    context: Context,
+    path: String,
+  ): Boolean =
+    isInsidePrivateDir(context, path, isSecure = true) ||
+      isInsidePrivateDir(context, path, isSecure = false)
 }

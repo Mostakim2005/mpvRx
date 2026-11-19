@@ -153,18 +153,19 @@ flowchart LR
 
 ---
 
-### [DECISION: Secure-Bookmark-Membership-Follows-The-Whole-Link-Group] | Aliases: secure bookmark leaks into global, moved file bookmark, bookmark_media_links, identitiesForPath
-> **1-Line Summary:** A bookmark is classified by every identity form of the vault file **and** by its `bookmark_media_links` group key, never by the row's stored `mediaId` alone.
+### [DECISION: Hard-Database-Segregation-And-MVX1-AES-CTR-Vault-Encryption] | Aliases: secure bookmark leaks into global, hard segregation, mvx1 aes ctr, vault streaming proxy, secure vault database
+> **1-Line Summary:** Physically separates public and Secure Folder databases (`.store/library.dat` vs `.vault/v_idx.dat`) and encrypts vault media, thumbnails, stats, and config with hardware-accelerated AES-128-CTR (`MVX1`).
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
-* **Original User Intention:** Secure and non-secure bookmarks must never mix, including for files moved into or out of the vault after the bookmark was created.
+* **Original User Intention:** Secure Folder videos, bookmarks, thumbnails, playback states, watch stats, and metadata must never share tables or folders with normal videos, must not sit unencrypted in `Documents/mpvRx/` where other apps can browse them, must not strain the Helio G90T CPU/battery, and must survive Clear Data or app uninstall without bloating internal App Data.
 * **Options Considered:**
-  * **Option A (Rejected, pre-3.2.2):** Compare `bookmark.mediaId` with the vault file's identity. Moving a file into the vault kept the old group key, so the bookmark stayed in the public gallery and disappeared from the secure one until re-bookmarked.
-  * **Option B (Chosen):** `SecureMediaRegistry.identitiesForPath()` returns all three representations (local path, `forUri(path)`, `forUri("file://…")`). `BookmarkGalleryRepository` expands those into a `secureKeys` set that also contains each matching `bookmark_media_links.groupKey`, then filters `AllVideos` with `filterNot` and `SecureVideos` with `filter`.
-* **Consequence:** Anything that moves media between vault and public storage must keep the link group updated (`PlaybackBookmarkOps.onMediaMoved`), or the bookmark will land on the wrong side.
+  * **Option A (Rejected, v3.2.2 initial):** Keep all bookmarks in `MpvRxDatabase` and filter by `bookmark_media_links` in memory, while leaving copied vault files unencrypted in `Documents/mpvRx/vault/` and keeping internal `filesDir/secure_media` duplicates. Rejected because unlinked/legacy rows still leaked across scopes, files in `Documents/mpvRx/` were world-readable by any storage-permission app, and internal storage retained multi-GB duplicate copies.
+  * **Option B (Chosen):** Hard physical segregation with `SecureVaultDatabase` (`.vault/v_idx.dat`) + `SecureBookmarkStore` and `MVX1` AES-128-CTR encryption (`VaultCrypto`) backed by a PBKDF2-wrapped `.vault/.vkey`. `libmpv` streams encrypted vault files through `VaultStreamingProxy` (`127.0.0.1` loopback HTTP range server) and Android media extractors use `VaultMediaDataSource`, giving $O(1)$ random-access seeking via `baseIv + blockIndex` with hardware ARMv8 Cryptography Extension acceleration.
+* **Consequence:** Moving a file into or out of the Secure Folder (`SecureFolderRepository.moveIn` / `restore`) or running `DurableVaultMigration.run` on startup migrates rows and re-encrypts thumbnails between `.store/` and `.vault/`, then deletes verified internal storage copies.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `secureIds`, `secureKeys`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `identitiesForPath`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/PlaybackBookmarkOps.kt` -> `onMediaMoved`, `newPlayableUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultCrypto.kt` -> `encryptStream`, `readDecryptedAt`, `openDecryptedRangeStream`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultStreamingProxy.kt` -> `registerVaultFile`, `revokeAllActiveStreams`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/SecureBookmarkStore.kt` -> `migrateMediaToVault`, `migrateMediaToPublic`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableVaultMigration.kt` -> `run`
 
 ---
 

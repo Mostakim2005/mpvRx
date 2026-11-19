@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +121,7 @@ fun BookmarkGalleryOverlay(
   onClose: () -> Unit,
   secureOnly: Boolean = false,
   currentMediaId: String? = null,
+  initialOnlyCurrentVideo: Boolean = false,
 ) {
   Dialog(
     onDismissRequest = onClose,
@@ -130,6 +132,7 @@ fun BookmarkGalleryOverlay(
         secureOnly = secureOnly,
         onClose = onClose,
         currentMediaId = currentMediaId,
+        initialOnlyCurrentVideo = initialOnlyCurrentVideo,
       )
     }
   }
@@ -141,23 +144,29 @@ fun BookmarkGalleryContent(
   secureOnly: Boolean,
   onClose: () -> Unit,
   currentMediaId: String? = null,
+  initialOnlyCurrentVideo: Boolean = false,
 ) {
   val context = LocalContext.current
   val repository = koinInject<BookmarkGalleryRepository>()
   val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+  val isUnlocked by app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState.collectAsStateWithLifecycle()
 
-  var scope by rememberSaveable {
-    mutableStateOf(if (secureOnly) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos)
+  LaunchedEffect(secureOnly, isUnlocked) {
+    if (secureOnly && !isUnlocked) onClose()
   }
-  // The player passes its current group key, so the same full-window gallery can show Video ⇄ Global
-  // without dropping back to the sidebar. The Secure Folder screen passes no key.
-  var onlyCurrentVideo by rememberSaveable(currentMediaId) { mutableStateOf(false) }
+
+  val scope = if (secureOnly) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos
+  // The player passes its current group key, so the full-window gallery respects Video ⇄ Global
+  // directly. Public gallery never widens to SecureVideos, and Secure gallery never widens to AllVideos.
+  var onlyCurrentVideo by rememberSaveable(currentMediaId, initialOnlyCurrentVideo) {
+    mutableStateOf(initialOnlyCurrentVideo && currentMediaId != null)
+  }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
 
-  val items by repository.observeItems(scope).collectAsStateWithLifecycle(initialValue = emptyList())
-  val vocabulary by repository.observeFilterTags().collectAsStateWithLifecycle(initialValue = emptyList())
+  val items by remember(scope) { repository.observeItems(scope) }.collectAsStateWithLifecycle(initialValue = emptyList())
+  val vocabulary by remember(scope) { repository.observeFilterTags(scope) }.collectAsStateWithLifecycle(initialValue = emptyList())
 
   val filtered =
     remember(items, selectedTags, onlyCurrentVideo, currentMediaId) {
@@ -189,12 +198,10 @@ fun BookmarkGalleryContent(
       if (target.isNullOrBlank()) {
         Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
       } else {
-        // Reopen the video at this bookmark's own timestamp. Secure targets are gated by
-        // MediaUtils before the player is ever started.
         MediaUtils.playFile(
           source = target,
           context = context,
-          launchSource = "bookmark_gallery",
+          launchSource = if (secureOnly) "secure_folder" else "bookmark_gallery",
           title = item.mediaTitle ?: item.row.title,
           startPositionSeconds = item.row.positionMs / 1000.0,
         )
@@ -229,37 +236,26 @@ fun BookmarkGalleryContent(
             maxLines = 1,
           )
           Spacer(Modifier.width(4.dp))
-          // Opened from the Secure Folder the gallery must not be able to widen back out to public
-          // videos, so the All pill is only offered when it was opened from the public library.
           if (currentMediaId != null) {
             ScopePill(
               label = stringResource(R.string.bookmark_gallery_scope_video),
               selected = onlyCurrentVideo,
-              onClick = {
-                onlyCurrentVideo = true
-                scope =
-                  if (secureOnly) BookmarkGalleryScope.SecureVideos else BookmarkGalleryScope.AllVideos
-              },
+              onClick = { onlyCurrentVideo = true },
             )
           }
-          if (!secureOnly) {
+          if (secureOnly) {
+            ScopePill(
+              label = stringResource(R.string.bookmark_gallery_scope_secure),
+              selected = !onlyCurrentVideo,
+              onClick = { onlyCurrentVideo = false },
+            )
+          } else {
             ScopePill(
               label = stringResource(R.string.bookmark_gallery_scope_all),
-              selected = !onlyCurrentVideo && scope == BookmarkGalleryScope.AllVideos,
-              onClick = {
-                onlyCurrentVideo = false
-                scope = BookmarkGalleryScope.AllVideos
-              },
+              selected = !onlyCurrentVideo,
+              onClick = { onlyCurrentVideo = false },
             )
           }
-          ScopePill(
-            label = stringResource(R.string.bookmark_gallery_scope_secure),
-            selected = !onlyCurrentVideo && scope == BookmarkGalleryScope.SecureVideos,
-            onClick = {
-              onlyCurrentVideo = false
-              scope = BookmarkGalleryScope.SecureVideos
-            },
-          )
           Spacer(Modifier.weight(1f))
           // 0 asks the grid to fit as many cards as the width allows; a number pins it.
           SmallIconAction(
@@ -368,6 +364,8 @@ fun BookmarkGalleryContent(
             BookmarkGalleryCard(
               item = item,
               onOpen = { openItem(item) },
+              isSecure = secureOnly,
+              showMediaTitle = !onlyCurrentVideo,
             )
           }
         }
@@ -488,7 +486,18 @@ private fun BookmarkGalleryCard(
   item: BookmarkGalleryItem,
   onOpen: () -> Unit,
   width: Dp = Dp.Unspecified,
+  isSecure: Boolean = false,
+  showMediaTitle: Boolean = true,
 ) {
+  val cardTitle =
+    if (showMediaTitle) {
+      app.gyrolet.mpvrx.ui.player.controls.components.formatGlobalBookmarkTitle(
+        item.mediaTitle,
+        item.row.title,
+      )
+    } else {
+      item.row.title
+    }
   // Exactly one 16:9 frame: title at the top, tags and timestamp at the bottom, nothing outside.
   Surface(
     shape = RoundedCornerShape(10.dp),
@@ -503,6 +512,7 @@ private fun BookmarkGalleryCard(
     Box(Modifier.fillMaxSize()) {
       BookmarkThumbnailImage(
         thumbnailPath = item.row.thumbnailPath,
+        isSecure = isSecure,
         cornerRadius = 0.dp,
         contentScale = ContentScale.Crop,
         modifier = Modifier.fillMaxSize(),
@@ -520,7 +530,7 @@ private fun BookmarkGalleryCard(
             .padding(horizontal = 6.dp, vertical = 4.dp),
       ) {
         Text(
-          text = item.row.title,
+          text = cardTitle,
           style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
           color = Color.White,
           maxLines = 1,

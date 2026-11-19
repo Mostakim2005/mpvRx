@@ -121,8 +121,12 @@ object BookmarkPresetArchive {
       seenThumbPaths.forEach { (sourcePath, entryName) ->
         val file = File(sourcePath)
         if (!file.isFile || !file.canRead()) return@forEach
+        val rawBytes =
+          runCatching {
+            app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(file.readBytes())
+          }.getOrNull() ?: return@forEach
         zip.putNextEntry(ZipEntry(entryName))
-        file.inputStream().use { input -> input.copyTo(zip) }
+        zip.write(rawBytes)
         zip.closeEntry()
       }
     }
@@ -178,10 +182,19 @@ object BookmarkPresetArchive {
           entry.thumbnailEntry?.let { entryName ->
             pendingThumbBytes[entryName]?.let { bytes ->
               materializedPaths.getOrPut(entryName) {
-                val safeExt = entryName.substringAfterLast('.', "jpg").lowercase()
-                  .takeIf { it == "jpg" || it == "jpeg" || it == "png" || it == "webp" } ?: "jpg"
-                val destFile = File(thumbnailOutputDir, "bm_import_${UUID.randomUUID()}.$safeExt")
-                destFile.writeBytes(bytes)
+                val payload =
+                  runCatching {
+                    app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(bytes)
+                  }.getOrNull() ?: bytes
+                val ext =
+                  if (app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedBytes(payload)) {
+                    "dat"
+                  } else {
+                    entryName.substringAfterLast('.', "jpg").lowercase()
+                      .takeIf { it == "jpg" || it == "jpeg" || it == "png" || it == "webp" } ?: "jpg"
+                  }
+                val destFile = File(thumbnailOutputDir, "bm_import_${UUID.randomUUID()}.$ext")
+                destFile.writeBytes(payload)
                 destFile.absolutePath
               }
             }
@@ -218,10 +231,12 @@ object BookmarkPresetArchive {
     context: Context,
     uri: Uri,
     targetGroupKey: String,
+    isSecure: Boolean = false,
   ): Result<ImportedBookmarkPreset> =
     withContext(Dispatchers.IO) {
       runCatching {
-        val dir = File(context.filesDir, APP_THUMBNAIL_DIR_NAME)
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+        val dir = BookmarkThumbnailStore.privateDirectory(context, isSecure = isSecure)
         context.contentResolver.openInputStream(uri)?.use { input ->
           readArchive(input, targetGroupKey, dir)
         } ?: throw IllegalStateException("Could not open preset file")

@@ -103,6 +103,9 @@ object HiddenFolderDiscovery {
         val rootPath = visit.root.absolutePath.trimEnd('/')
         val canonicalRoot = canonicalRoots[visit.root] ?: continue
         if (canonical != canonicalRoot && !canonical.startsWith("$canonicalRoot/")) continue
+        if (app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(canonical) ||
+          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(directory.absolutePath)
+        ) continue
         if (isRestricted(canonical.removePrefix("$canonicalRoot/"))) continue
         if (!visited.add(canonical)) continue
         val relative = directory.absolutePath.removePrefix("$rootPath/")

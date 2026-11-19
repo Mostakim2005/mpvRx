@@ -85,22 +85,25 @@
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/PlayerControlsPreferencesScreen.kt`
 
-### [FEATURE: Zero-Bloat-Single-Folder-Direct-Hosting] | Aliases: single folder storage, zero bloat, live room db on external storage, survive uninstall, no duplicate backups
-> **1-Line Summary:** Hosts the live Room SQLite database, Secure Vault, bookmark thumbnails, configurations, music, companion videos, and lyrics directly in a single user-selected root folder without duplicate backup bloat.
-* **User Intention (Non-Negotiable):** The user selects a single directory in basic storage (e.g. `/sdcard/Documents/mpvRx/`). The active Room database (`mpvrx.db`), private media vault and thumbnails live directly inside this folder. No separate or redundant backup files are created, avoiding storage duplication and bloat. If the app is uninstalled, updated, or wiped, reinstalling finds the same library, vault and thumbnails. The PIN hash is deliberately app-private and is re-created after a reinstall, so the vault needs a new app PIN rather than the old one.
+### [FEATURE: Zero-Bloat-Single-Folder-Direct-Hosting] | Aliases: single folder storage, zero bloat, live room db on external storage, survive uninstall, no duplicate backups, mvx1 encrypted vault
+> **1-Line Summary:** Hosts hard-segregated live Room databases (`.store/library.dat` and `.vault/v_idx.dat`), AES-128-CTR (`MVX1`) encrypted vault videos, thumbnails, watch stats, and mirrored settings/PIN directly in `Documents/mpvRx/` without internal storage duplication.
+* **User Intention (Non-Negotiable):** Everything durable lives under `/sdcard/Documents/mpvRx/` split into `.store/` (normal library) and `.vault/` (Secure Folder), encrypted with lightweight hardware-accelerated AES-128-CTR (`MVX1`) so third-party apps and file browsers cannot inspect vault videos, thumbnails, or metadata, while keeping CPU/battery impact minimal on MediaTek Helio G90T (`Realme 6 RMX2001`). Redundant internal copies (`filesDir/secure_media`, `bookmark-thumbnails`, `thumbnails`, internal `mpvrx.db`) are deleted after verified migration so Android App Data stays tiny and 100% of data — including the Secure Folder PIN, watch stats, resume positions, thumbnails, and UI/player settings — survives Clear Data or Uninstall/Reinstall.
 * **Directory Layout:**
-  * `<UserRoot>/.nomedia` (blocks media scanner from indexing vault / internal assets)
-  * `<UserRoot>/database/mpvrx.db` (LIVE active Room database, WAL and SHM files)
-  * `<UserRoot>/vault/` (relocated Secure Folder media, hidden by `.nomedia`)
-  * `<UserRoot>/thumbnails/` (16:9 bookmark thumbnail image cache)
-  * `<UserRoot>/config/` (optional app config; the PIN salt/hash stays in app-private preferences)
-  * `<UserRoot>/music/` (audio files with clean metadata-matched filenames)
-  * `<UserRoot>/companion_videos/` (downloaded audio-less / full MP4 companion videos)
-  * `<UserRoot>/lyrics/` (dedicated `.lrc` files)
+  * `<UserRoot>/.nomedia` (plus `.nomedia` in every subfolder and explicit exclusion from all mpvRx scanners and file browsers)
+  * `<UserRoot>/.store/library.dat` (live normal Room database `MpvRxDatabase`, WAL/SHM)
+  * `<UserRoot>/.store/thumbs/` & `thumb_cache/` (`MVX1` encrypted normal bookmark and video thumbnails)
+  * `<UserRoot>/.store/watch_stats.mvx` & `settings.mvx` (`MVX1` encrypted normal watch stats and non-personal shared UI/player settings)
+  * `<UserRoot>/.vault/.vkey` (PBKDF2-HMAC-SHA256 wrapped 128-bit master key)
+  * `<UserRoot>/.vault/v_idx.dat` (isolated `SecureVaultDatabase` with encrypted string columns and HMAC lookup keys)
+  * `<UserRoot>/.vault/media/<uuid>.dat` (`MVX1` AES-128-CTR encrypted Secure Folder videos with opaque UUID filenames)
+  * `<UserRoot>/.vault/thumbs/` & `thumb_cache/` (`MVX1` encrypted Secure Folder bookmark and video thumbnails)
+  * `<UserRoot>/.vault/v_stats.mvx` & `v_cfg.mvx` (`MVX1` encrypted Secure Folder watch stats and PIN/recovery settings)
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`, `vaultDirectory`, `thumbnailsDirectory`, `prepare`, `copyMediaDirectories`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `MpvRxDatabase`, `SecureVaultDatabase`, `SecureBookmarkStore`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultCrypto.kt` -> `encryptStream`, `readDecryptedAt`, `openDecryptedRangeStream`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `prepare`, `normalDatabaseFile`, `secureDatabaseFile`, `isAppDurablePath`, `isVaultPath`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableVaultMigration.kt` -> `run`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurablePreferencesSync.kt` -> `restoreIfNeeded`, `flushNow`
 
 ### [FEATURE: Player-Controls-Pencil-Tag-Editor-And-Auto-Fetch] | Aliases: pencil edit icon, metadata editor, auto fetch artwork, tag editor, id3 edit, fullscreen tag editor
 > **1-Line Summary:** Dedicated pencil icon in player controls opening an in-app fullscreen metadata editor with multi-artwork carousel and multi-source metadata candidate browsing.

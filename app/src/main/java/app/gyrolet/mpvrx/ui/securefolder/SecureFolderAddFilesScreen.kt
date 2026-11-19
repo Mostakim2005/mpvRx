@@ -78,6 +78,10 @@ data object SecureFolderAddFilesScreen : Screen {
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val backstack = LocalBackStack.current
+    val isUnlocked by app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(isUnlocked) {
+      if (!isUnlocked) backstack.popSafely()
+    }
     val scope = rememberCoroutineScope()
 
     val secureFolderRepository = koinInject<SecureFolderRepository>()

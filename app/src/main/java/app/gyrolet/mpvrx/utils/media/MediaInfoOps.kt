@@ -46,6 +46,17 @@ object MediaInfoOps {
     return "${uri}|$fileName"
   }
 
+  private fun encryptedLocalFile(uri: Uri): File? {
+    val path =
+      when {
+        uri.scheme.equals("file", ignoreCase = true) -> uri.path
+        uri.scheme.isNullOrBlank() -> uri.toString()
+        else -> null
+      } ?: return null
+    val file = File(path)
+    return file.takeIf { app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedFile(it) }
+  }
+
   /**
    * Extract detailed media information from a video file
    */
@@ -55,9 +66,9 @@ object MediaInfoOps {
     fileName: String,
   ): Result<MediaInfoData> =
     withContext(Dispatchers.IO) {
-      // The bundled 32-bit MediaInfo AAC/MP4 parser can SIGSEGV on untrusted files.
-      // Use Android framework probing on 32-bit instead of entering libmediainfo.so.
-      if (!Process.is64Bit()) {
+      // The bundled 32-bit MediaInfo AAC/MP4 parser can SIGSEGV on untrusted files, and native libmediainfo
+      // cannot read MVX1-encrypted vault streams directly without a decrypted data source.
+      if (!Process.is64Bit() || encryptedLocalFile(uri) != null) {
         return@withContext runCatching {
           platformProbe(context, uri)?.toMediaInfoData(fileName) ?: MediaInfoData.empty()
         }
@@ -101,7 +112,7 @@ object MediaInfoOps {
     fileName: String,
   ): Result<String> =
     withContext(Dispatchers.IO) {
-      if (!Process.is64Bit()) {
+      if (!Process.is64Bit() || encryptedLocalFile(uri) != null) {
         return@withContext runCatching {
           val info = platformProbe(context, uri)?.toMediaInfoData(fileName) ?: MediaInfoData.empty()
           formatPlatformMediaInfo(info, fileName)
@@ -446,11 +457,42 @@ object MediaInfoOps {
     }
 
   private fun platformProbe(context: Context, uri: Uri): PlatformProbe? {
+    val encryptedFile = encryptedLocalFile(uri)
+    if (encryptedFile != null) {
+      app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+      val plainSize = app.gyrolet.mpvrx.domain.secure.VaultCrypto.plaintextLength(encryptedFile)
+      return app.gyrolet.mpvrx.domain.secure.VaultMediaDataSource(encryptedFile).use { retrieverSource ->
+        app.gyrolet.mpvrx.domain.secure.VaultMediaDataSource(encryptedFile).use { extractorSource ->
+          probeFromSources(
+            uri = uri,
+            statSize = plainSize,
+            bindRetriever = { it.setDataSource(retrieverSource) },
+            bindExtractor = { it.setDataSource(extractorSource) },
+          )
+        }
+      }
+    }
+
     // Keep the descriptor owned by ParcelFileDescriptor. Never detach/close a raw
     // FD in multiple native libraries; each framework parser borrows it here.
     val descriptor = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
-    descriptor.use { pfd ->
+    return descriptor.use { pfd ->
       val fd = pfd.fileDescriptor
+      probeFromSources(
+        uri = uri,
+        statSize = pfd.statSize.takeIf { it > 0L } ?: 0L,
+        bindRetriever = { it.setDataSource(fd) },
+        bindExtractor = { it.setDataSource(fd) },
+      )
+    }
+  }
+
+  private fun probeFromSources(
+    uri: Uri,
+    statSize: Long,
+    bindRetriever: (MediaMetadataRetriever) -> Unit,
+    bindExtractor: (MediaExtractor) -> Unit,
+  ): PlatformProbe {
       var durationMs = 0L
       var width = 0
       var height = 0
@@ -464,7 +506,7 @@ object MediaInfoOps {
 
       val retriever = MediaMetadataRetriever()
       try {
-        retriever.setDataSource(fd)
+        bindRetriever(retriever)
         durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
           ?.toLongOrNull() ?: 0L
         width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
@@ -484,7 +526,7 @@ object MediaInfoOps {
 
       val extractor = MediaExtractor()
       try {
-        extractor.setDataSource(fd)
+        bindExtractor(extractor)
         for (index in 0 until extractor.trackCount) {
           val track = extractor.getTrackFormat(index)
           val mime = track.textValue(MediaFormat.KEY_MIME).lowercase()
@@ -551,7 +593,7 @@ object MediaInfoOps {
       val subtitleCodecs = textStreams.map { it.format }.distinct().joinToString(" ")
       return PlatformProbe(
         metadata = VideoMetadata(
-          sizeBytes = pfd.statSize.takeIf { it > 0L } ?: 0L,
+          sizeBytes = statSize,
           durationMs = durationMs,
           width = width,
           height = height,
@@ -567,7 +609,6 @@ object MediaInfoOps {
         format = mediaMime,
         rotation = rotation,
       )
-    }
   }
 
   private fun formatPlatformMediaInfo(info: MediaInfoData, fileName: String): String =
@@ -625,6 +666,22 @@ object MediaInfoOps {
     fileName: String = "",
   ): Int =
     withContext(Dispatchers.IO) {
+      val encryptedFile = encryptedLocalFile(uri)
+      if (encryptedFile != null) {
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+        return@withContext runCatching {
+          app.gyrolet.mpvrx.domain.secure.VaultMediaDataSource(encryptedFile).use { dataSource ->
+            val retriever = MediaMetadataRetriever()
+            try {
+              retriever.setDataSource(dataSource)
+              retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                ?.toFloatOrNull()?.toInt() ?: 0
+            } finally {
+              retriever.release()
+            }
+          }
+        }.getOrDefault(0)
+      }
       runCatching {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
           val retriever = MediaMetadataRetriever()

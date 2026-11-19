@@ -773,6 +773,10 @@ object FileFilterUtils {
     options: MediaScanOptions = MediaScanOptions(),
     noMediaPathFilter: NoMediaPathFilter = NoMediaPathFilter(options),
   ): Boolean {
+    if (app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isAppDurablePath(folder.absolutePath)) {
+      return true
+    }
+
     if (noMediaPathFilter.shouldExcludeDirectory(folder)) {
       return true
     }

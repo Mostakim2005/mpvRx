@@ -1104,9 +1104,9 @@ val DatabaseModule =
 
     single<MpvRxDatabase> {
       val context = androidContext()
-      // The live file lives in Documents/mpvRx/database on standard builds, so uninstalling the
-      // app cannot take the library with it. App.onCreate copied any legacy database first.
-      val databasePath = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.databaseFile(context)
+      // The live normal library database lives in Documents/mpvRx/.store/library.dat so clearing
+      // App Data or uninstalling the app preserves normal media history, bookmarks, and settings.
+      val databasePath = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalDatabaseFile(context)
       Room
         .databaseBuilder(context, MpvRxDatabase::class.java, databasePath.absolutePath)
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
@@ -1149,6 +1149,26 @@ val DatabaseModule =
         ).build()
     }
 
+    single<app.gyrolet.mpvrx.database.SecureVaultDatabase> {
+      val context = androidContext()
+      val secureDbPath = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.secureDatabaseFile(context)
+      Room
+        .databaseBuilder(
+          context,
+          app.gyrolet.mpvrx.database.SecureVaultDatabase::class.java,
+          secureDbPath.absolutePath,
+        )
+        .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+        .build()
+    }
+
+    single {
+      app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore(
+        database = get(),
+        context = androidContext(),
+      )
+    }
+
     singleOf(::PlaybackStateRepositoryImpl).bind(PlaybackStateRepository::class)
 
     single<RecentlyPlayedRepository> {
@@ -1173,6 +1193,7 @@ val DatabaseModule =
       app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository(
         context = androidContext(),
         dao = get<MpvRxDatabase>().videoMetadataDao(),
+        secureDao = get<app.gyrolet.mpvrx.database.SecureVaultDatabase>().secureVideoMetadataDao(),
       )
     }
 
@@ -1224,8 +1245,24 @@ val DatabaseModule =
     }
 
     single {
+      get<app.gyrolet.mpvrx.database.SecureVaultDatabase>().secureVaultMediaDao()
+    }
+
+    single {
+      get<app.gyrolet.mpvrx.database.SecureVaultDatabase>().secureVideoMetadataDao()
+    }
+
+    single {
       app.gyrolet.mpvrx.database.repository.SecureFolderRepository(
-        dao = get<MpvRxDatabase>().secureMediaDao(),
+        context = androidContext(),
+        dao = get(),
+        secureBookmarkStore = get(),
+        publicBookmarkDao = get<MpvRxDatabase>().playbackBookmarkDao(),
+        publicTagDao = get<MpvRxDatabase>().bookmarkTagDao(),
+        playbackStateRepository = get(),
+        secureVideoMetadataDao = get(),
+        thumbnailRepository = get(),
+        watchStatsRepository = get(),
       )
     }
 
@@ -1233,7 +1270,7 @@ val DatabaseModule =
       app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository(
         bookmarkDao = get<MpvRxDatabase>().playbackBookmarkDao(),
         tagDao = get<MpvRxDatabase>().bookmarkTagDao(),
-        secureFolderRepository = get(),
+        secureBookmarkStore = get(),
       )
     }
 

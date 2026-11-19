@@ -96,11 +96,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.download.DownloadLocations
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.preferences.FoldersPreferences
 import app.gyrolet.mpvrx.preferences.SettingsManager
 import app.gyrolet.mpvrx.preferences.SubtitlesPreferences
+import app.gyrolet.mpvrx.preferences.preference.defaultSharedPreferences
+import app.gyrolet.mpvrx.presentation.crash.CrashMonitor
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusRequester
@@ -127,6 +130,27 @@ private fun checkAudioPermission(context: Context): Boolean = PermissionRecovery
 
 private fun openStoragePermissionSettings(context: Context): Boolean =
   PermissionRecovery.openAllFilesAccessSettings(context)
+
+@SuppressLint("ApplySharedPref")
+private fun rebindProcessToDurableRoot(
+  context: Context,
+  markOnboardingDone: Boolean,
+) {
+  val appContext = context.applicationContext
+  if (markOnboardingDone) {
+    appContext.defaultSharedPreferences().edit().putBoolean("onboarding_completed", true).commit()
+  }
+  CrashMonitor.clearSessionMarker(appContext)
+  val relaunch =
+    (
+      appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)
+        ?: Intent(appContext, app.gyrolet.mpvrx.MainActivity::class.java)
+    ).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+    }
+  appContext.startActivity(relaunch)
+  kotlin.system.exitProcess(0)
+}
 
 private enum class OnboardingStep { STORAGE, CONFIGURATION, NOTIFICATIONS, AUDIO, FINISH }
 
@@ -168,6 +192,19 @@ fun PermissionDeniedState(
     lifecycleOwner.lifecycle.addObserver(observer)
     onDispose {
       lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
+
+  // If storage permission was just granted after Clear Data / uninstall-reinstall and a prior
+  // library already exists in Documents/mpvRx/, rebind cleanly so Room opens the durable DBs and
+  // encrypted settings/PIN restore before MainActivity renders.
+  LaunchedEffect(isFileGranted) {
+    if (
+      isFileGranted &&
+      DurableStorageManager.needsProcessRebindToDurableRoot(context) &&
+      DurableStorageManager.hasPreexistingDurableLibrary()
+    ) {
+      rebindProcessToDurableRoot(context, markOnboardingDone = true)
     }
   }
 
@@ -317,12 +354,16 @@ fun PermissionDeniedState(
     )
   val goNext: () -> Unit = { if (stepIndex < steps.lastIndex) stepIndex++ }
   val finishSetup: () -> Unit = {
-    browserPreferences.onboardingCompleted.set(true)
-    onNext?.invoke()
-    if (restoredSettings) {
-      (context as? Activity)?.recreate()
-    } else if (onNext == null) {
-      onRequestPermission()
+    if (DurableStorageManager.needsProcessRebindToDurableRoot(context)) {
+      rebindProcessToDurableRoot(context, markOnboardingDone = true)
+    } else {
+      browserPreferences.onboardingCompleted.set(true)
+      onNext?.invoke()
+      if (restoredSettings) {
+        (context as? Activity)?.recreate()
+      } else if (onNext == null) {
+        onRequestPermission()
+      }
     }
   }
 
@@ -1071,6 +1112,15 @@ fun StoragePermissionPrompt(
     }
     lifecycleOwner.lifecycle.addObserver(observer)
     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
+
+  LaunchedEffect(isFileGranted) {
+    if (isFileGranted && DurableStorageManager.needsProcessRebindToDurableRoot(context)) {
+      rebindProcessToDurableRoot(
+        context,
+        markOnboardingDone = DurableStorageManager.hasPreexistingDurableLibrary(),
+      )
+    }
   }
 
   Box(

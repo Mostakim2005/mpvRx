@@ -26,4 +26,12 @@ interface PlaybackStateRepository {
     oldTitle: String,
     newTitle: String,
   )
+
+  suspend fun migrateState(
+    oldMediaTitles: List<String>,
+    newMediaTitle: String,
+    toSecure: Boolean,
+  )
+
+  suspend fun clearSecurePlaybackStates()
 }

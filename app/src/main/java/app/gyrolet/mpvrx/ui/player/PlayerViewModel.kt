@@ -234,6 +234,8 @@ class PlayerViewModel(
   private val json: Json by inject()
   private val playbackBookmarkDao: app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao by inject()
   private val bookmarkTagDao: app.gyrolet.mpvrx.database.dao.BookmarkTagDao by inject()
+  private val secureBookmarkStore: app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore by inject()
+  private val secureFolderRepository: app.gyrolet.mpvrx.database.repository.SecureFolderRepository by inject()
   private val aiService: app.gyrolet.mpvrx.repository.ai.AiService by inject()
   private val subtitleGenerationService: SubtitleGenerationService by inject()
   private val realtimeSubtitleService: app.gyrolet.mpvrx.repository.ai.RealtimeSubtitleService by inject()
@@ -1097,11 +1099,19 @@ class PlayerViewModel(
     listOf(item.playableUri, item.originalUri).forEach { candidate ->
       when {
         candidate.startsWith("file://") -> {
-          val len = runCatching { Uri.parse(candidate).path?.let { java.io.File(it) }?.takeIf { it.isFile }?.length() }.getOrNull()
+          val len =
+            runCatching {
+              Uri.parse(candidate).path?.let { java.io.File(it) }?.takeIf { it.isFile }
+                ?.let { app.gyrolet.mpvrx.domain.secure.VaultCrypto.plaintextLength(it) }
+            }.getOrNull()
           if (len != null && len > 0L) return len
         }
         candidate.startsWith("/") -> {
-          val len = runCatching { java.io.File(candidate).takeIf { it.isFile }?.length() }.getOrNull()
+          val len =
+            runCatching {
+              java.io.File(candidate).takeIf { it.isFile }
+                ?.let { app.gyrolet.mpvrx.domain.secure.VaultCrypto.plaintextLength(it) }
+            }.getOrNull()
           if (len != null && len > 0L) return len
         }
         candidate.startsWith("content://") -> {
@@ -1172,28 +1182,84 @@ class PlayerViewModel(
     )
   }
 
+  private fun isItemSecure(
+    item: PlaybackItem?,
+    vaultEntries: List<app.gyrolet.mpvrx.database.entities.SecureMediaEntity> = emptyList(),
+  ): Boolean {
+    if (item == null) return false
+    val candidates = listOf(item.originalUri, item.playableUri)
+    if (candidates.any {
+        app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(it) ||
+          app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(it)
+      }
+    ) {
+      return true
+    }
+    if (vaultEntries.isEmpty()) return false
+    val vaultPaths =
+      vaultEntries.mapTo(HashSet(vaultEntries.size)) { PlaybackIdentity.normalizeLocalPath(it.secureFilePath) }
+    return candidates.any { candidate ->
+      candidate.isNotBlank() && PlaybackIdentity.normalizeLocalPath(candidate) in vaultPaths
+    }
+  }
+
+  /** True while the loaded file is held by the Secure Folder; every bookmark surface scopes to it. */
+  val isCurrentMediaSecure: StateFlow<Boolean> =
+    combine(PlaybackSession.state, secureFolderRepository.observeAll()) { state, entries ->
+      isItemSecure(state.currentItem, entries)
+    }.distinctUntilChanged()
+      .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val bookmarkMediaId: StateFlow<String?> =
-    PlaybackSession.state
-      .map { rawBookmarkMediaId(it.currentItem) }
-      .distinctUntilChanged()
-      .flatMapLatest { rawId ->
-        if (rawId == null) {
-          flowOf(null)
-        } else if (rawId.startsWith("audiobook:")) {
-          flowOf(rawId)
-        } else {
-          combine(
-            playbackBookmarkDao.observeLinkedGroupKey(rawId),
-            PlaybackSession.state,
-            PlaybackSession.propInt["video-params/w"],
-            PlaybackSession.propInt["video-params/h"],
-            PlaybackSession.propDouble["duration"],
-          ) { linked, session, w, h, dur ->
-            Triple(linked, session.currentItem, Triple(w, h, dur))
-          }.mapLatest { (linked, item, props) ->
-            kotlinx.coroutines.withContext(Dispatchers.IO) {
-              val meta = buildBookmarkMediaMetadata(item, props.first, props.second, props.third)
+    combine(
+      PlaybackSession.state.map { rawBookmarkMediaId(it.currentItem) }.distinctUntilChanged(),
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { rawId, isSecure, unlocked ->
+      Triple(rawId, isSecure, unlocked)
+    }.flatMapLatest { (rawId, isSecure, unlocked) ->
+      if (rawId == null) {
+        flowOf(null)
+      } else if (isSecure && !unlocked) {
+        flowOf(null)
+      } else if (rawId.startsWith("audiobook:")) {
+        flowOf(rawId)
+      } else {
+        val linkedFlow =
+          if (isSecure) secureBookmarkStore.observeLinkedGroupKey(rawId)
+          else playbackBookmarkDao.observeLinkedGroupKey(rawId)
+        combine(
+          linkedFlow,
+          PlaybackSession.state,
+          PlaybackSession.propInt["video-params/w"],
+          PlaybackSession.propInt["video-params/h"],
+          PlaybackSession.propDouble["duration"],
+        ) { linked, session, w, h, dur ->
+          Triple(linked, session.currentItem, Triple(w, h, dur))
+        }.mapLatest { (linked, item, props) ->
+          kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val meta = buildBookmarkMediaMetadata(item, props.first, props.second, props.third)
+            if (isSecure) {
+              if (linked != null) {
+                if (meta != null && secureBookmarkStore.countInGroup(linked) > 0) {
+                  secureBookmarkStore.ensureGroupMetadata(groupKey = linked, metadata = meta)
+                }
+                linked
+              } else {
+                val resolved =
+                  secureBookmarkStore.resolveGroupKey(
+                    rawMediaId = rawId,
+                    fingerprint = meta?.fingerprint,
+                    stemKey = meta?.stemKey,
+                    durationSec = meta?.durationSec ?: 0,
+                  )
+                if (meta != null && secureBookmarkStore.countInGroup(resolved) > 0) {
+                  secureBookmarkStore.ensureGroupMetadata(groupKey = resolved, metadata = meta)
+                }
+                resolved
+              }
+            } else {
               if (linked != null) {
                 if (meta != null && playbackBookmarkDao.countInGroup(linked) > 0) {
                   app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
@@ -1224,28 +1290,29 @@ class PlayerViewModel(
             }
           }
         }
-      }.distinctUntilChanged()
+      }
+    }.distinctUntilChanged()
       .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-  /** True while the loaded file is held by the Secure Folder; every bookmark surface scopes to it. */
-  val isCurrentMediaSecure: StateFlow<Boolean> =
-    PlaybackSession.state
-      .map { state ->
-        val item = state.currentItem
-        item != null &&
-          (app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(item.originalUri) ||
-            app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(item.playableUri))
-      }.distinctUntilChanged()
-      .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val playbackBookmarks: StateFlow<List<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity>> =
-    bookmarkMediaId.flatMapLatest { mediaId ->
-      if (mediaId == null) flowOf(emptyList()) else playbackBookmarkDao.observe(mediaId).onStart { emit(emptyList()) }
+    combine(
+      bookmarkMediaId,
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { mediaId, isSecure, unlocked ->
+      Triple(mediaId, isSecure, unlocked)
+    }.flatMapLatest { (mediaId, isSecure, unlocked) ->
+      when {
+        mediaId == null -> flowOf(emptyList())
+        isSecure && !unlocked -> flowOf(emptyList())
+        isSecure -> secureBookmarkStore.observe(mediaId).onStart { emit(emptyList()) }
+        else -> playbackBookmarkDao.observe(mediaId).onStart { emit(emptyList()) }
+      }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   /** Media whose replay target has already been written this session. */
-  private val recordedBookmarkMediaRefs = mutableSetOf<String>()
+  private val recordedBookmarkMediaRefs = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
   /**
    * Bookmarks made before the gallery existed have no replay row, so record the current media as
@@ -1255,24 +1322,45 @@ class PlayerViewModel(
     viewModelScope.launch {
       playbackBookmarks.collect { bookmarks ->
         val mediaId = bookmarks.firstOrNull()?.mediaId ?: return@collect
-        // Without a current item there is no URI to record; leave the media unmarked so the next
-        // emission (once playback is ready) can still backfill it.
-        if (PlaybackSession.state.value.currentItem == null) return@collect
-        if (recordedBookmarkMediaRefs.add(mediaId)) recordBookmarkMediaRef(mediaId)
+        val item = PlaybackSession.state.value.currentItem ?: return@collect
+        val secure = isItemSecure(item) || isCurrentMediaSecure.value
+        val key = "${if (secure) "s" else "p"}:$mediaId"
+        if (recordedBookmarkMediaRefs.add(key)) recordBookmarkMediaRef(mediaId)
       }
     }
   }
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val activeBookmarkGroup: StateFlow<app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity?> =
-    bookmarkMediaId.flatMapLatest { groupKey ->
-      if (groupKey == null) flowOf(null) else playbackBookmarkDao.observeGroup(groupKey).onStart { emit(null) }
+    combine(
+      bookmarkMediaId,
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { groupKey, isSecure, unlocked ->
+      Triple(groupKey, isSecure, unlocked)
+    }.flatMapLatest { (groupKey, isSecure, unlocked) ->
+      when {
+        groupKey == null -> flowOf(null)
+        isSecure && !unlocked -> flowOf(null)
+        isSecure -> secureBookmarkStore.observeGroup(groupKey).onStart { emit(null) }
+        else -> playbackBookmarkDao.observeGroup(groupKey).onStart { emit(null) }
+      }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val savedBookmarkPresets: StateFlow<List<app.gyrolet.mpvrx.database.dao.BookmarkGroupSummary>> =
-    playbackBookmarkDao
-      .observePresetSummaries()
-      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    combine(
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { isSecure, unlocked ->
+      isSecure to unlocked
+    }.flatMapLatest { (isSecure, unlocked) ->
+      when {
+        isSecure && !unlocked -> flowOf(emptyList())
+        isSecure -> secureBookmarkStore.observePresetSummaries()
+        else -> playbackBookmarkDao.observePresetSummaries()
+      }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   /**
    * Chapters that come from the media itself: mpv's chapter list, or the book's own track
@@ -2497,31 +2585,61 @@ fun restartFromBeginning() {
     )
   }
 
-  private fun captureAndAttachBookmarkThumbnail(bookmarkId: Long) {
+  private fun captureAndAttachBookmarkThumbnail(
+    bookmarkId: Long,
+    isSecure: Boolean,
+  ) {
     if (isAudioOnly.value) return
     viewModelScope.launch(Dispatchers.IO) {
-      val path = app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(appContext)
-        ?: return@launch
-      val updatedRows = playbackBookmarkDao.updateThumbnail(bookmarkId, path)
+      val path =
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(
+          appContext,
+          isSecure = isSecure,
+        ) ?: return@launch
+      val updatedRows =
+        if (isSecure) {
+          secureBookmarkStore.updateThumbnail(bookmarkId, path)
+        } else {
+          playbackBookmarkDao.updateThumbnail(bookmarkId, path)
+        }
       if (updatedRows == 0) {
-        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(appContext, path)
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(
+          appContext,
+          path,
+          isSecure = isSecure,
+        )
       }
     }
   }
 
   fun quickAddBookmark(): Boolean {
     val draft = buildPlaybackBookmarkDraft() ?: return false
+    val isSecure = isItemSecure(PlaybackSession.state.value.currentItem) || isCurrentMediaSecure.value
+    if (isSecure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return false
     val metaSnapshot = snapshotBookmarkMediaMetadata()
     playerUpdate.value = PlayerUpdates.BookmarkCreated()
     viewModelScope.launch(Dispatchers.IO) {
-      val insertedId = playbackBookmarkDao.add(draft)
-      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
-        dao = playbackBookmarkDao,
-        groupKey = draft.mediaId,
-        metadata = metaSnapshot,
-        forceLinkRawMediaId = true,
-      )
-      captureAndAttachBookmarkThumbnail(insertedId)
+      val insertedId =
+        if (isSecure) {
+          val id = secureBookmarkStore.add(draft)
+          secureBookmarkStore.ensureGroupMetadata(
+            groupKey = draft.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+          id
+        } else {
+          val id = playbackBookmarkDao.add(draft)
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+            dao = playbackBookmarkDao,
+            groupKey = draft.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+          id
+        }
+      recordBookmarkMediaRef(draft.mediaId)
+      captureAndAttachBookmarkThumbnail(insertedId, isSecure)
     }
     return true
   }
@@ -2530,11 +2648,9 @@ fun restartFromBeginning() {
     existing: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity? = null,
     returnSheet: Sheets = Sheets.None,
   ): Boolean {
-    val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return false
-    val mediaId = bookmarkMediaId.value ?: rawId
+    if (PlaybackSession.state.value.currentItem == null) return false
     bookmarkEditorReturnSheet = returnSheet
     if (existing != null) {
-      if (existing.mediaId != mediaId) return false
       _bookmarkDraft.value = existing
     } else {
       val draft = buildPlaybackBookmarkDraft() ?: return false
@@ -2551,8 +2667,8 @@ fun restartFromBeginning() {
   /**
    * Records the playable URI behind [mediaId] so the cross-video gallery can reopen this video.
    *
-   * The bookmark row only stores an opaque media hash; without this the gallery could show a card but
-   * would have nothing to play. Best-effort: a failure here must not fail the bookmark itself.
+   * Vault media is written exclusively to [SecureBookmarkStore]; public media is guarded so no
+   * vault path or protected URI can ever leak into public [bookmarkTagDao].
    */
   private suspend fun recordBookmarkMediaRef(mediaId: String) {
     val item = PlaybackSession.state.value.currentItem ?: return
@@ -2562,16 +2678,30 @@ fun restartFromBeginning() {
       item.originalUri.takeIf { it.isNotBlank() }
         ?: PlaybackSession.persistableSourceUri().takeIf { it.isNotBlank() }
     if (playable.isNullOrBlank()) return
+    val isSecure = isItemSecure(item) || isCurrentMediaSecure.value
+    if (
+      !isSecure &&
+      (
+        app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(playable) ||
+          app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(playable)
+      )
+    ) {
+      return
+    }
+    val ref =
+      app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity(
+        mediaId = mediaId,
+        playableUri = playable,
+        title = item.title,
+        artworkUri = item.artworkUri,
+      )
     runCatching {
       kotlinx.coroutines.withContext(Dispatchers.IO) {
-        bookmarkTagDao.upsertMediaRef(
-          app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity(
-            mediaId = mediaId,
-            playableUri = playable,
-            title = item.title,
-            artworkUri = item.artworkUri,
-          ),
-        )
+        if (isSecure) {
+          secureBookmarkStore.upsertMediaRef(ref)
+        } else {
+          bookmarkTagDao.upsertMediaRef(ref)
+        }
       }
     }
   }
@@ -2589,41 +2719,76 @@ fun restartFromBeginning() {
         .filter { it.isNotBlank() }
         .distinct()
         .take(app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.MAX_TAGS_PER_BOOKMARK)
+    val isSecure = isItemSecure(PlaybackSession.state.value.currentItem) || isCurrentMediaSecure.value
+    val currentMediaId = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
     val metaSnapshot = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
     if (bookmark.id == 0L) {
-      val insertedId = playbackBookmarkDao.add(bookmark.copy(title = resolvedTitle))
-      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
-        dao = playbackBookmarkDao,
-        groupKey = bookmark.mediaId,
-        metadata = metaSnapshot,
-        forceLinkRawMediaId = true,
-      )
+      val insertedId =
+        if (isSecure) {
+          val id = secureBookmarkStore.add(bookmark.copy(title = resolvedTitle))
+          secureBookmarkStore.ensureGroupMetadata(
+            groupKey = bookmark.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+          id
+        } else {
+          val id = playbackBookmarkDao.add(bookmark.copy(title = resolvedTitle))
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+            dao = playbackBookmarkDao,
+            groupKey = bookmark.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+          id
+        }
       if (bookmark.thumbnailPath == null) {
-        captureAndAttachBookmarkThumbnail(insertedId)
+        captureAndAttachBookmarkThumbnail(insertedId, isSecure)
       }
-      replaceBookmarkTags(insertedId, normalizedTags)
+      replaceBookmarkTags(insertedId, normalizedTags, isSecure)
       recordBookmarkMediaRef(bookmark.mediaId)
     } else {
-      playbackBookmarkDao.rename(bookmark.id, resolvedTitle)
-      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
-        dao = playbackBookmarkDao,
-        groupKey = bookmark.mediaId,
-        metadata = metaSnapshot,
-        forceLinkRawMediaId = true,
-      )
-      replaceBookmarkTags(bookmark.id, normalizedTags)
-      recordBookmarkMediaRef(bookmark.mediaId)
+      if (isSecure) {
+        secureBookmarkStore.rename(bookmark.id, resolvedTitle)
+      } else {
+        playbackBookmarkDao.rename(bookmark.id, resolvedTitle)
+      }
+      replaceBookmarkTags(bookmark.id, normalizedTags, isSecure)
+      // Only refresh group metadata & replay URI when editing a bookmark belonging to the active video;
+      // foreign bookmarks edited from Global scope must retain their own video metadata/URI.
+      if (bookmark.mediaId == currentMediaId) {
+        if (isSecure) {
+          secureBookmarkStore.ensureGroupMetadata(
+            groupKey = bookmark.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+        } else {
+          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
+            dao = playbackBookmarkDao,
+            groupKey = bookmark.mediaId,
+            metadata = metaSnapshot,
+            forceLinkRawMediaId = true,
+          )
+        }
+        recordBookmarkMediaRef(bookmark.mediaId)
+      }
     }
   }
 
   /**
-   * Rewrites one bookmark's tags and folds them into the suggestion memory.
-   *
-   * `useCount` only ever grows here, so a tag stays suggested after the bookmark that introduced it
-   * is deleted — which is what makes "remember the tags I use" hold across videos.
+   * Rewrites one bookmark's tags and folds them into the suggestion memory of the active slice.
    */
-  private suspend fun replaceBookmarkTags(bookmarkId: Long, normalizedTags: List<String>) {
+  private suspend fun replaceBookmarkTags(
+    bookmarkId: Long,
+    normalizedTags: List<String>,
+    isSecure: Boolean = isCurrentMediaSecure.value,
+  ) {
     kotlinx.coroutines.withContext(Dispatchers.IO) {
+      if (isSecure) {
+        secureBookmarkStore.replaceTags(bookmarkId, normalizedTags)
+        return@withContext
+      }
       val existing = bookmarkTagDao.tagsFor(bookmarkId)
       val alreadyPresent = existing.map { it.name }.toSet()
       bookmarkTagDao.clearForBookmark(bookmarkId)
@@ -2653,38 +2818,75 @@ fun restartFromBeginning() {
 
   suspend fun tagsForBookmark(bookmarkId: Long): List<String> =
     kotlinx.coroutines.withContext(Dispatchers.IO) {
-      bookmarkTagDao.tagsFor(bookmarkId).map { it.displayName.ifBlank { it.name } }
+      val list =
+        if (isCurrentMediaSecure.value) {
+          if (!app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) emptyList()
+          else secureBookmarkStore.tagsFor(bookmarkId)
+        } else {
+          bookmarkTagDao.tagsFor(bookmarkId)
+        }
+      list.map { it.displayName.ifBlank { it.name } }
     }
 
-  /** Every tag currently attached to any bookmark, keyed by bookmark id, for card chips. */
+  /** Every tag currently attached to any bookmark in the active slice, keyed by bookmark id. */
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val bookmarkTags: StateFlow<Map<Long, List<String>>> =
-    bookmarkTagDao
-      .observeAllPairs()
-      .map { pairs -> pairs.groupBy({ it.bookmarkId }, { it.name }) }
+    combine(
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { isSecure, unlocked ->
+      isSecure to unlocked
+    }.flatMapLatest { (isSecure, unlocked) ->
+      when {
+        isSecure && !unlocked -> flowOf(emptyList())
+        isSecure -> secureBookmarkStore.observeAllPairs()
+        else -> bookmarkTagDao.observeAllPairs()
+      }
+    }.map { pairs -> pairs.groupBy({ it.bookmarkId }, { it.name }) }
       .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-  /** Persistent tag memory, most-used first, used both to suggest while typing and to filter. */
+  /** Persistent tag memory for the active slice, used to suggest while typing and to filter. */
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
   val tagSuggestions: StateFlow<List<String>> =
-    bookmarkTagDao
-      .observeMemory()
-      .map { entries -> entries.map { it.displayName.ifBlank { it.name } } }
+    combine(
+      isCurrentMediaSecure,
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState,
+    ) { isSecure, unlocked ->
+      isSecure to unlocked
+    }.flatMapLatest { (isSecure, unlocked) ->
+      when {
+        isSecure && !unlocked -> flowOf(emptyList())
+        isSecure -> secureBookmarkStore.observeMemory()
+        else -> bookmarkTagDao.observeMemory()
+      }
+    }.map { entries -> entries.map { it.displayName.ifBlank { it.name } } }
       .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
   suspend fun deletePlaybackBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity) {
-    app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.deleteBookmarkSafely(
-      dao = playbackBookmarkDao,
-      context = appContext,
-      bookmark = bookmark,
-    )
-    bookmarkTagDao.clearForBookmark(bookmark.id)
+    if (isCurrentMediaSecure.value) {
+      secureBookmarkStore.deleteBookmarkSafely(bookmark)
+    } else {
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.deleteBookmarkSafely(
+        dao = playbackBookmarkDao,
+        context = appContext,
+        bookmark = bookmark,
+      )
+      bookmarkTagDao.clearForBookmark(bookmark.id)
+    }
     if (_bookmarkDraft.value?.id == bookmark.id) _bookmarkDraft.value = null
   }
 
   suspend fun findExistingBookmarkGroupByCode(rawCode: String): app.gyrolet.mpvrx.database.dao.BookmarkGroupSummary? =
     kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val currentGroupKey = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
+      if (isCurrentMediaSecure.value) {
+        return@withContext secureBookmarkStore.findGroupSummaryByPresetCode(
+          rawCode = rawCode,
+          excludeGroupKey = currentGroupKey,
+        )
+      }
       val normalized = app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizePresetCode(rawCode)
       if (normalized.isBlank()) return@withContext null
-      val currentGroupKey = bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
       val found = playbackBookmarkDao.findGroupByPresetCode(normalized) ?: return@withContext null
       if (found.groupKey == currentGroupKey) return@withContext null
       val count = playbackBookmarkDao.countInGroup(found.groupKey)
@@ -2709,12 +2911,16 @@ fun restartFromBeginning() {
       val rawId = rawBookmarkMediaId(PlaybackSession.state.value.currentItem) ?: return@withContext null
       val groupKey = bookmarkMediaId.value ?: rawId
       val meta = snapshotBookmarkMediaMetadata()
-      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.assignPresetCode(
-        dao = playbackBookmarkDao,
-        groupKey = groupKey,
-        rawCode = rawCode,
-        metadata = meta,
-      )
+      if (isCurrentMediaSecure.value) {
+        secureBookmarkStore.assignPresetCode(groupKey = groupKey, rawCode = rawCode, metadata = meta)
+      } else {
+        app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.assignPresetCode(
+          dao = playbackBookmarkDao,
+          groupKey = groupKey,
+          rawCode = rawCode,
+          metadata = meta,
+        )
+      }
     }
 
   suspend fun loadBookmarkGroup(sourceGroupKey: String): app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupLoadResult {
@@ -2722,13 +2928,22 @@ fun restartFromBeginning() {
       ?: return app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupLoadResult.AlreadyActive
     val currentGroupKey = bookmarkMediaId.value ?: rawId
     val meta = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
-    return app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.loadGroupIntoCurrent(
-      dao = playbackBookmarkDao,
-      rawMediaId = rawId,
-      currentGroupKey = currentGroupKey,
-      sourceGroupKey = sourceGroupKey,
-      metadata = meta,
-    )
+    return if (isCurrentMediaSecure.value) {
+      secureBookmarkStore.loadGroupIntoCurrent(
+        rawMediaId = rawId,
+        currentGroupKey = currentGroupKey,
+        sourceGroupKey = sourceGroupKey,
+        metadata = meta,
+      )
+    } else {
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.loadGroupIntoCurrent(
+        dao = playbackBookmarkDao,
+        rawMediaId = rawId,
+        currentGroupKey = currentGroupKey,
+        sourceGroupKey = sourceGroupKey,
+        metadata = meta,
+      )
+    }
   }
 
   suspend fun exportBookmarkPreset(uri: Uri): Result<Int> =
@@ -2748,13 +2963,21 @@ fun restartFromBeginning() {
       ?: return Result.failure(IllegalStateException("No active media"))
     val groupKey = bookmarkMediaId.value ?: rawId
     val meta = kotlinx.coroutines.withContext(Dispatchers.IO) { snapshotBookmarkMediaMetadata() }
-    return app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.importArchiveIntoCurrent(
-      dao = playbackBookmarkDao,
-      context = appContext,
-      uri = uri,
-      groupKey = groupKey,
-      metadata = meta,
-    )
+    return if (isCurrentMediaSecure.value) {
+      secureBookmarkStore.importArchiveIntoCurrent(
+        uri = uri,
+        groupKey = groupKey,
+        metadata = meta,
+      )
+    } else {
+      app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.importArchiveIntoCurrent(
+        dao = playbackBookmarkDao,
+        context = appContext,
+        uri = uri,
+        groupKey = groupKey,
+        metadata = meta,
+      )
+    }
   }
 
   fun suggestedBookmarkPresetFilename(): String {
@@ -2777,24 +3000,32 @@ fun restartFromBeginning() {
   }
 
   /**
-   * Opens [bookmark] from any scope. The current video seeks in place; a foreign row resolves its
-   * replay URI and starts that video at the saved timestamp through MediaUtils, which keeps Secure
-   * Folder targets behind the PIN gate.
+   * Opens [bookmark] from any scope within the active database slice (public or Secure Vault).
+   * The current video seeks in place; a foreign row resolves its replay URI and launches from
+   * [activityContext] so Activity launches do not crash due to missing `FLAG_ACTIVITY_NEW_TASK`.
    */
-  suspend fun openBookmark(bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity): Boolean {
+  suspend fun openBookmark(
+    bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity,
+    activityContext: Context = appContext,
+  ): Boolean {
     val currentMediaId =
       bookmarkMediaId.value ?: rawBookmarkMediaId(PlaybackSession.state.value.currentItem)
     if (bookmark.mediaId == currentMediaId) return seekToBookmark(bookmark)
+    val isSecure = isCurrentMediaSecure.value
+    if (isSecure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return false
     val ref =
       kotlinx.coroutines.withContext(Dispatchers.IO) {
-        runCatching { bookmarkTagDao.mediaRef(bookmark.mediaId) }.getOrNull()
+        runCatching {
+          if (isSecure) secureBookmarkStore.mediaRef(bookmark.mediaId)
+          else bookmarkTagDao.mediaRef(bookmark.mediaId)
+        }.getOrNull()
       }
     val target = ref?.playableUri?.takeIf { it.isNotBlank() } ?: return false
     kotlinx.coroutines.withContext(Dispatchers.Main) {
       app.gyrolet.mpvrx.utils.media.MediaUtils.playFile(
         source = target,
-        context = appContext,
-        launchSource = "bookmark_gallery",
+        context = activityContext,
+        launchSource = if (isSecure) "secure_folder" else "bookmark_gallery",
         title = ref.title ?: bookmark.title,
         startPositionSeconds = bookmarkPositionMs(bookmark) / 1000.0,
       )

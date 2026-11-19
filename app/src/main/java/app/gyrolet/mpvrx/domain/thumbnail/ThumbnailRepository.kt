@@ -102,8 +102,52 @@ class ThumbnailRepository(
   }
 
   private val memoryCache = BitmapMemoryCache<String>(heapDivisor = 8, maxSizeMiB = 48)
-  private val localDiskDir = File(context.filesDir, "thumbnails/local").apply { mkdirs() }
-  private val networkDiskDir = File(context.filesDir, "thumbnails/network").apply { mkdirs() }
+  private val secureMemoryCache = BitmapMemoryCache<String>(heapDivisor = 12, maxSizeMiB = 16)
+  private val localDiskDir: File
+    get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalThumbnailCacheLocalDir(context)
+  private val networkDiskDir: File
+    get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalThumbnailCacheNetworkDir(context)
+  private val secureDiskDir: File
+    get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.secureThumbnailCacheDir(context)
+
+  init {
+    app.gyrolet.mpvrx.domain.secure.SecureFolderSession.registerOnLockListener(::evictSecureMemoryCache)
+  }
+
+  fun evictSecureMemoryCache() {
+    synchronized(secureMemoryCache) { secureMemoryCache.evictAll() }
+  }
+
+  fun clearSecureThumbnailCache() {
+    diskCacheLock.write {
+      evictSecureMemoryCache()
+      secureDiskDir.listFiles()?.forEach { file ->
+        if (file.isFile && !file.name.equals(".nomedia", ignoreCase = true)) {
+          runCatching { file.delete() }
+        }
+      }
+    }
+  }
+
+  private fun isSecureVideo(path: String): Boolean =
+    app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry.isProtectedReference(path) ||
+      app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(path)
+
+  private fun isEncryptedLocalFile(path: String): Boolean =
+    path.isNotBlank() && !path.contains("://") &&
+      app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedFile(File(path))
+
+  private fun readFromMemoryCache(key: String, secure: Boolean): Bitmap? {
+    if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return null
+    val cache = if (secure) secureMemoryCache else memoryCache
+    return synchronized(cache) { cache.get(key) }
+  }
+
+  private fun writeToMemoryCache(key: String, bitmap: Bitmap, secure: Boolean) {
+    if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return
+    val cache = if (secure) secureMemoryCache else memoryCache
+    synchronized(cache) { cache.put(key, bitmap) }
+  }
   private val diskCacheLock = ReentrantReadWriteLock()
   private val _cacheRevision = MutableStateFlow(0L)
   val cacheRevision = _cacheRevision.asStateFlow()
@@ -171,13 +215,16 @@ class ThumbnailRepository(
       val key = thumbnailKey(video, widthPx, heightPx, generator)
       val operationKey = "$key|revision:$revision"
 
+      val secure = isSecureVideo(video.path)
+      if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+        return@withContext null
+      }
+
       if (isNetworkUrl(video.path) && !isNetworkThumbnailAllowed(video.path)) {
         return@withContext null
       }
 
-      synchronized(memoryCache) {
-        memoryCache.get(key)
-      }?.let { return@withContext it }
+      readFromMemoryCache(key, secure)?.let { return@withContext it }
 
       ongoingOperations[operationKey]?.let { return@withContext it.await() }
 
@@ -187,7 +234,7 @@ class ThumbnailRepository(
           getCachedThumbnail(video, widthPx, heightPx, generator)?.let { cached ->
             diskCacheLock.read {
               if (revision != cacheRevision.value) return@async null
-              synchronized(memoryCache) { memoryCache.put(key, cached) }
+              writeToMemoryCache(key, cached, secure)
             }
             _thumbnailReadyKeys.tryEmit(key)
             return@async cached
@@ -229,12 +276,12 @@ class ThumbnailRepository(
             synchronized(localThumbnailFailedAt) { localThumbnailFailedAt.remove(localFailureKey) }
           }
           // Audio art is generated at its cache tier; store that before scaling to this request.
-          writeBitmapToDisk(diskKey, generated, isNetworkUrl(video.path), revision)
+          writeBitmapToDisk(diskKey, generated, isNetworkUrl(video.path), revision, secure = secure)
           val bitmap = scaleBitmap(generated, widthPx, heightPx)
           bitmap.prepareToDraw()
           diskCacheLock.read {
             if (revision != cacheRevision.value) return@async null
-            synchronized(memoryCache) { memoryCache.put(key, bitmap) }
+            writeToMemoryCache(key, bitmap, secure)
           }
           _thumbnailReadyKeys.tryEmit(key)
           bitmap
@@ -274,21 +321,24 @@ class ThumbnailRepository(
           return@withPermit null
         }
 
+        val secure = isSecureVideo(video.path)
+        if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+          return@withPermit null
+        }
+
         // Recheck after acquiring a permit: another request may have populated memory meanwhile.
         val key = thumbnailKey(video, widthPx, heightPx, generator)
-        synchronized(memoryCache) {
-          memoryCache.get(key)
-        }?.let { return@withPermit it }
+        readFromMemoryCache(key, secure)?.let { return@withPermit it }
 
         val isNetwork = isNetworkUrl(video.path)
         val artworkTier = audioArtworkTier(video, widthPx, heightPx)
         val fullColor = artworkTier > 0
-        var decoded = readBitmapFromDisk(diskCacheKey(video, generator, artworkTier), isNetwork, widthPx, heightPx, fullColor)
+        var decoded = readBitmapFromDisk(diskCacheKey(video, generator, artworkTier), isNetwork, widthPx, heightPx, fullColor, secure = secure)
         if (decoded == null && !isNetwork) {
           if (video.duration > 0L) {
             decoded =
               readBitmapFromDisk(
-                diskCacheKey(video.copy(duration = 0L), generator, artworkTier), false, widthPx, heightPx, fullColor,
+                diskCacheKey(video.copy(duration = 0L), generator, artworkTier), false, widthPx, heightPx, fullColor, secure = secure,
               )
           } else {
             val canonical = canonicalLocalPath(video)
@@ -296,7 +346,7 @@ class ThumbnailRepository(
             if (resolvedDur > 0L) {
               decoded =
                 readBitmapFromDisk(
-                  diskCacheKey(video.copy(duration = resolvedDur), generator, artworkTier), false, widthPx, heightPx, fullColor,
+                  diskCacheKey(video.copy(duration = resolvedDur), generator, artworkTier), false, widthPx, heightPx, fullColor, secure = secure,
                 )
             }
           }
@@ -308,7 +358,7 @@ class ThumbnailRepository(
         scaled.prepareToDraw()
         diskCacheLock.read {
           if (revision != cacheRevision.value) return@withPermit null
-          synchronized(memoryCache) { memoryCache.put(key, scaled) }
+          writeToMemoryCache(key, scaled, secure)
         }
         scaled
       }
@@ -347,22 +397,31 @@ class ThumbnailRepository(
       if (network) diskKeys += networkThumbnailDiskKey(networkThumbnailIdentity(video.path, null))
       val bases = identities.map { "${videoBaseKey(it)}|" }
       val suffix = "|${thumbnailModeKey()}|${thumbnailQualityKey()}" + thumbnailGeneratorCacheKey(video, generator)
-      val memoryBitmap = synchronized(memoryCache) {
-        memoryCache.snapshot().entries.firstOrNull { (key, bitmap) ->
+      val secure = isSecureVideo(video.path)
+      val memCache = if (secure) secureMemoryCache else memoryCache
+      val memoryBitmap = synchronized(memCache) {
+        memCache.snapshot().entries.firstOrNull { (key, bitmap) ->
           !bitmap.isRecycled && bases.any { base -> key.startsWith(base) } && key.endsWith(suffix)
         }?.value
       }
       val diskEntry = diskCacheLock.read {
+        val dir = if (secure) secureDiskDir else if (network) networkDiskDir else localDiskDir
         val entries = diskKeys.distinct().mapNotNull { key ->
-          val file = File(if (network) networkDiskDir else localDiskDir, keyToFileName(key))
-          if (!file.isFile) return@mapNotNull null
+          val file =
+            File(dir, keyToEncryptedFileName(key)).takeIf { it.isFile }
+              ?: File(dir, keyToFileName(key)).takeIf { it.isFile }
+              ?: return@mapNotNull null
           val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-          runCatching { BitmapFactory.decodeFile(file.absolutePath, bounds) }
+          runCatching {
+            app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+            val plain = app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(file.readBytes())
+            BitmapFactory.decodeByteArray(plain, 0, plain.size, bounds)
+          }
           Triple(key, file, bounds)
         }
         entries.firstOrNull { (_, _, bounds) -> bounds.outWidth > 0 && bounds.outHeight > 0 } ?: entries.firstOrNull()
       }
-      val diskPreview = diskEntry?.let { (key, _, _) -> readBitmapFromDisk(key, network) }
+      val diskPreview = diskEntry?.let { (key, _, _) -> readBitmapFromDisk(key, network, secure = secure) }
       val preview = diskPreview ?: memoryBitmap
       val bounds = diskEntry?.third
       val file = diskEntry?.second
@@ -389,14 +448,16 @@ class ThumbnailRepository(
     widthPx: Int,
     heightPx: Int,
   ): Bitmap? {
+    val secure = isSecureVideo(video.path)
+    if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+      return null
+    }
     if (isNetworkUrl(video.path) && !isNetworkThumbnailAllowed(video.path)) {
       return null
     }
 
     val key = thumbnailKey(video, widthPx, heightPx)
-    return synchronized(memoryCache) {
-      memoryCache.get(key)
-    }
+    return readFromMemoryCache(key, secure)
   }
 
   /** Publish the new generator only after the old cache has been removed. */
@@ -426,6 +487,8 @@ class ThumbnailRepository(
 
     try {
       listOf(
+        localDiskDir,
+        networkDiskDir,
         File(context.cacheDir, "thumbnails"),
         File(context.filesDir, "thumbnails"),
         File(context.cacheDir, "remote_images"),
@@ -557,10 +620,10 @@ class ThumbnailRepository(
     widthPx: Int,
     heightPx: Int,
   ): Bitmap? {
+    val secure = isSecureVideo(video.path)
+    if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return null
     val key = resolvedThumbnailKeys.get(peekIdentity(video, widthPx, heightPx)) ?: return null
-    return synchronized(memoryCache) {
-      memoryCache.get(key)
-    }
+    return readFromMemoryCache(key, secure)
   }
 
   private fun peekIdentity(
@@ -664,7 +727,7 @@ class ThumbnailRepository(
 
     val file = if (!source.contains("://")) File(source) else null
     if (file != null && file.exists()) {
-      if (size <= 0L) size = file.length()
+      if (size <= 0L) size = app.gyrolet.mpvrx.domain.secure.VaultCrypto.plaintextLength(file)
       if (dateModified <= 0L) dateModified = file.lastModified() / 1000L
     }
 
@@ -713,11 +776,13 @@ class ThumbnailRepository(
   private fun extractDurationFallback(video: Video): Long =
     runCatching {
       val retriever = MediaMetadataRetriever()
+      var vaultSource: java.io.Closeable? = null
       try {
-        setLocalDataSource(retriever, video)
+        vaultSource = setLocalDataSource(retriever, video)
         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
       } finally {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) retriever.close() else retriever.release()
+        runCatching { vaultSource?.close() }
       }
     }.getOrDefault(0L)
 
@@ -774,7 +839,8 @@ class ThumbnailRepository(
     fun fitRequest(bitmap: Bitmap): Bitmap =
       if (artworkTier > 0) bitmap.scaleToThumbnailMax(artworkTier) else scaleBitmap(bitmap, widthPx, heightPx)
 
-    if (generator != ThumbnailGenerator.Native) {
+    val skipMediaStoreAndNativeFast = isSecureVideo(video.path) || isEncryptedLocalFile(canonicalPath)
+    if (!skipMediaStoreAndNativeFast && generator != ThumbnailGenerator.Native) {
       // Auto asks MediaStore first for every local source, including hidden/.nomedia folders
       // and granted document URIs. An unindexed file follows the same native fallback below.
       MediaStoreThumbnailLoader.load(context, video, canonicalPath, dimension, isAudio)?.let {
@@ -782,6 +848,9 @@ class ThumbnailRepository(
       }
       // Explicit MediaStore mode stays Android-only; only Auto falls back to native extraction.
       if (generator == ThumbnailGenerator.MediaStore) return null
+      currentCoroutineContext().ensureActive()
+    } else if (skipMediaStoreAndNativeFast && generator == ThumbnailGenerator.MediaStore) {
+      // Encrypted vault media is never indexed by MediaStore; allow framework fallback.
       currentCoroutineContext().ensureActive()
     }
 
@@ -792,8 +861,10 @@ class ThumbnailRepository(
       }
     }
 
-    generateWithFastThumbnails(video, mode, dimension)?.let {
-      return scaleBitmap(it, widthPx, heightPx)
+    if (!skipMediaStoreAndNativeFast) {
+      generateWithFastThumbnails(video, mode, dimension)?.let {
+        return scaleBitmap(it, widthPx, heightPx)
+      }
     }
 
     return extractLocalVideoFrame(video, widthPx, heightPx)
@@ -806,13 +877,15 @@ class ThumbnailRepository(
     val retrieverArtwork =
       runCatching {
         val retriever = MediaMetadataRetriever()
+        var vaultSource: java.io.Closeable? = null
         try {
-          setLocalDataSource(retriever, video)
+          vaultSource = setLocalDataSource(retriever, video)
           EmbeddedArtworkResolver.decodeRetrieverArtwork(retriever)
         } finally {
           runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) retriever.close() else retriever.release()
           }
+          runCatching { vaultSource?.close() }
         }
       }.getOrNull()
     return (
@@ -923,8 +996,9 @@ class ThumbnailRepository(
   ): Bitmap? =
     runCatching {
       val retriever = MediaMetadataRetriever()
+      var vaultSource: java.io.Closeable? = null
       try {
-        setLocalDataSource(retriever, video)
+        vaultSource = setLocalDataSource(retriever, video)
         extractFrameWithStrategy(
           retriever = retriever,
           strategy =
@@ -937,6 +1011,7 @@ class ThumbnailRepository(
         )
       } finally {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) retriever.close() else retriever.release()
+        runCatching { vaultSource?.close() }
       }
     }.getOrNull()
 
@@ -976,8 +1051,22 @@ class ThumbnailRepository(
   private fun setLocalDataSource(
     retriever: MediaMetadataRetriever,
     video: Video,
-  ) {
+  ): java.io.Closeable? {
     val canonicalPath = canonicalLocalPath(video)
+    val localCandidate =
+      when {
+        canonicalPath.isNotBlank() && !canonicalPath.contains("://") && File(canonicalPath).exists() ->
+          File(canonicalPath)
+        video.path.isNotBlank() && !video.path.contains("://") && File(video.path).exists() ->
+          File(video.path)
+        else -> null
+      }
+    if (localCandidate != null && app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedFile(localCandidate)) {
+      app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+      val dataSource = app.gyrolet.mpvrx.domain.secure.VaultMediaDataSource(localCandidate)
+      retriever.setDataSource(dataSource)
+      return dataSource
+    }
     when {
       app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content" ->
         retriever.setDataSource(context, video.uri)
@@ -986,6 +1075,7 @@ class ThumbnailRepository(
       video.path.isNotBlank() && !video.path.contains("://") -> retriever.setDataSource(video.path)
       else -> retriever.setDataSource(context, video.uri)
     }
+    return null
   }
 
   private fun readBitmapFromDisk(
@@ -994,16 +1084,27 @@ class ThumbnailRepository(
     widthPx: Int = 0,
     heightPx: Int = 0,
     fullColor: Boolean = false,
+    secure: Boolean = false,
   ): Bitmap? =
     diskCacheLock.read {
-      val file = File(if (network) networkDiskDir else localDiskDir, keyToFileName(key))
-      if (!file.isFile) return@read null
+      if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) {
+        return@read null
+      }
+      val dir = if (secure) secureDiskDir else if (network) networkDiskDir else localDiskDir
+      val file =
+        File(dir, keyToEncryptedFileName(key)).takeIf { it.isFile }
+          ?: File(dir, keyToFileName(key)).takeIf { it.isFile }
+          ?: return@read null
 
       runCatching {
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+        val plain = app.gyrolet.mpvrx.domain.secure.VaultCrypto.decryptBytes(file.readBytes())
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        BitmapFactory.decodeFile(
-          file.absolutePath,
+        BitmapFactory.decodeByteArray(plain, 0, plain.size, bounds)
+        BitmapFactory.decodeByteArray(
+          plain,
+          0,
+          plain.size,
           BitmapFactory.Options().apply {
             inSampleSize = calculateThumbnailSampleSize(bounds.outWidth, bounds.outHeight, thumbnailMaxSize(), widthPx, heightPx)
             // RGB_565 bands the gradients common in cover art; video frames tolerate it.
@@ -1018,8 +1119,11 @@ class ThumbnailRepository(
     bitmap: Bitmap,
     network: Boolean,
     revision: Long,
+    secure: Boolean = false,
   ) {
-    val file = File(if (network) networkDiskDir else localDiskDir, keyToFileName(key))
+    val dir = if (secure) secureDiskDir else if (network) networkDiskDir else localDiskDir
+    val file = File(dir, keyToEncryptedFileName(key))
+    val tempFile = File(file.path + ".tmp")
     val encoded =
       runCatching {
         ByteArrayOutputStream().use { buffer ->
@@ -1030,16 +1134,30 @@ class ThumbnailRepository(
           }
         }
       }.getOrNull() ?: return
+    app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+    val encrypted = app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(encoded)
 
     diskCacheLock.write {
       if (revision != cacheRevision.value) return@write
       runCatching {
-        FileOutputStream(file).use { output ->
-          output.write(encoded)
+        FileOutputStream(tempFile).use { output ->
+          output.write(encrypted)
+          output.flush()
+          output.fd.sync()
         }
+        if (file.exists()) file.delete()
+        if (!tempFile.renameTo(file)) tempFile.delete()
+      }.onFailure {
+        runCatching { tempFile.delete() }
       }
     }
   }
+
+  private fun keyToEncryptedFileName(key: String): String =
+    MessageDigest
+      .getInstance("SHA-256")
+      .digest(key.toByteArray())
+      .toLowerHex() + ".dat"
 
   private fun keyToFileName(key: String): String =
     MessageDigest

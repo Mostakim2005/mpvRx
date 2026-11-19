@@ -137,33 +137,36 @@ sequenceDiagram
 ---
 
 ### [SUBSYSTEM: Natural-Scroll-Gallery] | Aliases: bookmark gallery, vertical scroll grid, tag filter
-> **1-Line Summary:** Fullscreen modal browsing all library bookmarks with natural vertical scrolling (`LazyVerticalGrid`), `This video` / `All videos` / `Secure videos` scope, autocomplete tag search, and orientation column caps (max 3 portrait, max 4 landscape).
-* **How It Works (Plain English):** Smooth vertical `LazyVerticalGrid`. Top area provides a search bar with clickable autocomplete tag pills directly underneath. Columns are capped at 3 in portrait and 4 in landscape. Cards are 16:9 with gradient labels.
-  * **Scope:** `All videos` and `Secure videos` are always offered; when the caller passes `currentMediaId`, `This video` joins them. The player's bookmark button opens the gallery with the current media id and, for protected playback, `secureOnly = true`.
-  * **Secure classification:** `BookmarkGalleryRepository` treats a bookmark as secure when **any** identity form of a vault file matches, or when the bookmark's `mediaId` belongs to the link group of a secure id. Comparing only the row's stored `mediaId` let a file moved into the vault keep its old public key, so the bookmark stayed public and vanished from secure.
+> **1-Line Summary:** Fullscreen modal browsing library bookmarks with natural vertical scrolling (`LazyVerticalGrid`), hard-segregated public (`All videos`) vs vault (`Secure videos`) slices, dual video-and-bookmark card labels, autocomplete tag search, and orientation column caps (max 3 portrait, max 4 landscape).
+* **How It Works (Plain English):** Smooth vertical `LazyVerticalGrid`. Top area provides a search bar with clickable autocomplete tag pills directly underneath. Columns are capped at 3 in portrait and 4 in landscape. Cards are 16:9 with gradient labels showing `"<VideoName> · <BookmarkTitle>"` in Global scope.
+  * **Hard Segregation:** The public gallery (`secureOnly = false`) offers `This video` and `All videos` only — the `Secure videos` pill is completely removed from the normal browser and normal player so vault bookmarks never appear outside the unlocked Secure Folder. When opened from `SecureFolderScreen` or a Secure Folder video (`secureOnly = true`), the gallery is locked to `Secure videos` (and `This video`) and auto-closes if `SecureFolderSession.unlockedState` transitions to `false`.
+  * **Physical Database Separation:** `BookmarkGalleryRepository` reads `BookmarkGalleryScope.AllVideos` strictly from `MpvRxDatabase` (`.store/library.dat`) and `BookmarkGalleryScope.SecureVideos` strictly from `SecureBookmarkStore` (`SecureVaultDatabase` at `.vault/v_idx.dat`, gated on `SecureFolderSession.unlockedState`).
 * **Data Flow Diagram:**
 ```mermaid
 sequenceDiagram
     participant User
     participant Gallery as BookmarkGalleryScreen
     participant Repo as BookmarkGalleryRepository
-    participant Sec as SecureMediaRegistry
-    participant DB as Room PlaybackBookmarkDao
+    participant PubDB as MpvRxDatabase (.store/library.dat)
+    participant SecStore as SecureBookmarkStore (.vault/v_idx.dat)
 
-    User->>Gallery: Opens Gallery Modal & Selects Tag
-    Gallery->>Repo: observeGalleryItems(scope, tags, currentMediaId)
-    Repo->>DB: observeGallery() + observeAllLinks()
-    DB-->>Repo: bookmark rows + bookmark_media_links rows
-    Repo->>Sec: identitiesForPath(vault file)
-    Sec-->>Repo: every identity form of each vault file
-    Repo->>Repo: secureKeys = those identities + their link group keys
-    Repo-->>Gallery: scope-filtered list of BookmarkGalleryItem
-    Gallery->>User: Displays natural vertically-scrollable grid
+    User->>Gallery: Opens Gallery Modal (secureOnly = false or true)
+    Gallery->>Repo: observeItems(scope) + observeFilterTags(scope)
+    alt BookmarkGalleryScope.AllVideos
+        Repo->>PubDB: observeGallery() + observeAllPairs() + observeMediaRefs()
+        PubDB-->>Repo: Public bookmark rows + tags + replay URIs
+    else BookmarkGalleryScope.SecureVideos (requires SecureFolderSession.unlockedState == true)
+        Repo->>SecStore: observeGalleryItems() + observeFilterTags()
+        SecStore-->>Repo: Decrypted MVX1 vault bookmarks + tags + replay URIs
+    end
+    Repo-->>Gallery: Segregated BookmarkGalleryItem list
+    Gallery->>User: Displays 16:9 cards with dual Video · Bookmark titles
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryScreen`, `resolveColumnCount`, `onlyCurrentVideo`, `currentMediaId`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `secureIds`, `secureKeys`, `observeAllLinks`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` -> `observeAllLinks`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryScreen`, `BookmarkGalleryOverlay`, `BookmarkGalleryContent`, `onlyCurrentVideo`, `initialOnlyCurrentVideo`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` -> `observeItems`, `observeFilterTags`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/SecureBookmarkStore.kt` -> `observeGalleryItems`, `migrateMediaToVault`, `migrateMediaToPublic`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `formatGlobalBookmarkTitle`, `BookmarkSplitPanel`
 
 ---
 
@@ -207,45 +210,49 @@ sequenceDiagram
 
 ---
 
-### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry
-> **1-Line Summary:** Quarantines private media from history, stats and the public bookmark slice, prompts with the app-owned Secure Folder PIN (never the phone lock screen), and keeps vault media on durable storage under `Documents/mpvRx/vault/`.
+### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry, mvx1 encryption, vault streaming proxy
+> **1-Line Summary:** Hard-segregates Secure Folder media, bookmarks, thumbnails, playback states, metadata cache, watch stats, and PIN config into an AES-128-CTR (`MVX1`) encrypted vault under `Documents/mpvRx/.vault/` with loopback range streaming (`VaultStreamingProxy`) and a 30-second background grace lock.
 * **How It Works (Plain English):**
-  * `SecureMediaRegistry` caches private paths in memory and exposes `identitiesForPath()`, which returns all three identity forms (local path, `forUri(path)` and `forUri("file://…")`). History and stats query `isProtectedReference()` synchronously; the bookmark gallery compares the whole link group so a moved file cannot straddle the two slices.
-  * Starting any private URI routes through `SecureUnlockActivity`, whose playback gate renders the app's own PIN entry (`SecurePinPrompt`) and verifies `SecureFolderPreferences.verifyPin()`. It never calls `BiometricPrompt` with `DEVICE_CREDENTIAL`, so the phone's pattern/password cannot appear on the way from the vault to the player.
-  * `SecureFolderSession` records one unlock for the app session: entering the folder satisfies the playback gate, and `App.onActivityStopped` clears the token when the app is backgrounded.
-  * Vault files live in `<DurableRoot>/vault/`, thumbnails in `<DurableRoot>/thumbnails/`, and the live database in `<DurableRoot>/database/`. A `.nomedia` marker blocks the Android media scanner from indexing the root.
-  * The PIN salt/hash is deliberately app-private, so it does **not** survive uninstall. After a reinstall the durable database, vault and thumbnails are already on disk, and the user sets a new PIN to re-open the vault.
+  * **Hardware-Accelerated `MVX1` Encryption (`VaultCrypto`):** Every vault media file (`.vault/media/<uuid>.dat`), thumbnail (`.vault/thumbs/*.dat`, `.vault/thumb_cache/*.dat`, `.store/thumbs/*.dat`, `.store/thumb_cache/*.dat`), watch-stats snapshot (`watch_stats.mvx`, `v_stats.mvx`), durable settings mirror (`settings.mvx`, `v_cfg.mvx`), and sensitive SQLite text column in `SecureVaultDatabase` (`v_idx.dat`) is encrypted with AES-128-CTR (`MVX1` 32-byte header carrying a 16-byte random IV and 64-bit plaintext length). A 128-bit master key is wrapped with PBKDF2-HMAC-SHA256 + HMAC integrity tag inside `.vault/.vkey` (avoiding `AndroidKeyStore`, which wipes on Clear Data or app uninstall).
+  * **Zero-Copy Seekable Playback & Probing:** `libmpv` streams encrypted vault videos via `VaultStreamingProxy` (`127.0.0.1` NanoHTTPD server computing `baseIv + (byteOffset / 16)` in $O(1)$ per HTTP `Range` request, gated on `SecureFolderSession.isUnlocked`). Android `MediaMetadataRetriever` and `MediaExtractor` read encrypted files in-memory via `VaultMediaDataSource` (`MediaDataSource`).
+  * **Hard Database Segregation:** Normal media uses `MpvRxDatabase` (`.store/library.dat`); Secure Folder media uses `SecureVaultDatabase` (`.vault/v_idx.dat`) and `SecureBookmarkStore`. Moving files into or out of the Secure Folder (`SecureFolderRepository.moveIn` / `restore`) atomically migrates bookmarks, tags, groups, thumbnails, and playback resume states across the two databases.
+  * **Session Grace Lock & Single PIN Prompt:** `SecureFolderSession` maintains `unlockedState: StateFlow<Boolean>` with a 30-second background grace timer (`BACKGROUND_LOCK_GRACE_MS = 30_000L`) and an explicit Lock button in `SecureFolderScreen`. `MediaUtils.startGuarded` skips `SecureUnlockActivity` whenever `SecureFolderSession.isUnlocked` is `true`, eliminating double PIN prompts. When locked, `VaultStreamingProxy.revokeAllActiveStreams()` and memory cache eviction run immediately, and `SecureFolderScreen`, `SecureFolderAddFilesScreen`, `BookmarkGalleryScreen(secureOnly = true)`, and `PlayerActivity` auto-lock.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureMediaRegistry.kt` -> `isProtectedReference`, `identitiesForPath`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `markUnlocked`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureUnlockActivity.kt` -> `SecurePinPrompt`, `launch`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderGateScreen.kt` -> `showBiometricPrompt` (`BIOMETRIC_STRONG` only)
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultCrypto.kt` -> `encryptBytes`, `decryptBytes`, `readDecryptedAt`, `openDecryptedRangeStream`, `hmacKey`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultStreamingProxy.kt` -> `registerVaultFile`, `revokeAllActiveStreams`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultMediaDataSource.kt` -> `VaultMediaDataSource`, `readAt`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `unlockedState`, `onAppBackgrounded`, `onAppForegrounded`, `lockNow`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/SecureVaultDatabase.kt` -> `SecureVaultDatabase`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `moveIn`, `restore`, `destroyAll`
 
 ---
 
-### [SUBSYSTEM: Zero-Bloat-Single-Folder-Direct-Hosting-Engine] | Aliases: single folder storage, zero bloat, live room db external, no duplicate backups
-> **1-Line Summary:** Points the live Room SQLite database instance directly to `<UserRoot>/database/mpvrx.db` alongside the secure vault, thumbnails, config, and media, eliminating duplicate backup file bloat.
+### [SUBSYSTEM: Zero-Bloat-Single-Folder-Direct-Hosting-Engine] | Aliases: single folder storage, zero bloat, live room db external, no duplicate backups, survive clear data
+> **1-Line Summary:** Hosts segregated live Room databases (`.store/library.dat` and `.vault/v_idx.dat`), encrypted thumbnails, watch stats, and preferences directly under `Documents/mpvRx/`, pruning internal storage copies so App Data stays tiny and 100% of user state survives Clear Data and Uninstall/Reinstall.
 * **How It Works (Plain English):**
-  * Android apps typically put their SQLite database in internal private storage (`/data/data/...`) and require an export/backup mechanism to survive uninstall.
-  * In mpvRx, the user picks a primary directory (e.g., `/sdcard/Documents/mpvRx/`). Using `Room.databaseBuilder(context, AppDatabase::class.java, File(userRoot, "database/mpvrx.db").absolutePath)`, the **live SQLite database runs directly from that external directory**.
-  * Vault files, thumbnails, configurations, music, companion videos, and `.lrc` lyrics are colocated under `<UserRoot>/`.
-  * **Result:** Zero duplicate backup files, zero storage bloat, zero danger of stale backups. Reinstalling mpvRx and pointing to this folder instantly restores 100% of state.
+  * All durable state is stored under `/storage/emulated/0/Documents/mpvRx/` split into `.store/` (normal library database `library.dat`, encrypted bookmark thumbnails `thumbs/`, encrypted video thumbnail cache `thumb_cache/`, encrypted `watch_stats.mvx`, and non-personal UI/player settings `settings.mvx`) and `.vault/` (wrapped master key `.vkey`, `SecureVaultDatabase` `v_idx.dat`, encrypted vault videos `media/<uuid>.dat`, encrypted thumbnails `thumbs/` & `thumb_cache/`, encrypted `v_stats.mvx`, and Secure Folder PIN/recovery config `v_cfg.mvx`).
+  * `DurableVaultMigration.run` performs an idempotent, verify-before-delete migration from v3.2.2 mixed directories and internal `filesDir/secure_media`, `bookmark-thumbnails`, `thumbnails`, and `databases/mpvrx.db*`, deleting internal copies once verified so Android's "App Data" footprint does not bloat with multi-GB vault media.
+  * Every mpvRx media scanner (`MediaScanOptions`, `VideoScanUtils`, `HiddenFolderDiscovery`, `FileSystemBrowserViewModel`) excludes `Documents/mpvRx` (`DurableStorageManager.isAppDurablePath`), and `.nomedia` markers are placed in every subdirectory.
+  * When launched after Clear Data or Uninstall/Reinstall, granting storage permission in `PermissionDeniedState` detects the existing durable library (`hasPreexistingDurableLibrary`) and rebinds the process to `Documents/mpvRx/`, where `DurablePreferencesSync.restoreIfNeeded` restores all settings and the Secure Folder PIN before Koin and Room open.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart TD
-    UserPickedRoot["User-Selected Storage Root (/sdcard/Documents/mpvRx/)"] --> Nomedia[".nomedia file"]
-    UserPickedRoot --> LiveDB["Live Room SQLite DB (database/mpvrx.db + WAL)"]
-    UserPickedRoot --> Vault["Vault Files (vault/, .nomedia-hidden)"]
-    UserPickedRoot --> Thumbnails["Bookmark Thumbnails (thumbnails/)"]
-    UserPickedRoot --> Config["Optional App Config (config/)"]
-    UserPickedRoot --> Media["Music, Companion Videos & Lyrics (music/, companion_videos/, lyrics/)"]
-    LiveDB --> App["mpvRx App Live Queries (Zero Backup Duplication)"]
+    Root["Durable Root (/sdcard/Documents/mpvRx/)"] --> Store[".store/ (Normal Library Slice)"]
+    Root --> Vault[".vault/ (Isolated Secure Vault Slice)"]
+    Store --> LibDB["library.dat (MpvRxDatabase)"]
+    Store --> PubThumbs["thumbs/ & thumb_cache/ (MVX1 Encrypted)"]
+    Store --> PubMeta["watch_stats.mvx & settings.mvx (MVX1 Encrypted)"]
+    Vault --> VKey[".vkey (PBKDF2-Wrapped AES-128 Key)"]
+    Vault --> VaultDB["v_idx.dat (SecureVaultDatabase)"]
+    Vault --> VaultMedia["media/<uuid>.dat (MVX1 AES-128-CTR Videos)"]
+    Vault --> VaultThumbs["thumbs/ & thumb_cache/ (MVX1 Encrypted)"]
+    Vault --> VaultMeta["v_stats.mvx & v_cfg.mvx (PIN + Vault Stats)"]
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` -> `databaseBuilder(... databasePath.absolutePath)`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `durableRoot`, `databaseFile`, `vaultDirectory`, `thumbnailsDirectory`, `prepare`, `copyMediaDirectories`
-  * `app/src/main/java/app/gyrolet/mpvrx/App.kt` -> `migrateDurableStorage` (copies legacy media, then rebases Room paths before switching new writes to the durable root)
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` -> `prepare`, `normalDatabaseFile`, `secureDatabaseFile`, `isAppDurablePath`, `isVaultPath`, `needsProcessRebindToDurableRoot`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableVaultMigration.kt` -> `run`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurablePreferencesSync.kt` -> `restoreIfNeeded`, `startObserving`, `flushNow`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/browser/states/PermissionDeniedState.kt` -> `rebindProcessToDurableRoot`
 
 ---
 

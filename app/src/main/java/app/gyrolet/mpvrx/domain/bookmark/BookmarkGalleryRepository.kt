@@ -12,11 +12,15 @@ package app.gyrolet.mpvrx.domain.bookmark
 import app.gyrolet.mpvrx.database.dao.BookmarkGalleryRow
 import app.gyrolet.mpvrx.database.dao.BookmarkTagDao
 import app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao
-import app.gyrolet.mpvrx.database.repository.SecureFolderRepository
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
 /** One gallery card: the bookmark, its media, and its tag chips. */
 data class BookmarkGalleryItem(
@@ -31,66 +35,64 @@ data class BookmarkGalleryItem(
 enum class BookmarkGalleryScope { AllVideos, SecureVideos }
 
 /**
- * Builds the cross-video bookmark gallery.
- *
- * The secure slice is resolved here rather than in SQL. A bookmark belongs to secure storage when
- * its `mediaId` is a secure identity, or when that identity was linked to the bookmark's group while
- * the file moved in or out of the vault. Without the link lookup a moved file keeps its old public
- * identity, so its row would stay in the public gallery and disappear from the secure one.
+ * Builds the cross-video bookmark gallery from strictly segregated storage:
+ * [BookmarkGalleryScope.AllVideos] reads only from [MpvRxDatabase], while
+ * [BookmarkGalleryScope.SecureVideos] reads only from [SecureBookmarkStore] ([SecureVaultDatabase])
+ * while [SecureFolderSession.unlockedState] is true.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class BookmarkGalleryRepository(
   private val bookmarkDao: PlaybackBookmarkDao,
   private val tagDao: BookmarkTagDao,
-  private val secureFolderRepository: SecureFolderRepository,
+  private val secureBookmarkStore: SecureBookmarkStore,
 ) {
-  fun observeItems(scope: BookmarkGalleryScope): Flow<List<BookmarkGalleryItem>> {
-    val scopedRows: Flow<List<BookmarkGalleryRow>> =
-      combine(
-        bookmarkDao.observeGallery(),
-        secureFolderRepository.observeAll(),
-        bookmarkDao.observeAllLinks(),
-      ) { rows, entries, links ->
-        if (entries.isEmpty()) {
-          return@combine if (scope == BookmarkGalleryScope.SecureVideos) emptyList() else rows
-        }
-        val secureIds = HashSet<String>(entries.size * 3)
-        entries.forEach { entry ->
-          secureIds += SecureMediaRegistry.identitiesForPath(entry.secureFilePath)
-        }
-        val secureKeys = HashSet<String>(secureIds.size * 2)
-        secureKeys += secureIds
-        links.forEach { link ->
-          if (link.mediaId in secureIds) secureKeys += link.groupKey
-        }
-        when (scope) {
-          // A private bookmark must never surface in the public slice, even when the bookmark was
-          // created before the file moved into the vault and still carries the old group key.
-          BookmarkGalleryScope.AllVideos -> rows.filterNot { it.mediaId in secureKeys }
-          BookmarkGalleryScope.SecureVideos -> rows.filter { it.mediaId in secureKeys }
-        }
-      }
-    val paired =
-      combine(scopedRows, tagDao.observeAllPairs(), tagDao.observeMediaRefs()) { rows, pairs, refs ->
-        val tagsByBookmark = pairs.groupBy({ it.bookmarkId }, { it.name })
-        val refsByMedia = refs.associateBy { it.mediaId }
-        rows.map { row ->
-          val ref = refsByMedia[row.mediaId]
-          BookmarkGalleryItem(
-            row = row,
-            tags = tagsByBookmark[row.id].orEmpty().sorted(),
-            playableUri = ref?.playableUri,
-            mediaTitle = ref?.title,
-          )
-        }
-      }
-    return paired.distinctUntilChanged()
-  }
+  fun observeItems(scope: BookmarkGalleryScope): Flow<List<BookmarkGalleryItem>> =
+    when (scope) {
+      BookmarkGalleryScope.AllVideos ->
+        combine(
+          bookmarkDao.observeGallery(),
+          tagDao.observeAllPairs(),
+          tagDao.observeMediaRefs(),
+        ) { rows, pairs, refs ->
+          val tagsByBookmark = pairs.groupBy({ it.bookmarkId }, { it.name })
+          val refsByMedia = refs.associateBy { it.mediaId }
+          rows.mapNotNull { row ->
+            val ref = refsByMedia[row.mediaId]
+            if (
+              DurableStorageManager.isVaultPath(ref?.playableUri) ||
+              SecureMediaRegistry.isProtectedReference(ref?.playableUri) ||
+              DurableStorageManager.isVaultPath(row.thumbnailPath)
+            ) {
+              return@mapNotNull null
+            }
+            BookmarkGalleryItem(
+              row = row,
+              tags = tagsByBookmark[row.id].orEmpty().sorted(),
+              playableUri = ref?.playableUri,
+              mediaTitle = ref?.title,
+            )
+          }
+        }.distinctUntilChanged()
 
-  /** Tag vocabulary for the filter bar: live tags first, then remembered tags with no bookmark now. */
-  fun observeFilterTags(): Flow<List<String>> =
-    combine(tagDao.observeAllPairs(), tagDao.observeMemory()) { pairs, memory ->
-      val live = pairs.map { it.name }
-      (live + memory.map { it.displayName.ifBlank { it.name } }).distinct().sorted()
+      BookmarkGalleryScope.SecureVideos ->
+        SecureFolderSession.unlockedState.flatMapLatest { unlocked ->
+          if (!unlocked) flowOf(emptyList()) else secureBookmarkStore.observeGalleryItems()
+        }.distinctUntilChanged()
+    }
+
+  /** Tag vocabulary for the filter bar in the requested database slice. */
+  fun observeFilterTags(scope: BookmarkGalleryScope = BookmarkGalleryScope.AllVideos): Flow<List<String>> =
+    when (scope) {
+      BookmarkGalleryScope.AllVideos ->
+        combine(tagDao.observeAllPairs(), tagDao.observeMemory()) { pairs, memory ->
+          val live = pairs.map { it.name }
+          (live + memory.map { it.displayName.ifBlank { it.name } }).distinct().sorted()
+        }
+
+      BookmarkGalleryScope.SecureVideos ->
+        SecureFolderSession.unlockedState.flatMapLatest { unlocked ->
+          if (!unlocked) flowOf(emptyList()) else secureBookmarkStore.observeFilterTags()
+        }
     }
 }
 

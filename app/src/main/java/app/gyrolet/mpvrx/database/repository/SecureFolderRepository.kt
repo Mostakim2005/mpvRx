@@ -19,61 +19,67 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.database.dao.SecureMediaDao
+import app.gyrolet.mpvrx.database.dao.BookmarkTagDao
+import app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao
+import app.gyrolet.mpvrx.database.dao.SecureVaultMediaDao
+import app.gyrolet.mpvrx.database.dao.SecureVideoMetadataDao
 import app.gyrolet.mpvrx.database.entities.SecureMediaEntity
+import app.gyrolet.mpvrx.database.entities.SecureVaultMediaEntity
+import app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore
 import app.gyrolet.mpvrx.domain.media.model.Video
+import app.gyrolet.mpvrx.domain.playbackstate.repository.PlaybackStateRepository
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
+import app.gyrolet.mpvrx.domain.secure.VaultCrypto
+import app.gyrolet.mpvrx.domain.storage.DurablePreferencesSync
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
+import app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository
+import app.gyrolet.mpvrx.repository.WatchStatsRepository
+import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
+import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
 import app.gyrolet.mpvrx.utils.history.RecentlyPlayedOps
 import app.gyrolet.mpvrx.utils.media.MediaLibraryEvents
-import app.gyrolet.mpvrx.utils.media.PlaybackStateOps
 import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
-import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
-import app.gyrolet.mpvrx.utils.coroutines.LoggingCoroutineExceptionHandler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Handles moving media files in and out of app-private "secure" storage as part of the
- * Secure Folder feature, plus permanently deleting hidden files.
- *
- * Storage location: [Context.getFilesDir]/secure_media — private to the app, not visible
- * to other apps, MediaStore, or the system file manager.
- *
- * Play Store builds copy from content URIs on every supported Android version. SAF documents
- * use their provider's deletion API; MediaStore uses Android's approval flow where required.
- * Denied moves roll back their private copies. Android 10+ restores use MediaStore, while older
- * versions use a writable local folder or Movies/Music/Download -> Restored in shared storage.
- *
- * Mirrors the buffered-copy-with-progress approach used by
- * [app.gyrolet.mpvrx.utils.media.CopyPasteOps] so the UI layer (Step 4 progress dialog)
- * can drive off a familiar [StateFlow].
+ * Manages encrypted vault media in `Documents/mpvRx/.vault/media/` and its isolated metadata index
+ * (`SecureVaultDatabase`), including cross-DB migration of bookmarks, thumbnails, and playback
+ * resume states whenever media enters or leaves the Secure Folder.
  */
 class SecureFolderRepository(
-  private val dao: SecureMediaDao,
+  private val context: Context,
+  private val dao: SecureVaultMediaDao,
+  private val secureBookmarkStore: SecureBookmarkStore,
+  private val publicBookmarkDao: PlaybackBookmarkDao,
+  private val publicTagDao: BookmarkTagDao,
+  private val playbackStateRepository: PlaybackStateRepository,
+  private val secureVideoMetadataDao: SecureVideoMetadataDao,
+  private val thumbnailRepository: ThumbnailRepository,
+  private val watchStatsRepository: WatchStatsRepository,
 ) {
   companion object {
     private const val TAG = "SecureFolderRepository"
-    private const val BUFFER_SIZE = 8 * 1024 // 8KB, matches CopyPasteOps
-    private const val SECURE_DIR_NAME = "secure_media"
+    private const val BUFFER_SIZE = 8 * 1024
     private const val MAX_FILENAME_ATTEMPTS = 1000
   }
 
@@ -88,7 +94,6 @@ class SecureFolderRepository(
     val error: String? = null,
   )
 
-  /** Result of a batch delete/restore: which ids succeeded vs failed, so DB rollback can be precise. */
   data class BatchResult(
     val succeededIds: List<Long>,
     val failedIds: List<Long>,
@@ -97,6 +102,7 @@ class SecureFolderRepository(
   private data class PendingSecureMove(
     val video: Video,
     val entityId: Long,
+    val entity: SecureMediaEntity,
     val file: File,
   )
 
@@ -106,10 +112,36 @@ class SecureFolderRepository(
   private val isCancelled = AtomicBoolean(false)
 
   init {
-    // Public stores (bookmarks, recents, watch stats) and the playback gate ask for secure
-    // membership synchronously, so the registry mirrors this table for the whole process.
     CoroutineScope(SupervisorJob() + Dispatchers.IO + LoggingCoroutineExceptionHandler).launch {
-      dao.observeAll().collect { entries -> SecureMediaRegistry.update(entries) }
+      VaultCrypto.ensureInitialized(context)
+      observeAll().collect { entities -> SecureMediaRegistry.update(entities) }
+    }
+  }
+
+  private fun enc(value: String): String {
+    VaultCrypto.ensureInitialized(context)
+    return if (value.isEmpty()) "" else VaultCrypto.encryptString(value)
+  }
+
+  private fun dec(value: String): String {
+    VaultCrypto.ensureInitialized(context)
+    return if (value.isEmpty()) "" else runCatching { VaultCrypto.decryptString(value) }.getOrDefault(value)
+  }
+
+  private fun SecureVaultMediaEntity.toDomain(): SecureMediaEntity =
+    SecureMediaEntity(
+      id = id,
+      originalPath = dec(originalPath),
+      secureFilePath = secureFilePath,
+      fileName = dec(fileName),
+      fileSize = fileSize,
+      mimeType = dec(mimeType),
+      dateHidden = dateHidden,
+    )
+
+  suspend fun syncRegistry() {
+    withContext(Dispatchers.IO) {
+      SecureMediaRegistry.update(getAll())
     }
   }
 
@@ -122,32 +154,21 @@ class SecureFolderRepository(
     _progress.value = SecureOperationProgress()
   }
 
-  private fun secureDir(context: Context): File =
-    app.gyrolet.mpvrx.domain.storage.DurableStorageManager.vaultDirectory(context).apply {
-      if (!exists()) mkdirs()
-    }
+  private fun secureDir(context: Context): File = DurableStorageManager.vaultMediaDir(context)
 
-  /** All stable-id forms for a path/URI, so a bookmark group survives a representation change. */
   private fun playbackIds(vararg paths: String): List<String> =
     paths
       .filter { it.isNotBlank() }
       .flatMap { SecureMediaRegistry.identitiesForPath(it) }
       .distinct()
 
-  // ============================================================================
-  // Move IN (hide) — MediaStore/filesystem video -> app-private secure storage
-  // ============================================================================
-
-  /**
-   * Moves [videos] into secure storage. Per-file failures don't abort the batch;
-   * they're reported back so the caller (ViewModel) can surface which files failed.
-   */
   suspend fun moveIn(
     context: Context,
     videos: List<Video>,
   ): Result<BatchResult> =
     withContext(Dispatchers.IO) {
       if (videos.isEmpty()) return@withContext Result.failure(IllegalArgumentException("No files to hide"))
+      VaultCrypto.ensureInitialized(context)
       if (BuildConfig.SCOPED_STORAGE_ONLY) {
         return@withContext moveInScoped(context, videos.distinctBy { it.uri })
       }
@@ -168,43 +189,48 @@ class SecureFolderRepository(
             throw IOException(context.getString(R.string.secure_folder_source_unreadable, video.displayName))
           }
 
-          val destFile = uniqueFileIn(destDir, sourceFile.name)
-
-          copyWithProgress(sourceFile, destFile, video.size) { fileProgress ->
-            updateProgress(
-              currentFile = sourceFile.name,
-              currentFileIndex = index + 1,
-              totalFiles = videos.size,
-              currentFileProgress = fileProgress,
-              bytesProcessed = bytesDone + (video.size * fileProgress).toLong(),
-              totalBytes = totalBytes,
+          val expectedPlainSize = sourceFile.length()
+          val destFile = File(destDir, "${UUID.randomUUID()}.dat")
+          val writtenPlain =
+            VaultCrypto.encryptFile(
+              source = sourceFile,
+              target = destFile,
+              onProgress = { fileProgress ->
+                checkCancellation()
+                updateProgress(
+                  currentFile = sourceFile.name,
+                  currentFileIndex = index + 1,
+                  totalFiles = videos.size,
+                  currentFileProgress = fileProgress,
+                  bytesProcessed = bytesDone + (expectedPlainSize * fileProgress).toLong(),
+                  totalBytes = totalBytes,
+                )
+              },
             )
-          }
 
-          // Verify before touching the original
-          if (!destFile.exists() || destFile.length() != sourceFile.length()) {
+          if (!destFile.isFile ||
+            writtenPlain != expectedPlainSize ||
+            VaultCrypto.plaintextLength(destFile) != expectedPlainSize
+          ) {
             destFile.delete()
-            throw IOException("Copy verification failed for ${sourceFile.name}")
+            throw IOException(context.getString(R.string.secure_folder_verify_failed, sourceFile.name))
           }
 
-          val entityId =
-            dao.insert(
-              SecureMediaEntity(
-                originalPath = sourceFile.absolutePath,
-                secureFilePath = destFile.absolutePath,
-                fileName = sourceFile.name,
-                fileSize = sourceFile.length(),
-                mimeType = video.mimeType,
-                dateHidden = System.currentTimeMillis(),
-              ),
+          val mime = resolveMimeType(video.mimeType, sourceFile.name)
+          val vaultEntity =
+            SecureVaultMediaEntity(
+              originalPath = enc(sourceFile.absolutePath),
+              secureFilePath = destFile.absolutePath,
+              fileName = enc(sourceFile.name),
+              fileSize = expectedPlainSize,
+              mimeType = enc(mime),
+              dateHidden = System.currentTimeMillis(),
             )
+          val entityId = dao.insert(vaultEntity)
 
-          // Only remove the original once it's safely recorded in the DB.
           val sourceDeleted = sourceFile.delete()
           if (!sourceDeleted) {
-            // Rollback: we now have a duplicate on disk + a dangling DB row. Undo both
-            // rather than leave the user with two copies and a broken "hidden" entry.
-            Log.w(TAG, "Failed to delete original after copy, rolling back: ${video.path}")
+            Log.w(TAG, "Failed to delete original after encrypt, rolling back: ${video.path}")
             dao.deleteById(entityId)
             destFile.delete()
             throw IOException(context.getString(R.string.storage_source_delete_failed))
@@ -212,17 +238,26 @@ class SecureFolderRepository(
 
           removeFromMediaStore(context, video)
           RecentlyPlayedOps.onVideoDeleted(video.path)
-          PlaybackStateOps.onVideoDeleted(video.path)
-          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-            oldMediaIds = playbackIds(video.path, video.uri.toString()),
-            newMediaIds = playbackIds(destFile.absolutePath),
-            fileSizeBytes = sourceFile.length(),
-            width = video.width,
-            height = video.height,
-            durationSec = (video.duration / 1000L).toInt().coerceAtLeast(0),
-            sourceLabel = sourceFile.name,
-            newPlayableUri = destFile.absolutePath,
+
+          val oldStateKeys =
+            listOf(video.path, sourceFile.absolutePath, video.uri.toString(), sourceFile.name)
+              .filter { it.isNotBlank() }
+              .distinct()
+          playbackStateRepository.migrateState(
+            oldMediaTitles = oldStateKeys,
+            newMediaTitle = destFile.absolutePath,
+            toSecure = true,
           )
+          secureBookmarkStore.migrateMediaToVault(
+            publicBookmarkDao = publicBookmarkDao,
+            publicTagDao = publicTagDao,
+            oldMediaIds = playbackIds(video.path, sourceFile.absolutePath, video.uri.toString()),
+            targetVaultMediaId = PlaybackIdentity.forLocalPath(destFile.absolutePath),
+            targetVaultPath = destFile.absolutePath,
+            displayTitle = sourceFile.name,
+            fileSizeBytes = expectedPlainSize,
+          )
+          syncRegistry()
 
           succeeded += video.id
         } catch (e: CancellationException) {
@@ -259,10 +294,11 @@ class SecureFolderRepository(
     var operationError: Exception? = null
 
     fun recordFailure(video: Video, error: Exception) {
-      val failure = IOException(
-        "${video.displayName}: ${error.localizedMessage ?: error.javaClass.simpleName}",
-        error,
-      )
+      val failure =
+        IOException(
+          "${video.displayName}: ${error.localizedMessage ?: error.javaClass.simpleName}",
+          error,
+        )
       if (operationError == null) operationError = failure
       _progress.value = _progress.value.copy(error = failure.message)
     }
@@ -276,28 +312,45 @@ class SecureFolderRepository(
         var recorded = false
         try {
           val fileName = video.displayName.ifBlank { File(video.path).name }
-          val destFile = uniqueFileIn(destDir, fileName)
+          val destFile = File(destDir, "${UUID.randomUUID()}.dat")
           destination = destFile
           updateProgress(fileName, index + 1, videos.size, 0f, bytesDone, totalBytes)
-          val copiedBytes = copyScopedSource(context, video, destFile) { progress ->
-            updateProgress(
-              fileName, index + 1, videos.size, progress,
-              bytesDone + (video.size.coerceAtLeast(0L) * progress).toLong(), totalBytes,
-            )
-          }
+          val copiedBytes =
+            copyScopedSourceEncrypted(context, video, destFile) { progress ->
+              updateProgress(
+                fileName, index + 1, videos.size, progress,
+                bytesDone + (video.size.coerceAtLeast(0L) * progress).toLong(), totalBytes,
+              )
+            }
           val originalPath = ScopedHiddenFolderScanner.localPathOf(video.uri) ?: video.path
-          val entity = SecureMediaEntity(
-            originalPath = originalPath,
-            secureFilePath = destFile.absolutePath,
-            fileName = fileName,
-            fileSize = copiedBytes,
-            mimeType = resolveMimeType(video.mimeType, fileName),
-            dateHidden = System.currentTimeMillis(),
-          )
-          // Record the verified copy before Android can delete the source, including across cancellation.
+          val mime = resolveMimeType(video.mimeType, fileName)
+          val entity =
+            SecureVaultMediaEntity(
+              originalPath = enc(originalPath),
+              secureFilePath = destFile.absolutePath,
+              fileName = enc(fileName),
+              fileSize = copiedBytes,
+              mimeType = enc(mime),
+              dateHidden = System.currentTimeMillis(),
+            )
           withContext(NonCancellable) {
             val entityId = dao.insert(entity)
-            pending += PendingSecureMove(video, entityId, destFile)
+            pending +=
+              PendingSecureMove(
+                video = video,
+                entityId = entityId,
+                entity =
+                  SecureMediaEntity(
+                    id = entityId,
+                    originalPath = originalPath,
+                    secureFilePath = destFile.absolutePath,
+                    fileName = fileName,
+                    fileSize = copiedBytes,
+                    mimeType = mime,
+                    dateHidden = entity.dateHidden,
+                  ),
+                file = destFile,
+              )
             recorded = true
           }
         } catch (error: CancellationException) {
@@ -307,20 +360,12 @@ class SecureFolderRepository(
           recordFailure(video, error)
         } finally {
           if (!recorded && destination != null) {
-            try {
-              discardPrivateCopy(destination)
-            } catch (cleanupError: Exception) {
-              Log.e(TAG, "Could not remove incomplete secure copy of ${video.displayName}", cleanupError)
-              _progress.value = _progress.value.copy(error = cleanupError.message)
-            }
+            runCatching { discardPrivateCopy(destination) }
           }
           bytesDone += video.size.coerceAtLeast(0L)
         }
       }
 
-      currentCoroutineContext().ensureActive()
-      checkCancellation()
-      // Once approval is launched, wait for its result before deciding which copies can be rolled back.
       withContext(NonCancellable) {
         for (batch in pending.chunked(2_000)) {
           checkCancellation()
@@ -345,16 +390,23 @@ class SecureFolderRepository(
         pending.forEach { move ->
           try {
             if (move.video.uri in deletedUris) {
-              PlaybackStateOps.onScopedVideoDeleted(move.video)
-              app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-                oldMediaIds = playbackIds(move.video.path, move.video.uri.toString()),
-                newMediaIds = playbackIds(move.file.absolutePath),
-                fileSizeBytes = move.file.length(),
-                width = move.video.width,
-                height = move.video.height,
-                durationSec = (move.video.duration / 1000L).toInt().coerceAtLeast(0),
-                sourceLabel = move.file.name,
-                newPlayableUri = move.file.absolutePath,
+              RecentlyPlayedOps.onVideoDeleted(move.video.path)
+              playbackStateRepository.migrateState(
+                oldMediaTitles =
+                  listOf(move.video.path, move.entity.originalPath, move.video.uri.toString(), move.entity.fileName)
+                    .filter { it.isNotBlank() }
+                    .distinct(),
+                newMediaTitle = move.file.absolutePath,
+                toSecure = true,
+              )
+              secureBookmarkStore.migrateMediaToVault(
+                publicBookmarkDao = publicBookmarkDao,
+                publicTagDao = publicTagDao,
+                oldMediaIds = playbackIds(move.video.path, move.entity.originalPath, move.video.uri.toString()),
+                targetVaultMediaId = PlaybackIdentity.forLocalPath(move.file.absolutePath),
+                targetVaultPath = move.file.absolutePath,
+                displayTitle = move.entity.fileName,
+                fileSizeBytes = move.entity.fileSize,
               )
             } else {
               dao.deleteById(move.entityId)
@@ -365,12 +417,14 @@ class SecureFolderRepository(
             _progress.value = _progress.value.copy(error = error.message)
           }
         }
+        syncRegistry()
       }
       MediaLibraryEvents.notifyChanged()
-      _progress.value = _progress.value.copy(
-        isComplete = true,
-        overallProgress = if (_progress.value.isCancelled) _progress.value.overallProgress else 1f,
-      )
+      _progress.value =
+        _progress.value.copy(
+          isComplete = true,
+          overallProgress = if (_progress.value.isCancelled) _progress.value.overallProgress else 1f,
+        )
     }
 
     val succeeded = videos.filter { it.uri in deletedUris }.map { it.id }
@@ -382,33 +436,39 @@ class SecureFolderRepository(
     }
   }
 
-  private suspend fun copyScopedSource(
+  private suspend fun copyScopedSourceEncrypted(
     context: Context,
     video: Video,
     destination: File,
     onProgress: (Float) -> Unit,
   ): Long {
-    val descriptor = context.contentResolver.openAssetFileDescriptor(video.uri, "r")
-      ?: throw IOException("Could not open ${video.displayName}")
+    val descriptor =
+      context.contentResolver.openAssetFileDescriptor(video.uri, "r")
+        ?: throw IOException("Could not open ${video.displayName}")
     return descriptor.use { source ->
-      // Cached MediaStore sizes are progress hints, not proof of an unknown-length stream's size.
       val expectedSize = source.length.takeIf { it >= 0L }
-      val progressSize = expectedSize ?: video.size.coerceAtLeast(0L)
-      val copied = source.createInputStream().use { input ->
-        FileOutputStream(destination).use { output ->
-          copyWithProgress(input, output, progressSize, onProgress).also { output.fd.sync() }
+      val copiedPlain =
+        source.createInputStream().use { input ->
+          VaultCrypto.encryptStream(
+            input = input,
+            expectedSize = expectedSize ?: -1L,
+            target = destination,
+            onProgress = { p ->
+              checkCancellation()
+              onProgress(p)
+            },
+          )
         }
+      if (!destination.isFile ||
+        VaultCrypto.plaintextLength(destination) != copiedPlain ||
+        (expectedSize != null && copiedPlain != expectedSize)
+      ) {
+        discardPrivateCopy(destination)
+        throw IOException(context.getString(R.string.secure_folder_verify_failed, video.displayName))
       }
-      if (destination.length() != copied || (expectedSize != null && copied != expectedSize)) {
-        throw IOException("Copy verification failed for ${video.displayName}")
-      }
-      copied
+      copiedPlain
     }
   }
-
-  // ============================================================================
-  // Restore (unhide) — secure storage -> original location (or a safe fallback)
-  // ============================================================================
 
   suspend fun restore(
     context: Context,
@@ -416,6 +476,7 @@ class SecureFolderRepository(
   ): Result<BatchResult> =
     withContext(Dispatchers.IO) {
       if (entities.isEmpty()) return@withContext Result.failure(IllegalArgumentException("No files to restore"))
+      VaultCrypto.ensureInitialized(context)
 
       resetOperation()
       val succeeded = mutableListOf<Long>()
@@ -435,13 +496,15 @@ class SecureFolderRepository(
             return@forEachIndexed
           }
 
+          val expectedPlainSize = VaultCrypto.plaintextLength(secureFile)
           val onProgress: (Float) -> Unit = { fileProgress ->
+            checkCancellation()
             updateProgress(
               currentFile = entity.fileName,
               currentFileIndex = index + 1,
               totalFiles = entities.size,
               currentFileProgress = fileProgress,
-              bytesProcessed = bytesDone + (entity.fileSize * fileProgress).toLong(),
+              bytesProcessed = bytesDone + (expectedPlainSize * fileProgress).toLong(),
               totalBytes = totalBytes,
             )
           }
@@ -454,33 +517,40 @@ class SecureFolderRepository(
 
           val restoreTarget = resolveRestoreTarget(entity)
           restoreTarget.parentFile?.let { if (!it.exists()) it.mkdirs() }
-          copyWithProgress(secureFile, restoreTarget, entity.fileSize, onProgress)
+          val writtenPlain = VaultCrypto.decryptFile(secureFile, restoreTarget, onProgress = onProgress)
 
-          if (!restoreTarget.exists() || restoreTarget.length() != secureFile.length()) {
+          if (!restoreTarget.exists() ||
+            writtenPlain != expectedPlainSize ||
+            restoreTarget.length() != expectedPlainSize
+          ) {
             restoreTarget.delete()
-            throw IOException("Restore verification failed for ${entity.fileName}")
+            throw IOException(context.getString(R.string.secure_folder_restore_verify_failed, entity.fileName))
           }
 
-          // Point bookmark replay back at the restored public file before dropping the vault row.
-          app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-            oldMediaIds = playbackIds(entity.secureFilePath),
-            newMediaIds = playbackIds(restoreTarget.absolutePath),
-            fileSizeBytes = restoreTarget.length(),
-            width = 0,
-            height = 0,
-            durationSec = 0,
-            sourceLabel = entity.fileName,
-            newPlayableUri = restoreTarget.absolutePath,
+          val restoredId = PlaybackIdentity.forLocalPath(restoreTarget.absolutePath)
+          secureBookmarkStore.migrateMediaToPublic(
+            publicBookmarkDao = publicBookmarkDao,
+            publicTagDao = publicTagDao,
+            vaultMediaIds = playbackIds(entity.secureFilePath, entity.originalPath),
+            restoredMediaId = restoredId,
+            restoredPath = restoreTarget.absolutePath,
+            displayTitle = entity.fileName,
+            fileSizeBytes = expectedPlainSize,
           )
+          playbackStateRepository.migrateState(
+            oldMediaTitles =
+              (playbackIds(entity.secureFilePath) + listOf(entity.secureFilePath, entity.fileName)).distinct(),
+            newMediaTitle = restoreTarget.absolutePath,
+            toSecure = false,
+          )
+          secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
+          thumbnailRepository.evictSecureMemoryCache()
 
-          // Only clear the secure copy + DB row once the restored file is confirmed on disk.
-          val secureDeleted = secureFile.delete()
-          if (!secureDeleted) {
+          if (!secureFile.delete()) {
             Log.w(TAG, "Restored but couldn't clean up secure copy: ${entity.secureFilePath}")
-            // Not fatal for the user — the file is back. Still drop the DB row so it
-            // doesn't show as hidden anymore; the orphaned secure copy is harmless.
           }
           dao.deleteById(entity.id)
+          syncRegistry()
 
           triggerMediaScan(context, restoreTarget.absolutePath)
           succeeded += entity.id
@@ -506,17 +576,10 @@ class SecureFolderRepository(
       }
     }
 
-  // ============================================================================
-  // Permanent delete — remove from secure storage entirely
-  // ============================================================================
-
-  /**
-   * Permanently deletes secure files. If the physical delete fails for an entry, its DB row
-   * is deliberately kept (rollback) rather than silently losing track of an orphaned file.
-   */
   suspend fun deleteForever(entities: List<SecureMediaEntity>): Result<BatchResult> =
     withContext(Dispatchers.IO) {
       if (entities.isEmpty()) return@withContext Result.failure(IllegalArgumentException("No files to delete"))
+      VaultCrypto.ensureInitialized(context)
 
       resetOperation()
       val succeeded = mutableListOf<Long>()
@@ -529,9 +592,9 @@ class SecureFolderRepository(
             currentFile = entity.fileName,
             currentFileIndex = index + 1,
             totalFiles = entities.size,
-            currentFileProgress = 1f,
-            bytesProcessed = 0,
-            totalBytes = 1,
+            currentFileProgress = 0.5f,
+            bytesProcessed = index.toLong(),
+            totalBytes = entities.size.toLong(),
           )
 
           val secureFile = File(entity.secureFilePath)
@@ -539,19 +602,25 @@ class SecureFolderRepository(
 
           if (deleted) {
             dao.deleteById(entity.id)
+            secureBookmarkStore.deleteAllForMedia(playbackIds(entity.secureFilePath, entity.originalPath))
+            playbackStateRepository.deleteByTitle(entity.secureFilePath)
+            playbackStateRepository.deleteByTitle(entity.fileName)
+            secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
             succeeded += entity.id
           } else {
-            // Rollback: keep the DB row so the user can retry instead of losing the entry
-            // for a file that's still sitting on disk.
             Log.w(TAG, "Failed to delete secure file, keeping DB row: ${entity.secureFilePath}")
             failed += entity.id
           }
+        } catch (e: CancellationException) {
+          throw e
         } catch (e: Exception) {
           Log.e(TAG, "Failed to delete ${entity.fileName}: ${e.message}", e)
           failed += entity.id
         }
       }
 
+      thumbnailRepository.evictSecureMemoryCache()
+      syncRegistry()
       _progress.value = _progress.value.copy(isComplete = true, overallProgress = 1f)
 
       if (succeeded.isEmpty() && failed.isNotEmpty()) {
@@ -561,18 +630,10 @@ class SecureFolderRepository(
       }
     }
 
-  // ============================================================================
-  // Destroy — wipe the whole Secure Folder
-  // ============================================================================
-
-  /**
-   * Permanently deletes every secured file, then sweeps any orphaned files left in the secure
-   * directory. Fails (without partial success) if anything could not be removed, so the caller
-   * only resets the PIN once nothing recoverable is left behind.
-   */
   suspend fun destroyAll(context: Context): Result<Int> =
     withContext(Dispatchers.IO) {
-      val entities = dao.getAll()
+      VaultCrypto.ensureInitialized(context)
+      val entities = getAll()
       if (entities.isNotEmpty()) {
         val batch = deleteForever(entities).getOrElse { return@withContext Result.failure(it) }
         if (batch.failedIds.isNotEmpty()) {
@@ -580,37 +641,43 @@ class SecureFolderRepository(
         }
       }
 
-      val durableVault = secureDir(context)
-      val legacyDir = File(context.filesDir, SECURE_DIR_NAME)
-      val legacyFiles: List<File> =
-        if (legacyDir.isDirectory && legacyDir.absolutePath != durableVault.absolutePath) {
-          legacyDir.listFiles()?.toList().orEmpty()
-        } else {
-          emptyList()
-        }
-      val leftovers =
-        (durableVault.listFiles()?.toList().orEmpty() + legacyFiles).count { !it.delete() }
-      if (leftovers > 0) {
-        return@withContext Result.failure(IOException("Failed to delete $leftovers leftover file(s)"))
+      val dirsToClean =
+        listOfNotNull(
+          DurableStorageManager.vaultMediaDir(context),
+          DurableStorageManager.legacyVaultDirectory(context),
+          DurableStorageManager.legacyV322VaultDirectory(context),
+        ).distinctBy { it.absolutePath }
+      val leftoverFiles =
+        dirsToClean
+          .flatMap { dir -> dir.listFiles()?.toList().orEmpty() }
+          .filter { it.isFile && !it.name.equals(".nomedia", ignoreCase = true) }
+      val failedDeletes = leftoverFiles.count { !it.delete() }
+      if (failedDeletes > 0) {
+        return@withContext Result.failure(IOException("Failed to delete $failedDeletes leftover file(s)"))
       }
+
+      dao.deleteAll()
+      secureBookmarkStore.clearAll()
+      playbackStateRepository.clearSecurePlaybackStates()
+      secureVideoMetadataDao.clearAll()
+      thumbnailRepository.clearSecureThumbnailCache()
+      watchStatsRepository.clearSecure()
+      DurablePreferencesSync.deleteSecureConfig(context)
+      syncRegistry()
+      SecureFolderSession.lockNow()
       Result.success(entities.size)
     }
 
-  // ============================================================================
-  // Reads
-  // ============================================================================
+  fun observeAll(): Flow<List<SecureMediaEntity>> =
+    dao.observeAll().map { list -> list.map { it.toDomain() } }
 
-  fun observeAll() = dao.observeAll()
+  fun observeCount(): Flow<Int> = dao.observeCount()
 
-  fun observeCount() = dao.observeCount()
+  suspend fun getAll(): List<SecureMediaEntity> =
+    withContext(Dispatchers.IO) { dao.getAll().map { it.toDomain() } }
 
-  suspend fun getAll(): List<SecureMediaEntity> = dao.getAll()
-
-  suspend fun getByIds(ids: List<Long>): List<SecureMediaEntity> = dao.getByIds(ids)
-
-  // ============================================================================
-  // Private helpers
-  // ============================================================================
+  suspend fun getByIds(ids: List<Long>): List<SecureMediaEntity> =
+    withContext(Dispatchers.IO) { dao.getByIds(ids).map { it.toDomain() } }
 
   private data class ScopedRestoreLocation(
     val collection: Uri,
@@ -627,88 +694,84 @@ class SecureFolderRepository(
     val resolver = context.contentResolver
     val mimeType = resolveMimeType(entity.mimeType, entity.fileName)
     val location = resolveScopedRestoreLocation(context, entity.originalPath, mimeType)
-    val values = ContentValues().apply {
-      put(MediaStore.MediaColumns.DISPLAY_NAME, entity.fileName)
-      put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-      put(MediaStore.MediaColumns.IS_PENDING, 1)
-    }
-    fun insertPending(target: ScopedRestoreLocation): Uri {
-      val targetValues = ContentValues(values).apply {
-        put(MediaStore.MediaColumns.RELATIVE_PATH, target.relativePath)
+    val values =
+      ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, entity.fileName)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
       }
+    fun insertPending(target: ScopedRestoreLocation): Uri {
+      val targetValues =
+        ContentValues(values).apply {
+          put(MediaStore.MediaColumns.RELATIVE_PATH, target.relativePath)
+        }
       return resolver.insert(target.collection, targetValues)
         ?: throw IOException("Could not create restored media for ${entity.fileName}")
     }
 
-    // Inserting a new row lets MediaStore allocate a collision-safe name without overwriting a file.
-    val restoredUri = try {
-      insertPending(location)
-    } catch (error: Exception) {
-      if (error !is SecurityException && error !is IllegalArgumentException && error !is IOException) throw error
-      val fallback = resolveScopedRestoreLocation(context, "", mimeType)
-      if (location == fallback) throw error
-      Log.w(TAG, "Original restore location rejected; retrying in ${fallback.relativePath}", error)
+    val restoredUri =
       try {
+        insertPending(location)
+      } catch (error: Exception) {
+        if (error !is SecurityException && error !is IllegalArgumentException && error !is IOException) throw error
+        val fallback = resolveScopedRestoreLocation(context, "", mimeType)
+        if (location == fallback) throw error
+        Log.w(TAG, "Original restore location rejected; retrying in ${fallback.relativePath}", error)
         insertPending(fallback)
-      } catch (fallbackError: Exception) {
-        fallbackError.addSuppressed(error)
-        throw fallbackError
       }
-    }
-    var published = false
 
+    var published = false
     try {
-      val expectedSize = secureFile.length()
-      val copied = FileInputStream(secureFile).use { input ->
-        val output = resolver.openOutputStream(restoredUri, "w")
-          ?: throw IOException("Could not open restored media for ${entity.fileName}")
-        output.use { copyWithProgress(input, it, expectedSize, onProgress) }
-      }
-      if (copied != expectedSize || scopedContentLength(context, restoredUri) != expectedSize) {
+      val expectedPlainSize = VaultCrypto.plaintextLength(secureFile)
+      val copied =
+        resolver.openOutputStream(restoredUri, "w")?.use { output ->
+          VaultCrypto.decryptToStream(secureFile, output, onProgress = onProgress)
+        } ?: throw IOException("Could not open restored media for ${entity.fileName}")
+      if (copied != expectedPlainSize || scopedContentLength(context, restoredUri) != expectedPlainSize) {
         throw IOException("Restore verification failed for ${entity.fileName}")
       }
-      currentCoroutineContext().ensureActive()
-      checkCancellation()
-      withContext(NonCancellable) {
-        checkCancellation()
-        val publishedRows = resolver.update(
+      val publishedRows =
+        resolver.update(
           restoredUri,
           ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
           null,
           null,
         )
-        if (publishedRows <= 0) throw IOException("Could not publish restored media for ${entity.fileName}")
-        published = true
+      if (publishedRows <= 0) {
+        throw IOException("Could not publish restored media for ${entity.fileName}")
+      }
+      published = true
+      withContext(NonCancellable) {
         val restoredLocalPath = ScopedHiddenFolderScanner.localPathOf(restoredUri)
-        app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.onMediaMoved(
-          oldMediaIds = playbackIds(entity.secureFilePath),
-          newMediaIds =
-            (playbackIds(restoredUri.toString()) + playbackIds(restoredLocalPath.orEmpty())).distinct(),
-          fileSizeBytes = expectedSize,
-          width = 0,
-          height = 0,
-          durationSec = 0,
-          sourceLabel = entity.fileName,
-          newPlayableUri = restoredUri.toString(),
+        val targetPathOrUri = restoredLocalPath ?: restoredUri.toString()
+        val restoredId = PlaybackIdentity.forLocalPath(targetPathOrUri)
+        secureBookmarkStore.migrateMediaToPublic(
+          publicBookmarkDao = publicBookmarkDao,
+          publicTagDao = publicTagDao,
+          vaultMediaIds = playbackIds(entity.secureFilePath, entity.originalPath),
+          restoredMediaId = restoredId,
+          restoredPath = targetPathOrUri,
+          displayTitle = entity.fileName,
+          fileSizeBytes = expectedPlainSize,
         )
+        playbackStateRepository.migrateState(
+          oldMediaTitles =
+            (playbackIds(entity.secureFilePath) + listOf(entity.secureFilePath, entity.fileName)).distinct(),
+          newMediaTitle = targetPathOrUri,
+          toSecure = false,
+        )
+        secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
         dao.deleteById(entity.id)
+        syncRegistry()
         if (!secureFile.delete()) {
-          val message = "Restored but couldn't clean up secure copy: ${entity.secureFilePath}"
-          Log.w(TAG, message)
-          _progress.value = _progress.value.copy(error = message)
+          Log.w(TAG, "Restored but couldn't clean up secure copy: ${entity.secureFilePath}")
         }
       }
     } catch (error: Exception) {
       if (!published) {
         withContext(NonCancellable) {
-          try {
-            if (resolver.delete(restoredUri, null, null) <= 0) {
-              Log.w(TAG, "Unfinished restore was already removed: $restoredUri")
-            }
-          } catch (cleanupError: Exception) {
-            error.addSuppressed(cleanupError)
-            Log.e(TAG, "Could not remove unfinished restore: $restoredUri", cleanupError)
-          }
+          runCatching { resolver.delete(restoredUri, null, null) }
+            .onFailure { error.addSuppressed(it) }
         }
       }
       throw error
@@ -723,45 +786,59 @@ class SecureFolderRepository(
   ): ScopedRestoreLocation {
     val audio = mimeType.startsWith("audio/")
     val video = mimeType.startsWith("video/")
-    val defaultDirectory = when {
-      audio -> Environment.DIRECTORY_MUSIC
-      video -> Environment.DIRECTORY_MOVIES
-      else -> Environment.DIRECTORY_DOWNLOADS
-    }
-    fun collection(volume: String, downloads: Boolean): Uri = when {
-      downloads -> MediaStore.Downloads.getContentUri(volume)
-      audio -> MediaStore.Audio.Media.getContentUri(volume)
-      else -> MediaStore.Video.Media.getContentUri(volume)
-    }
+    val defaultDirectory =
+      when {
+        audio -> Environment.DIRECTORY_MUSIC
+        video -> Environment.DIRECTORY_MOVIES
+        else -> Environment.DIRECTORY_DOWNLOADS
+      }
+    fun collection(volume: String, downloads: Boolean): Uri =
+      when {
+        downloads -> MediaStore.Downloads.getContentUri(volume)
+        audio -> MediaStore.Audio.Media.getContentUri(volume)
+        else -> MediaStore.Video.Media.getContentUri(volume)
+      }
 
-    val localPath = if (originalPath.startsWith("content://")) {
-      ScopedHiddenFolderScanner.localPathOf(Uri.parse(originalPath))
-    } else {
-      originalPath
-    }
+    val localPath =
+      if (originalPath.startsWith("content://")) {
+        ScopedHiddenFolderScanner.localPathOf(Uri.parse(originalPath))
+      } else {
+        originalPath
+      }
     val originalParent = localPath?.let { File(it).parent }
-    val audioDirectories = setOf(
-      Environment.DIRECTORY_MUSIC, Environment.DIRECTORY_PODCASTS, Environment.DIRECTORY_RINGTONES,
-      Environment.DIRECTORY_ALARMS, Environment.DIRECTORY_NOTIFICATIONS, Environment.DIRECTORY_AUDIOBOOKS,
-    ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setOf(Environment.DIRECTORY_RECORDINGS) else emptySet()
+    val audioDirectories =
+      setOf(
+        Environment.DIRECTORY_MUSIC,
+        Environment.DIRECTORY_PODCASTS,
+        Environment.DIRECTORY_RINGTONES,
+        Environment.DIRECTORY_ALARMS,
+        Environment.DIRECTORY_NOTIFICATIONS,
+        Environment.DIRECTORY_AUDIOBOOKS,
+      ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setOf(Environment.DIRECTORY_RECORDINGS) else emptySet()
 
     for (volume in MediaStore.getExternalVolumeNames(context)) {
-      val root = if (volume == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
-        Environment.getExternalStorageDirectory().absolutePath
-      } else {
-        "/storage/$volume"
-      }
+      val root =
+        if (volume == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
+          Environment.getExternalStorageDirectory().absolutePath
+        } else {
+          "/storage/$volume"
+        }
       if (originalParent == null || !originalParent.startsWith("$root/", ignoreCase = true)) continue
       val relativePath = originalParent.substring(root.length + 1).trimEnd('/')
       val segments = relativePath.split('/')
       if (segments.any { it.isBlank() || it == ".." || it.startsWith(".") }) continue
       val topDirectory = segments.first()
       val downloads = topDirectory == Environment.DIRECTORY_DOWNLOADS
-      val supported = downloads ||
-        (audio && topDirectory in audioDirectories) ||
-        (video && topDirectory in setOf(
-          Environment.DIRECTORY_MOVIES, Environment.DIRECTORY_DCIM, Environment.DIRECTORY_PICTURES,
-        ))
+      val supported =
+        downloads ||
+          (audio && topDirectory in audioDirectories) ||
+          (video &&
+            topDirectory in
+            setOf(
+              Environment.DIRECTORY_MOVIES,
+              Environment.DIRECTORY_DCIM,
+              Environment.DIRECTORY_PICTURES,
+            ))
       if (supported) return ScopedRestoreLocation(collection(volume, downloads), "$relativePath/")
     }
 
@@ -781,8 +858,9 @@ class SecureFolderRepository(
     }
 
   private suspend fun scopedContentLength(context: Context, uri: Uri): Long {
-    val descriptor = context.contentResolver.openAssetFileDescriptor(uri, "r")
-      ?: throw IOException("Could not verify restored media: $uri")
+    val descriptor =
+      context.contentResolver.openAssetFileDescriptor(uri, "r")
+        ?: throw IOException("Could not verify restored media: $uri")
     return descriptor.use { source ->
       if (source.length >= 0L) {
         source.length
@@ -806,19 +884,20 @@ class SecureFolderRepository(
     if (file.exists() && !file.delete()) throw IOException("Could not remove unfinished secure copy: ${file.name}")
   }
 
-  /** URI grants do not grant filesystem access; only reuse an absolute, writable local folder. */
   private fun resolveRestoreTarget(entity: SecureMediaEntity): File {
     val originalUri = Uri.parse(entity.originalPath)
-    val originalLocalPath = when (originalUri.scheme) {
-      "content" -> ScopedHiddenFolderScanner.localPathOf(originalUri)
-      "file" -> originalUri.path
-      null -> entity.originalPath
-      else -> null
-    }
-    val originalParent = originalLocalPath
-      ?.let { File(it) }
-      ?.takeIf { it.isAbsolute }
-      ?.parentFile
+    val originalLocalPath =
+      when (originalUri.scheme) {
+        "content" -> ScopedHiddenFolderScanner.localPathOf(originalUri)
+        "file" -> originalUri.path
+        null -> entity.originalPath
+        else -> null
+      }
+    val originalParent =
+      originalLocalPath
+        ?.let { File(it) }
+        ?.takeIf { it.isAbsolute }
+        ?.parentFile
     if (originalParent != null &&
       (originalParent.isDirectory || originalParent.mkdirs()) &&
       originalParent.canWrite()
@@ -827,11 +906,12 @@ class SecureFolderRepository(
     }
 
     val mimeType = resolveMimeType(entity.mimeType, entity.fileName)
-    val directory = when {
-      mimeType.startsWith("audio/") -> Environment.DIRECTORY_MUSIC
-      mimeType.startsWith("video/") -> Environment.DIRECTORY_MOVIES
-      else -> Environment.DIRECTORY_DOWNLOADS
-    }
+    val directory =
+      when {
+        mimeType.startsWith("audio/") -> Environment.DIRECTORY_MUSIC
+        mimeType.startsWith("video/") -> Environment.DIRECTORY_MOVIES
+        else -> Environment.DIRECTORY_DOWNLOADS
+      }
     val fallback = File(Environment.getExternalStoragePublicDirectory(directory), "Restored")
     Log.i(TAG, "Original restore folder is unavailable or not writable; using ${fallback.absolutePath}")
     return uniqueFileIn(fallback, entity.fileName)
@@ -841,10 +921,16 @@ class SecureFolderRepository(
     dir: File,
     fileName: String,
   ): File {
-    require(fileName.isNotBlank() && File(fileName).name == fileName &&
-      fileName != "." && fileName != ".." && '\u0000' !in fileName
-    ) { "Invalid media filename" }
-    if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Could not create media directory: ${dir.absolutePath}")
+    require(
+      fileName.isNotBlank() &&
+        File(fileName).name == fileName &&
+        fileName != "." &&
+        fileName != ".." &&
+        '\u0000' !in fileName,
+    ) {
+      "Invalid filename: $fileName"
+    }
+    dir.mkdirs()
     var candidate = File(dir, fileName)
     if (!candidate.exists()) return candidate
 
@@ -858,60 +944,14 @@ class SecureFolderRepository(
     throw IOException("Could not generate unique filename for $fileName")
   }
 
-  private suspend fun copyWithProgress(
-    source: File,
-    destination: File,
-    fileSize: Long,
-    onProgress: (Float) -> Unit,
-  ) {
-    try {
-      FileInputStream(source).use { input ->
-        FileOutputStream(destination).use { output ->
-          copyWithProgress(input, output, fileSize, onProgress)
-        }
-      }
-      destination.setLastModified(source.lastModified())
-    } catch (e: Exception) {
-      try {
-        discardPrivateCopy(destination)
-      } catch (cleanupError: Exception) {
-        e.addSuppressed(cleanupError)
-        Log.e(TAG, "Could not clean up partial copy", cleanupError)
-      }
-      throw e
-    }
-  }
-
-  private suspend fun copyWithProgress(
-    input: InputStream,
-    output: OutputStream,
-    fileSize: Long,
-    onProgress: (Float) -> Unit,
-  ): Long {
-    val buffer = ByteArray(BUFFER_SIZE)
-    var bytesCopied = 0L
-    var bytesRead: Int
-    while (input.read(buffer).also { bytesRead = it } != -1) {
-      currentCoroutineContext().ensureActive()
-      checkCancellation()
-      output.write(buffer, 0, bytesRead)
-      bytesCopied += bytesRead
-      val progress = if (fileSize > 0) bytesCopied.toFloat() / fileSize else 1f
-      onProgress(progress.coerceIn(0f, 1f))
-    }
-    output.flush()
-    return bytesCopied
-  }
-
   private fun removeFromMediaStore(
     context: Context,
     video: Video,
   ) {
     runCatching {
       context.contentResolver.delete(video.uri, null, null)
-    }.onFailure { e ->
-      // Not fatal: the physical file is already gone, MediaStore will settle on next scan.
-      Log.w(TAG, "Could not remove MediaStore row for ${video.path}: ${e.message}")
+    }.onFailure {
+      Log.d(TAG, "MediaStore entry cleanup skipped for ${video.displayName}: ${it.message}")
     }
   }
 
@@ -938,7 +978,7 @@ class SecureFolderRepository(
         currentFile = currentFile,
         currentFileIndex = currentFileIndex,
         totalFiles = totalFiles,
-        currentFileProgress = currentFileProgress.coerceIn(0f, 1f),
+        currentFileProgress = currentFileProgress,
         overallProgress = overall.coerceIn(0f, 1f),
       )
   }

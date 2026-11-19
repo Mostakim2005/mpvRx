@@ -19,6 +19,8 @@ import android.view.Surface
 import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.data.network.proxy.NetworkStreamingProxy
 import app.gyrolet.mpvrx.data.network.proxy.XtreamStreamingProxy
+import app.gyrolet.mpvrx.domain.secure.VaultCrypto
+import app.gyrolet.mpvrx.domain.secure.VaultStreamingProxy
 import app.gyrolet.mpvrx.domain.network.NetworkPlaybackUri
 import app.gyrolet.mpvrx.domain.network.XtreamPlaybackUri
 import app.gyrolet.mpvrx.network.AndroidCookieJar
@@ -250,6 +252,7 @@ object PlaybackSession : MPVLib.EventObserver {
   private data class NetworkStreamRegistration(
     val proxy: NetworkStreamingProxy? = null,
     val xtreamProxy: XtreamStreamingProxy? = null,
+    val vaultProxy: VaultStreamingProxy? = null,
     val streamId: String,
     val archiveDescriptor: android.os.ParcelFileDescriptor? = null,
   )
@@ -418,7 +421,10 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
           "User-Agent",
           defaultUserAgent,
         )
-      if (playableUri.startsWith("http://", ignoreCase = true) || playableUri.startsWith("https://", ignoreCase = true)) {
+      val isLoopback = playableUri.startsWith("http://127.0.0.1", ignoreCase = true)
+      if (!isLoopback &&
+        (playableUri.startsWith("http://", ignoreCase = true) || playableUri.startsWith("https://", ignoreCase = true))
+      ) {
         PlaybackHttpHeaders.withDefault(headers, "Referer", HttpUtils.extractRefererDomain(Uri.parse(playableUri)))
       } else {
         headers
@@ -2913,6 +2919,24 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       return ResolvedPlayable(uri, NetworkStreamRegistration(proxy = proxy, streamId = streamId))
     }
 
+    val localVaultFile =
+      when {
+        item.playableUri.startsWith("/") -> File(item.playableUri)
+        item.playableUri.startsWith("file://", ignoreCase = true) -> Uri.parse(item.playableUri).path?.let(::File)
+        else -> null
+      }?.takeIf { VaultCrypto.isEncryptedFile(it) }
+    if (localVaultFile != null) {
+      applicationContext?.let(VaultCrypto::ensureInitialized)
+      val proxy = VaultStreamingProxy.getInstance()
+      val streamId = "vault-${streamSequence.incrementAndGet()}"
+      val uri = proxy.registerStream(
+        streamId = streamId,
+        file = localVaultFile,
+        mimeType = item.mimeType ?: "video/*",
+      )
+      return ResolvedPlayable(uri, NetworkStreamRegistration(vaultProxy = proxy, streamId = streamId))
+    }
+
     // fd:// descriptors are single-use: mpv consumes and closes them on their first load. Replays
     // of queue items or persisted sessions must re-open a fresh descriptor from the content URI.
     if (item.playableUri.startsWith("fd://") && item.originalUri.startsWith("content://")) {
@@ -2945,6 +2969,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       registration.archiveDescriptor?.close()
       registration.proxy?.unregisterStream(registration.streamId)
       registration.xtreamProxy?.unregisterStream(registration.streamId)
+      registration.vaultProxy?.unregisterStream(registration.streamId)
     }.onFailure { error -> Log.w(TAG, "Failed to release network stream", error) }
   }
 
