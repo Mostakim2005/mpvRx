@@ -1,4 +1,4 @@
-﻿# 3.2.3
+## 3.2.3
 
 - **Vault Storage & Encryption**: Segregate vault database and encrypt durable storage with MVX1 AES-CTR.
 - **Database Schema**: Commit Room schema version 35 for migration tracking.
