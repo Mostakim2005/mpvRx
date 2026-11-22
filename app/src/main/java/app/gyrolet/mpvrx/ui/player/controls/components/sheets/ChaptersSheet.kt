@@ -243,22 +243,37 @@ fun ChapterTrack(
 internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> Unit, onDismiss: () -> Unit) {
   val draft by viewModel.bookmarkDraft.collectAsStateWithLifecycle()
   val mediaId by viewModel.bookmarkMediaId.collectAsStateWithLifecycle()
-  val bookmark = draft?.takeIf { it.mediaId == mediaId }
+  // Existing bookmarks (id != 0L) carry their own authoritative mediaId (including Secure Folder
+  // vault keys and cross-video Global bookmarks) and must not self-dismiss while bookmarkMediaId
+  // resolves or differs from the currently playing video.
+  val bookmark =
+    draft?.takeIf { candidate ->
+      candidate.id != 0L || mediaId == null || candidate.mediaId == mediaId
+    }
   if (bookmark == null) {
     LaunchedEffect(draft, mediaId) { onDismiss() }
     return
   }
-  // An editor needs a tall canvas: hold portrait while it is on screen, then hand the player back
-  // to whatever orientation it had picked, so a landscape video is not left stuck upright
+  val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+  val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+  val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+  val shouldForcePortrait = configuration.smallestScreenWidthDp < 600
+  val hideKeyboardAndClearFocus = {
+    focusManager.clearFocus(force = true)
+    keyboardController?.hide()
+  }
+  // On phone-sized screens, hold portrait while editing so the IME does not crush the sheet,
+  // then hide the keyboard and restore the prior orientation on close
   // (TRAP: Portrait-Only-Editors-Must-Restore-Orientation).
   val editorActivity = LocalContext.current.findActivity()
-  DisposableEffect(editorActivity) {
+  DisposableEffect(editorActivity, shouldForcePortrait) {
     val previous = editorActivity?.requestedOrientation
-    if (editorActivity != null) {
+    if (editorActivity != null && shouldForcePortrait) {
       editorActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
     onDispose {
-      if (editorActivity != null && previous != null && previous != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+      hideKeyboardAndClearFocus()
+      if (editorActivity != null && shouldForcePortrait && previous != null && previous != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
         editorActivity.requestedOrientation = previous
       }
     }
@@ -317,7 +332,12 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
   }
 
   PlayerSheet(
-    onDismissRequest = { if (!saving) onDismiss() },
+    onDismissRequest = {
+      if (!saving) {
+        hideKeyboardAndClearFocus()
+        onDismiss()
+      }
+    },
     title = stringResource(R.string.audiobook_bookmark_name),
   ) {
     Column(
@@ -358,16 +378,27 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
         Text(stringResource(R.string.playback_bookmark_update_failed), color = MaterialTheme.colorScheme.error)
       }
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.generic_cancel)) }
+        TextButton(
+          onClick = {
+            hideKeyboardAndClearFocus()
+            onDismiss()
+          },
+          enabled = !saving,
+        ) { Text(stringResource(R.string.generic_cancel)) }
         TextButton(
           enabled = !saving && tagsLoaded && (isNewDraft || nameValue.text.isNotBlank()),
           onClick = {
             val resolvedTitle = nameValue.text.trim().ifBlank { bookmark.title }
+            val pendingTags = app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.parse(tagInput)
+            val finalTags =
+              (selectedTags + pendingTags.filter { it !in selectedTags })
+                .take(app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules.MAX_TAGS_PER_BOOKMARK)
             saving = true
             failed = false
+            hideKeyboardAndClearFocus()
             scope.launch {
               try {
-                viewModel.savePlaybackBookmark(bookmark, resolvedTitle, selectedTags)
+                viewModel.savePlaybackBookmark(bookmark, resolvedTitle, finalTags)
                 haptics.confirm()
                 onSaved()
               } catch (cancelled: CancellationException) {
