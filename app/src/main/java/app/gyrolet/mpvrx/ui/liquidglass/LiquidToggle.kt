@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -124,7 +125,20 @@ fun LiquidToggle(
     val trackBackdrop = rememberLayerBackdrop()
 
     Box(
-        modifier.alpha(if (enabled) 1f else 0.38f),
+        modifier
+            .alpha(if (enabled) 1f else 0.38f)
+            .then(
+                if (isInteractive) {
+                    Modifier.toggleable(
+                        value = selected(),
+                        enabled = enabled,
+                        role = Role.Switch,
+                        onValueChange = { next -> onSelect(next) },
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.CenterStart
     ) {
         Box(

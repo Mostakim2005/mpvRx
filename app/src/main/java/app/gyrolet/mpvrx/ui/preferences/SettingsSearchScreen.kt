@@ -133,7 +133,7 @@ object SettingsSearchScreen : Screen {
             IconButton(onClick = { backstack.popSafely() }) {
               Icon(
                 Icons.RoundedFilled.ArrowBack,
-                contentDescription = null,
+                contentDescription = "Back",
                 tint = MaterialTheme.colorScheme.secondary,
               )
             }

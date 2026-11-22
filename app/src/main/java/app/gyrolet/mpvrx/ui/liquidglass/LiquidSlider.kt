@@ -26,6 +26,16 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -98,6 +108,30 @@ fun LiquidSlider(
       Box(
         Modifier
           .matchParentSize()
+          .focusable(enabled = enabled, interactionSource = interactionSource)
+          .onKeyEvent { keyEvent ->
+            if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+            val span = (valueRange.endInclusive - valueRange.start).coerceAtLeast(1e-6f)
+            val step = span / 20f
+            val delta = when (keyEvent.key) {
+              Key.DirectionRight -> if (isLtr) step else -step
+              Key.DirectionLeft -> if (isLtr) -step else step
+              else -> return@onKeyEvent false
+            }
+            val target = (value() + delta).coerceIn(valueRange)
+            currentOnValueChange.value(target)
+            currentOnFinished.value?.invoke()
+            true
+          }
+          .semantics {
+            progressBarRangeInfo = ProgressBarRangeInfo(value(), valueRange)
+            setProgress { target ->
+              val clamped = target.coerceIn(valueRange)
+              currentOnValueChange.value(clamped)
+              currentOnFinished.value?.invoke()
+              true
+            }
+          }
           .pointerInput(animation, sliderWidthPx, thumbWidthPx, isLtr, enabled, interactionSource) {
             fun seekTo(horizontalPosition: Float) {
               if (sliderWidthPx <= 0f) return

@@ -34,9 +34,10 @@ fun MiniAudioVisualizer(
   barWidth: Dp = 2.5.dp,
   barSpacing: Dp = 2.dp,
 ) {
+  val animateBars = isPlaying && !app.gyrolet.mpvrx.ui.theme.AppMotion.shouldReduceMotion()
   val infiniteTransition = rememberInfiniteTransition(label = "mini_visualizer_bars")
 
-  val bar1Target by if (isPlaying) {
+  val bar1Target by if (animateBars) {
     infiniteTransition.animateFloat(
       initialValue = 0.2f,
       targetValue = 0.95f,
@@ -50,7 +51,7 @@ fun MiniAudioVisualizer(
     remember { mutableFloatStateOf(0.3f) }
   }
 
-  val bar2Target by if (isPlaying) {
+  val bar2Target by if (animateBars) {
     infiniteTransition.animateFloat(
       initialValue = 0.4f,
       targetValue = 1.0f,
@@ -64,7 +65,7 @@ fun MiniAudioVisualizer(
     remember { mutableFloatStateOf(0.65f) }
   }
 
-  val bar3Target by if (isPlaying) {
+  val bar3Target by if (animateBars) {
     infiniteTransition.animateFloat(
       initialValue = 0.2f,
       targetValue = 0.85f,

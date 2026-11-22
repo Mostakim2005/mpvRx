@@ -135,7 +135,7 @@ fun FullscreenMetadataEditorSheet(
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          Column {
+          Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
               text = "Edit Song Metadata & Artwork",
               style = MaterialTheme.typography.titleLarge,
@@ -149,7 +149,11 @@ fun FullscreenMetadataEditorSheet(
             )
           }
           IconButton(onClick = onDismiss) {
-            Text("✕", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+              imageVector = app.gyrolet.mpvrx.ui.icons.Icons.RoundedFilled.Close,
+              contentDescription = "Close",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
           }
         }
 

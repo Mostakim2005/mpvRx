@@ -174,7 +174,7 @@ data class CustomThemeEditorScreen(
           },
           navigationIcon = {
             IconButton(onClick = { backStack.popSafely() }) {
-              Icon(Icons.RoundedFilled.ArrowBack, contentDescription = null)
+              Icon(Icons.RoundedFilled.ArrowBack, contentDescription = "Back")
             }
           },
           actions = {

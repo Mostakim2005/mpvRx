@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -655,17 +656,18 @@ private fun LeaderboardMediaRow(
   index: Int,
   itemCount: Int,
 ) {
+  val isLightTheme = MaterialTheme.colorScheme.background.luminance() > 0.5f
   val rankColor = when (rank) {
-    1 -> Color(0xFFFFB300) // Gold
-    2 -> Color(0xFF90A4AE) // Silver
-    3 -> Color(0xFFCD7F32) // Bronze
-    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    1 -> if (isLightTheme) Color(0xFF8C5A00) else Color(0xFFFFCA28) // Accessible Gold
+    2 -> if (isLightTheme) Color(0xFF455A64) else Color(0xFFB0BEC5) // Accessible Silver
+    3 -> if (isLightTheme) Color(0xFF8D4E15) else Color(0xFFE09F5A) // Accessible Bronze
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
   }
 
   val rankContainerColor = when (rank) {
-    1 -> Color(0xFFFFB300).copy(alpha = 0.18f)
-    2 -> Color(0xFF90A4AE).copy(alpha = 0.18f)
-    3 -> Color(0xFFCD7F32).copy(alpha = 0.18f)
+    1 -> rankColor.copy(alpha = 0.16f)
+    2 -> rankColor.copy(alpha = 0.16f)
+    3 -> rankColor.copy(alpha = 0.16f)
     else -> MaterialTheme.colorScheme.surfaceContainerHighest
   }
 

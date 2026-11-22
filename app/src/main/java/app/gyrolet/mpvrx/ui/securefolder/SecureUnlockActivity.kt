@@ -98,7 +98,7 @@ class SecureUnlockActivity : FragmentActivity() {
     }
     val pinLength = preferences.pinLength.get().coerceIn(4, 8)
     setContent {
-      MaterialTheme(colorScheme = darkColorScheme()) {
+      app.gyrolet.mpvrx.ui.theme.MpvrxTheme {
         SecurePinPrompt(
           pinLength = pinLength,
           verify = preferences::verifyPin,
@@ -158,7 +158,10 @@ private fun SecurePinPrompt(
   }
   LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
-  Surface(modifier = Modifier.fillMaxSize(), color = Color.Black.copy(alpha = 0.94f)) {
+  Surface(
+    modifier = Modifier.fillMaxSize(),
+    color = MaterialTheme.colorScheme.background.copy(alpha = 0.96f),
+  ) {
     Column(
       modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
       verticalArrangement = Arrangement.Center,
@@ -167,13 +170,13 @@ private fun SecurePinPrompt(
       Text(
         text = "Secure Folder",
         style = MaterialTheme.typography.headlineSmall,
-        color = Color.White,
+        color = MaterialTheme.colorScheme.onBackground,
       )
       Spacer(Modifier.height(8.dp))
       Text(
         text = "Enter your PIN to play this private file.",
         style = MaterialTheme.typography.bodyMedium,
-        color = Color.White.copy(alpha = 0.75f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
       Spacer(Modifier.height(24.dp))
       OutlinedTextField(
