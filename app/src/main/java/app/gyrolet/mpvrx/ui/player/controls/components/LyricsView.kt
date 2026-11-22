@@ -361,7 +361,7 @@ fun LyricsView(
                     blendMode = BlendMode.DstIn,
                   )
                 },
-              verticalArrangement = Arrangement.spacedBy(18.dp),
+              verticalArrangement = Arrangement.spacedBy(10.dp),
               contentPadding = PaddingValues(vertical = centerPadding),
             ) {
               itemsIndexed(
@@ -516,10 +516,8 @@ fun LyricsView(
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
                       onTap?.invoke()
-                      if (!isLyricsFullscreen) {
-                        val targetSeconds = line.time / 1000f
-                        PlaybackSession.command("seek", targetSeconds.toString(), "absolute+exact")
-                      }
+                      val targetSeconds = line.time / 1000f
+                      PlaybackSession.command("seek", targetSeconds.toString(), "absolute+exact")
                     }
                     .padding(vertical = 4.dp, horizontal = 6.dp),
                   horizontalAlignment = rowAlignment,
@@ -550,7 +548,7 @@ fun LyricsView(
                             positionMs = smoothPositionMs,
                             activeColor = activeColor,
                             inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                            fontSize = if (isLyricsFullscreen) 30.sp else 26.sp,
+                            fontSize = if (isLyricsFullscreen) 20.sp else 18.sp,
                             isRtl = isRtl,
                           )
                         }
@@ -561,12 +559,12 @@ fun LyricsView(
                       text = displayText,
                       color = lineColor,
                       fontSize = when {
-                        leadLit && isLyricsFullscreen -> 30.sp
-                        leadLit -> 26.sp
-                        isLyricsFullscreen -> 24.sp
-                        else -> 22.sp
+                        leadLit && isLyricsFullscreen -> 20.sp
+                        leadLit -> 18.sp
+                        isLyricsFullscreen -> 15.sp
+                        else -> 14.sp
                       },
-                      fontWeight = if (leadLit) FontWeight.Black else FontWeight.ExtraBold,
+                      fontWeight = if (leadLit) FontWeight.Bold else FontWeight.Medium,
                       fontFamily = fontFamilyForText(displayText),
                       textAlign = rowTextAlign,
                       modifier = Modifier.fillMaxWidth(),
@@ -644,7 +642,7 @@ fun LyricsView(
                     blendMode = BlendMode.DstIn,
                   )
                 },
-              verticalArrangement = Arrangement.spacedBy(14.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
               contentPadding = PaddingValues(top = 16.dp, bottom = 220.dp),
             ) {
               itemsIndexed(
@@ -656,7 +654,7 @@ fun LyricsView(
                 Text(
                   text = textToDisplay,
                   color = MaterialTheme.colorScheme.onSurface,
-                  fontSize = 24.sp,
+                  fontSize = 15.sp,
                   fontWeight = FontWeight.Black,
                   fontFamily = fontFamilyForText(textToDisplay),
                   textAlign = TextAlign.Center,
