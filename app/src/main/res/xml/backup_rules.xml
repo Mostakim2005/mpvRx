@@ -2,4 +2,9 @@
 <full-backup-content>
   <include domain="database" path="." />
   <include domain="sharedpref" path="." />
+  <!-- Exclude pairing secrets and sensitive local credential/vault stores from cloud backup -->
+  <exclude domain="sharedpref" path="remote_control.xml" />
+  <exclude domain="database" path="secure_vault.db" />
+  <exclude domain="database" path="secure_vault.db-wal" />
+  <exclude domain="database" path="secure_vault.db-shm" />
 </full-backup-content>

@@ -711,6 +711,10 @@ class TorrentStreamingEngine(
     val request = runCatching { Request.Builder().url(source).get().build() }.getOrElse {
       throw streamError("Torrent metadata URL is invalid.")
     }
+    val host = request.url.host
+    if (app.gyrolet.mpvrx.data.network.ServerUrlUtils.isLocalOrPrivateHost(host)) {
+      throw streamError("Remote torrent metadata cannot be fetched from local or private network addresses.")
+    }
     return try {
       httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw streamError("Couldn't download torrent metadata (HTTP ${response.code}).")

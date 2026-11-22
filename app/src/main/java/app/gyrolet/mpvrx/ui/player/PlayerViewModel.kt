@@ -5354,7 +5354,10 @@ fun restartFromBeginning() {
     _currentSkippableSegment.value = null
     _showSkipChipAuto.value = false
     mergeSkipSegments()
-    if (!playerPreferences.enableIntroDb.get()) {
+    if (!playerPreferences.enableIntroDb.get() ||
+      isCurrentMediaSecure.value ||
+      isItemSecure(PlaybackSession.state.value.currentItem)
+    ) {
       pendingIntroLookupTitle = null
       _introDbStatus.value =
         IntroDbStatus(

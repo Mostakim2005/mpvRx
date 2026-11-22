@@ -166,7 +166,7 @@ class NavidromeClient(
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      Log.e(TAG, "Request failed: $url", e)
+      Log.e(TAG, "Request failed: ${app.gyrolet.mpvrx.utils.security.LogRedactor.redactUrl(url)}", e)
       Result.failure(e)
     }
   }

@@ -682,7 +682,9 @@ private fun buildDebugLogText(
       ""
     }
   val logBudget = (maxBytes - prefix.toByteArray(Charsets.UTF_8).size).coerceAtLeast(0)
-  val logs = entries.joinToString("\n", transform = ::formatDebugLogEntry)
+  val logs = entries.joinToString("\n") { entry ->
+    app.gyrolet.mpvrx.utils.security.LogRedactor.redactText(formatDebugLogEntry(entry))
+  }
   return (prefix + DebugLogReader.trimTextToByteBudget(logs, logBudget)).trimEnd()
 }
 

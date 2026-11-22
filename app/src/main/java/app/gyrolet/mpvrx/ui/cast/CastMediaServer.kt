@@ -32,6 +32,10 @@ internal class CastMediaServer private constructor(
   private val token: String,
 ) : NanoHTTPD("0.0.0.0", 0) {
   override fun serve(session: IHTTPSession): Response {
+    val remoteIp = session.remoteIpAddress.orEmpty()
+    if (remoteIp.isNotBlank() && !app.gyrolet.mpvrx.data.network.ServerUrlUtils.isLocalOrPrivateHost(remoteIp)) {
+      return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Forbidden")
+    }
     if (session.uri != "/$token") return textResponse(Response.Status.NOT_FOUND, "Not found")
     if (session.method == Method.OPTIONS) {
       return newFixedLengthResponse(Response.Status.NO_CONTENT, mimeType, "").apply {

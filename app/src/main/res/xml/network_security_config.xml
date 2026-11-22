@@ -1,13 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext (HTTP) traffic for all domains -->
-    <!-- This is necessary for WebDAV, FTP, SMB, and other network protocols that may use HTTP -->
+    <!-- Allow cleartext HTTP and user CAs in base-config for LAN media servers (Jellyfin, WebDAV, SMB, Navidrome) -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
-            <!-- Trust system certificates -->
             <certificates src="system" />
-            <!-- Trust user-added certificates (for corporate/self-signed certs) -->
             <certificates src="user" />
         </trust-anchors>
     </base-config>
+    <!-- Enforce strict HTTPS and system-only CAs for public cloud/API domains carrying API keys or telemetry -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">openai.com</domain>
+        <domain includeSubdomains="true">anthropic.com</domain>
+        <domain includeSubdomains="true">groq.com</domain>
+        <domain includeSubdomains="true">openrouter.ai</domain>
+        <domain includeSubdomains="true">together.xyz</domain>
+        <domain includeSubdomains="true">opencode.ai</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">measure.sh</domain>
+        <domain includeSubdomains="true">introdb.app</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
 </network-security-config>

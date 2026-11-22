@@ -80,6 +80,11 @@ class ExternalTextEditorActivity : AppCompatActivity() {
       finish()
       return
     }
+    if (source.scheme == "file" && isAppPrivateFile(this, source)) {
+      Toast.makeText(this, "Access to private application files is not permitted", Toast.LENGTH_LONG).show()
+      finish()
+      return
+    }
     val fileName = resolveFileName(this, source)
     if (!isSupportedTextFile(fileName)) {
       Toast.makeText(this, "This file is not a supported text/config document", Toast.LENGTH_LONG).show()
@@ -107,6 +112,20 @@ class ExternalTextEditorActivity : AppCompatActivity() {
     fun isSupportedTextFile(name: String): Boolean {
       val suffix = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
       return suffix in allowedExtensions
+    }
+
+    private fun isAppPrivateFile(context: Context, uri: Uri): Boolean {
+      val rawPath = uri.path ?: return true
+      val target = runCatching { java.io.File(rawPath).canonicalPath }.getOrNull() ?: return true
+      val privateRoots =
+        listOfNotNull(
+          runCatching { context.dataDir.canonicalPath }.getOrNull(),
+          runCatching { context.filesDir.canonicalPath }.getOrNull(),
+          runCatching { context.cacheDir.canonicalPath }.getOrNull(),
+          runCatching { context.noBackupFilesDir.canonicalPath }.getOrNull(),
+          runCatching { context.codeCacheDir.canonicalPath }.getOrNull(),
+        )
+      return privateRoots.any { root -> target == root || target.startsWith("$root/") }
     }
 
     private fun resolveFileName(context: Context, uri: Uri): String {

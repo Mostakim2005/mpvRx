@@ -224,7 +224,11 @@ internal object CrashReportStore {
       try {
         val process = ProcessBuilder(arguments).redirectErrorStream(true).start()
         try {
-          process.inputStream.bufferedReader().use { it.copyTo(writer) }
+          process.inputStream.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+              writer.appendLine(app.gyrolet.mpvrx.utils.security.LogRedactor.redactText(line))
+            }
+          }
           val exitCode = process.waitFor()
           if (exitCode != 0) writer.appendLine("Logcat exited with status $exitCode")
         } finally {

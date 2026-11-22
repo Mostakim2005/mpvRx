@@ -152,7 +152,7 @@ class AppDownloadManager(
         DirectDownloadService.start(context)
       }.onFailure { error ->
         if (error is CancellationException) throw error
-        Log.e(TAG, "Failed to enqueue download for $url", error)
+        Log.e(TAG, "Failed to enqueue download for ${app.gyrolet.mpvrx.utils.security.LogRedactor.redactUrl(url)}", error)
         mainHandler.post {
           Toast
             .makeText(
@@ -310,7 +310,7 @@ class AppDownloadManager(
             dao.findById(id)?.let { dao.update(it.copy(status = AppDownloadStatus.CANCELLED.name)) }
           }
           else -> {
-            Log.e(TAG, "Download failed for ${entity.url}", error)
+            Log.e(TAG, "Download failed for ${app.gyrolet.mpvrx.utils.security.LogRedactor.redactUrl(entity.url)}", error)
             // Keep the .part file so retry resumes from where it stopped.
             dao.findById(id)?.let {
               dao.update(
@@ -372,7 +372,7 @@ class AppDownloadManager(
           Log.d(TAG, "Saved subtitle sidecar: ${target.name}")
         }.onFailure { error ->
           if (error is CancellationException) throw error
-          Log.w(TAG, "Subtitle sidecar failed for ${track.url}: ${error.message}")
+          Log.w(TAG, "Subtitle sidecar failed for ${app.gyrolet.mpvrx.utils.security.LogRedactor.redactUrl(track.url)}: ${error.message}")
         }
       }
     }

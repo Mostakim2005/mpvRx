@@ -66,8 +66,8 @@ object ServerUrlUtils {
       // 100.64.0.0/10 (CGNAT / Tailscale)
       if (p1 == 100 && p2 in 64..127) return true
 
-      // Any other raw IPv4 address (e.g. direct public IP without domain)
-      return true
+      // Public IPv4 addresses are NOT local/private; prioritize HTTPS first
+      return false
     }
 
     // IPv6 link-local or unique-local

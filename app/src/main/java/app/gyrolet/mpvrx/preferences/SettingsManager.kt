@@ -60,6 +60,20 @@ class SettingsManager(
     private const val ATTR_EXPORT_DATE = "exportDate"
     private const val ATTR_VERSION = "version"
     private const val ATTR_FORMAT_VERSION = "formatVersion"
+    private val SENSITIVE_PREFERENCE_KEYS = setOf(
+      "ai_opencode_api_key",
+      "ai_groq_api_key",
+      "ai_openai_api_key",
+      "ai_anthropic_api_key",
+      "ai_openrouter_api_key",
+      "ai_together_api_key",
+      "ai_custom_openai_api_key",
+      "seerr_api_key",
+      "secure_folder_pin_hash",
+      "secure_folder_pin_salt",
+      "secure_folder_security_answer_hash",
+      "secure_folder_security_answer_salt",
+    )
     private const val ATTR_ENCODING = "encoding"
     private const val FORMAT_VERSION = 2
     private const val ENCODING_BASE64 = "base64"
@@ -270,6 +284,7 @@ class SettingsManager(
         key != AdvancedPreferences.AUTO_BACKUP_ENABLED_KEY &&
         key != AdvancedPreferences.AUTO_BACKUP_FOLDER_URI_KEY &&
         key != AdvancedPreferences.MEASURE_ENABLED_KEY &&
+        !isSensitiveExportKey(key) &&
         value != null
       ) {
         writePreference(serializer, key, value)
@@ -300,6 +315,16 @@ class SettingsManager(
       totalExported = exportedCount,
       exportedKeys = exportedKeys,
     )
+  }
+
+  private fun isSensitiveExportKey(key: String): Boolean {
+    if (key in SENSITIVE_PREFERENCE_KEYS) return true
+    val lower = key.lowercase(Locale.ROOT)
+    return lower.endsWith("_api_key") ||
+      lower.endsWith("_pin_hash") ||
+      lower.endsWith("_pin_salt") ||
+      lower.endsWith("_answer_hash") ||
+      lower.endsWith("_answer_salt")
   }
 
   private fun sanitizeXmlValue(value: String): String {
