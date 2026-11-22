@@ -302,12 +302,13 @@ flowchart LR
 ---
 
 ### [TRAP: Portrait-Only-Editors-Must-Restore-The-Players-Orientation] | Aliases: bookmark editor portrait, keyboard covers landscape editor, lost landscape after edit, orientation restore
-> **1-Line Summary:** Text-heavy editors (bookmark editor, metadata editor) must be forced to portrait while open, then restore the exact orientation the player had — a forced rotation that is not undone strands the user in portrait.
-* **Strict Rule:** Keyboard-driven editors request `SCREEN_ORIENTATION_PORTRAIT` on open and **must** restore the saved orientation on close (save, cancel, back, and process-death restore). The restore target is the one the player was using before the editor opened: a manual rotation-button choice outranks the media preference, and split-screen/freeform still hands orientation to the system. Never let the editor's request leak into normal playback.
-* **Verification:** Landscape player → open editor → editor is portrait with the focused field above the IME → save/cancel/back → player is landscape again with the same position and a live surface.
+> **1-Line Summary:** Text-heavy editors (bookmark editor, metadata editor) must be forced to portrait on phones while open, clear focus/IME, and then restore the exact orientation the player had — a forced rotation that is not undone strands the user in portrait.
+* **Strict Rule:** On phone-sized displays (`smallestScreenWidthDp < 600`), keyboard-driven editors request `SCREEN_ORIENTATION_PORTRAIT` on open, hide the software keyboard and clear focus on dismiss/save/cancel, and **must** restore the saved orientation on close (save, cancel, back, and process-death restore). On tablets and TVs (`>= 600dp`), landscape is preserved without needless rotation. The restore target is the one the player was using before the editor opened: a manual rotation-button choice outranks the media preference, and split-screen/freeform still hands orientation to the system. Never let the editor's request leak into normal playback.
+* **Verification:** Landscape phone player → open editor → editor is portrait with the focused field above the IME → save/cancel/back → IME disappears cleanly, player is landscape again with the same position and a live surface.
 * **Protected Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` -> `setRequestedOrientation`, `setOrientation`, `PlayerOrientationPolicy.manualOrientation`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.BookmarkEditor`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/ChaptersSheet.kt` -> `PlaybackBookmarkEditor`, `hideKeyboardAndClearFocus`
 
 ---
 
