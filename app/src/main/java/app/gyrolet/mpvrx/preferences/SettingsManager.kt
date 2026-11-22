@@ -172,7 +172,10 @@ class SettingsManager(
             finalized = true
             root.listFiles()
               .filter { file -> file.isFile && file.name?.matches(AUTO_BACKUP_FILE_REGEX) == true }
-              .sortedByDescending { file -> file.name.orEmpty() }
+              .sortedWith(
+                compareByDescending<DocumentFile> { it.lastModified() }
+                  .thenByDescending { it.name.orEmpty() },
+              )
               .drop(AUTO_BACKUP_RETENTION)
               .forEach(DocumentFile::delete)
             state.edit()
@@ -428,7 +431,9 @@ class SettingsManager(
     parser.nextTag()
     parser.require(XmlPullParser.START_TAG, null, TAG_ROOT)
     val formatVersion = parser.getAttributeValue(null, ATTR_FORMAT_VERSION)?.trim()?.toIntOrNull() ?: 1
-    require(formatVersion >= 1) { "Unsupported settings format: $formatVersion" }
+    require(formatVersion in 1..FORMAT_VERSION) {
+      "Unsupported settings format: $formatVersion (supported: 1..$FORMAT_VERSION)"
+    }
 
     val stats = ImportStats()
     val imported = LinkedHashMap<String, Any>()
@@ -505,8 +510,20 @@ class SettingsManager(
     // Insert all database data
     try {
       if (networkConnections.isNotEmpty()) {
-        database.networkConnectionDao().insertAll(networkConnections)
-        stats.imported += networkConnections.size
+        val existingKeys =
+          database.networkConnectionDao().getAllConnectionsList()
+            .mapTo(HashSet()) { existing ->
+              listOf(existing.protocol.name, existing.host.lowercase(Locale.ROOT), existing.port.toString(), existing.username, existing.path)
+            }
+        val uniqueNewConnections =
+          networkConnections.filter { candidate ->
+            val key = listOf(candidate.protocol.name, candidate.host.lowercase(Locale.ROOT), candidate.port.toString(), candidate.username, candidate.path)
+            existingKeys.add(key)
+          }
+        if (uniqueNewConnections.isNotEmpty()) {
+          database.networkConnectionDao().insertAll(uniqueNewConnections)
+          stats.imported += uniqueNewConnections.size
+        }
       }
     } catch (cancelled: CancellationException) {
       throw cancelled

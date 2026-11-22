@@ -147,12 +147,14 @@ object DurablePreferencesSync {
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
           if (isApplyingRestore || key == null) return@OnSharedPreferenceChangeListener
           if (!isVaultKey(key) && !shouldMirrorPublicKey(key)) return@OnSharedPreferenceChangeListener
-          pendingFlushJob?.cancel()
-          pendingFlushJob =
-            scope.launch(Dispatchers.IO) {
-              delay(DEBOUNCE_MS)
-              flushNow(appContext)
-            }
+          synchronized(writeLock) {
+            pendingFlushJob?.cancel()
+            pendingFlushJob =
+              scope.launch(Dispatchers.IO) {
+                delay(DEBOUNCE_MS)
+                flushNow(appContext)
+              }
+          }
         }
       listener = newListener
       prefs.registerOnSharedPreferenceChangeListener(newListener)
@@ -177,17 +179,17 @@ object DurablePreferencesSync {
         }
       }
 
+      val publicFile = DurableStorageManager.settingsMirrorFile(appContext)
       if (publicEntries.isNotEmpty()) {
-        writeSnapshot(
-          DurableStorageManager.settingsMirrorFile(appContext),
-          Snapshot(entries = publicEntries),
-        )
+        writeSnapshot(publicFile, Snapshot(entries = publicEntries))
+      } else if (publicFile.isFile) {
+        runCatching { publicFile.delete() }
       }
+      val vaultFile = DurableStorageManager.secureConfigFile(appContext)
       if (vaultEntries.isNotEmpty()) {
-        writeSnapshot(
-          DurableStorageManager.secureConfigFile(appContext),
-          Snapshot(entries = vaultEntries),
-        )
+        writeSnapshot(vaultFile, Snapshot(entries = vaultEntries))
+      } else if (vaultFile.isFile) {
+        runCatching { vaultFile.delete() }
       }
     }
   }

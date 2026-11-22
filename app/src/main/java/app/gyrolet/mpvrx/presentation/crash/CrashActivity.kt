@@ -144,7 +144,18 @@ class CrashActivity : AppCompatActivity() {
   }
 
   private fun deleteDatabase(): Boolean =
-    runCatching { deleteDatabase("mpvrx.db") }.getOrDefault(false)
+    runCatching {
+      val legacyDeleted = deleteDatabase("mpvrx.db")
+      val durableDb = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalDatabaseFile(applicationContext)
+      val durableDeleted =
+        listOf(
+          durableDb,
+          File(durableDb.path + "-wal"),
+          File(durableDb.path + "-shm"),
+          File(durableDb.path + "-journal"),
+        ).map { target -> target.exists() && target.delete() }.any { it }
+      legacyDeleted || durableDeleted
+    }.getOrDefault(false)
 
   private fun copyReport() {
     val report = reportFile ?: return
@@ -269,7 +280,7 @@ class CrashActivity : AppCompatActivity() {
     val isDatabaseRelated =
       remember(exceptionString) {
         val details = exceptionString.lowercase(java.util.Locale.ROOT)
-        listOf("android.database.sqlite", "androidx.room", "mpvrx.db").any { it in details }
+        listOf("android.database.sqlite", "androidx.room", "mpvrx.db", "library.dat").any { it in details }
       }
 
     Scaffold(

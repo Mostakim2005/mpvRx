@@ -393,11 +393,13 @@ object DurableVaultMigration {
       val raw = runCatching { file.readBytes() }.getOrNull() ?: return@forEach
       val plain = runCatching { VaultCrypto.decryptBytes(raw) }.getOrNull() ?: return@forEach
       val encrypted = VaultCrypto.encryptBytes(plain)
-      val temp = File(dest.path + ".tmp")
+      val temp = File(dest.path + ".${java.util.UUID.randomUUID()}.tmp")
       val wrote =
         runCatching {
-          temp.writeBytes(encrypted)
-          if (dest.exists()) dest.delete()
+          java.io.FileOutputStream(temp).use { out ->
+            out.write(encrypted)
+            out.fd.sync()
+          }
           temp.renameTo(dest) && VaultCrypto.plaintextLength(dest) == plain.size.toLong()
         }.getOrDefault(false)
       if (wrote) {

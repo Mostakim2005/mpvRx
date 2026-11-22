@@ -30,9 +30,9 @@ internal object TreeViewCache {
   ) {
     runCatching {
       val file = fileFor(context, cacheKey)
-      val temp = File(file.parentFile, file.name + ".tmp")
-      // Written to a temp file and renamed, so a kill mid-write cannot leave a truncated snapshot
-      // that later decodes into a plausible-looking but wrong tree.
+      val temp = File(file.parentFile, "${file.name}.${java.util.UUID.randomUUID()}.tmp")
+      // Written to a unique temp file and renamed, so concurrent saves cannot clobber each other
+      // and a kill mid-write cannot leave a truncated snapshot.
       temp.writeText(payload)
       if (!temp.renameTo(file)) {
         temp.delete()
@@ -59,7 +59,7 @@ internal object TreeViewCache {
       val legacy = context.cacheDir.resolve(DIR).resolve(file.name)
       if (!legacy.isFile) return null
       legacy.readText().takeIf { it.isNotBlank() }?.also { payload ->
-        runCatching { file.writeText(payload) }
+        save(context, cacheKey, payload)
       }
     }.onFailure { error ->
       Log.w(TAG, "Could not read tree cache", error)

@@ -349,12 +349,18 @@ private fun buildEntryId(
     append(occurrence)
   }
 
+private val ANDROID_TIMESTAMP_FORMATTER =
+  ThreadLocal.withInitial { SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US) }
+
+private val DISPLAY_TIME_FORMATTER =
+  ThreadLocal.withInitial { SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()) }
+
 private fun parseAndroidTimestamp(
   timestamp: String,
   now: Long,
 ): Long? =
   runCatching {
-    val formatter = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    val formatter = ANDROID_TIMESTAMP_FORMATTER.get() ?: return@runCatching null
     val parsed = formatter.parse(timestamp) ?: return@runCatching null
     val currentCalendar = Calendar.getInstance().apply { timeInMillis = now }
     val parsedCalendar =
@@ -372,4 +378,4 @@ private fun parseAndroidTimestamp(
   }.getOrNull()
 
 private fun formatDisplayTime(timeMillis: Long): String =
-  SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timeMillis))
+  (DISPLAY_TIME_FORMATTER.get() ?: SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())).format(Date(timeMillis))

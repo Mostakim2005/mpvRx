@@ -345,17 +345,34 @@ object DurableStorageManager {
   fun copyFile(source: File, target: File): Boolean {
     val parent = target.parentFile
     if (parent != null && !parent.exists() && !parent.mkdirs()) return false
-    val temp = File(target.path + ".tmp")
+    val temp = File(target.path + ".${java.util.UUID.randomUUID()}.tmp")
     return try {
       source.inputStream().use { input ->
-        FileOutputStream(temp).use { output -> input.copyTo(output, COPY_BUFFER_SIZE) }
+        FileOutputStream(temp).use { output ->
+          input.copyTo(output, COPY_BUFFER_SIZE)
+          output.fd.sync()
+        }
       }
       if (temp.length() != source.length()) {
         temp.delete()
         false
+      } else if (temp.renameTo(target)) {
+        true
       } else {
-        if (target.exists()) target.delete()
-        temp.renameTo(target)
+        // Fallback for filesystems where renameTo does not overwrite existing targets
+        val backup = File(target.path + ".bak")
+        if (target.exists() && !target.renameTo(backup)) {
+          temp.delete()
+          return false
+        }
+        val moved = temp.renameTo(target)
+        if (moved) {
+          backup.delete()
+        } else {
+          if (backup.exists()) backup.renameTo(target)
+          temp.delete()
+        }
+        moved
       }
     } catch (_: Exception) {
       temp.delete()

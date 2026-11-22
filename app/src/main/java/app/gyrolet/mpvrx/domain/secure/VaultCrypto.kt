@@ -154,8 +154,18 @@ object VaultCrypto {
     hmacSubkey ?: error("VaultCrypto is not initialized")
 
   private fun loadOrCreateKey(file: File): ByteArray {
-    if (file.isFile && file.length() == KEY_FILE_TOTAL_BYTES.toLong()) {
-      return unwrapKeyFile(file.readBytes())
+    if (file.isFile) {
+      if (file.length() == KEY_FILE_TOTAL_BYTES.toLong()) {
+        return unwrapKeyFile(file.readBytes())
+      }
+      // Never silently overwrite an existing corrupt/truncated .vkey — doing so would permanently
+      // orphan every encrypted vault file on disk. Quarantine a backup copy and fail loudly.
+      val quarantine = File(file.path + ".corrupt.${System.currentTimeMillis()}")
+      runCatching { file.copyTo(quarantine, overwrite = true) }
+      throw IllegalStateException(
+        "Vault key file is truncated or corrupt (${file.length()} bytes, expected $KEY_FILE_TOTAL_BYTES). " +
+          "Quarantined copy at ${quarantine.name}; refusing to regenerate master key.",
+      )
     }
     val generated = ByteArray(KEY_BYTES).also(random::nextBytes)
     val salt = ByteArray(KEY_SALT_BYTES).also(random::nextBytes)
@@ -182,15 +192,14 @@ object VaultCrypto {
 
     val parent = file.parentFile
     if (parent != null && !parent.exists()) parent.mkdirs()
-    val temp = File(file.path + ".tmp")
+    val temp = File(file.path + ".${java.util.UUID.randomUUID()}.tmp")
     FileOutputStream(temp).use {
       it.write(output)
       it.fd.sync()
     }
-    if (file.exists()) file.delete()
     if (!temp.renameTo(file)) {
-      file.writeBytes(output)
       temp.delete()
+      throw java.io.IOException("Failed to atomically commit vault key file ${file.name}")
     }
     return generated
   }
