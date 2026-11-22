@@ -308,3 +308,24 @@ flowchart LR
 * **Protected Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` -> `setRequestedOrientation`, `setOrientation`, `PlayerOrientationPolicy.manualOrientation`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.BookmarkEditor`
+
+---
+
+### [DECISION: ContentScale-Fit-For-Bookmark-Thumbnails] | Aliases: fit bookmarks, uncropped thumbnails, prevent video cropping
+> **1-Line Summary:** Replaced `ContentScale.Crop` with `ContentScale.Fit` across all bookmark cards to prevent losing video subtitles and vertical composition.
+* **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
+* **Original User Intention:** A bookmark thumbnail should depict the exact visual scene captured, including subtitles or wide framing.
+* **Options Considered:**
+  * **Option A (Rejected):** `ContentScale.Crop`. Crops top/bottom or sides on 4:3, 21:9, or mobile portrait clips, cutting out burnt-in subtitles or critical actions.
+  * **Option B (Chosen):** `ContentScale.Fit` paired with an increased landscape sidebar height limit (`220.dp`). The entire video frame is visible without unwanted clipping.
+
+---
+
+### [DECISION: Parallel-Bitmap-Memory-Cache-For-Fast-Bookmark-Creation] | Aliases: fast bookmarks, non-blocking thumbnail capture, lru bitmap cache
+> **1-Line Summary:** Separated thumbnail bitmap capture and immediate UI display from background AES-encrypted disk persistence and Room writes.
+* **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
+* **Original User Intention:** Tapping quick-bookmark must capture without dropping video playback frames or lagging the controls overlay.
+* **Options Considered:**
+  * **Option A (Rejected):** Synchronous disk write and encryption on the same coroutine path before notifying the UI. Caused visible 100-300ms UI pauses on high-bitrate video.
+  * **Option B (Chosen):** Populate `BitmapMemoryCache` immediately upon bitmap grab, parallelize Room insertion and background AES encrypted disk writing via `Dispatchers.IO`, keeping the playback thread completely unblocked.
+

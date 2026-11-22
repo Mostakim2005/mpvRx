@@ -372,3 +372,53 @@
   * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `secureDir`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `privateDirectory`
 
+---
+
+## 3. Namida UI/UX & Backend Features (v3.3.0)
+
+### [FEATURE: Music-Folders-Back-Navigation-Preservation] | Aliases: music folder back, back to folders, preserve music subtab
+> **1-Line Summary:** Preserves the active `MusicTab` (such as `MusicTab.FOLDERS`) when navigating back from within a folder, preventing reset to Songs or Home.
+* **User Intention (Non-Negotiable):** Navigating deep into folder hierarchies in the Music browser and pressing Back must back out folder-by-folder and preserve the Folders sub-tab selection rather than bouncing the user back to the top-level Songs list or Home tab.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/browser/MainScreen.kt` -> `MainScreen`, `BackHandler`
+
+### [FEATURE: Uncropped-Bookmark-Thumbnails-And-Parallel-Capture] | Aliases: fit bookmarks, uncropped thumbnails, fast bookmark capture, 220dp landscape sidebar
+> **1-Line Summary:** Renders full uncropped frames (`ContentScale.Fit`), raises landscape sidebar thumbnail height cap to 220dp, and parallelizes frame capture with Room writes and memory cache.
+* **User Intention (Non-Negotiable):** Bookmarks on non-16:9 videos (21:9 ultrawide, 4:3, anime) must show the complete frame without cropping subtitles or key visuals. Creating a quick bookmark must feel instantaneous without capture hitching.
+* **Visual / UI Behavior:**
+  * Uses `ContentScale.Fit` across portrait grid, landscape sidebar, and gallery.
+  * Landscape sidebar thumbnail height limit raised from `140.dp` to `220.dp`.
+  * Capture pipeline caches `Bitmap` immediately in memory while running Room database operations and AES encryption concurrently in background I/O.
+  * Added `bookmarkQuickAddMinimalist` and `bookmarkPanelMinimalistView` preferences for instant chapter-style bookmarking.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkThumbnailStore.kt` -> `save`, `load`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` -> `createQuickBookmark`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`
+
+### [FEATURE: Fullscreen-Lyrics-Tap-To-Seek-And-Compact-Scale] | Aliases: tap lyrics seek, fullscreen lyrics seek, namida lyrics typography
+> **1-Line Summary:** Enables tapping any synced lyric line in fullscreen lyrics mode to seek immediately, paired with Namida's compact typography scale.
+* **User Intention (Non-Negotiable):** Users can tap any synced lyric line in fullscreen mode to jump directly to that point in the song. Typography follows Namida's compact scale (20/18/15/14 sp with 10dp line spacing) so 7+ lines fit comfortably on screen.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/LyricsView.kt` -> `LyricsView`
+
+### [FEATURE: Namida-Music-Player-Default-And-Section-Toggles] | Aliases: namida music layout, music player style, mpvrx classic layout, green section toggles
+> **1-Line Summary:** Defaults to Namida music player layout with compact title/artist scale and inline timestamps, while offering mpvRx Classic style and granular section visibility checkboxes.
+* **User Intention (Non-Negotiable):** Music playback screen defaults to modern Namida aesthetics with centered artwork, compact typography, and inline transport row. Classic mpvRx style is preserved as an option (placing Row 2 above Row 1), along with toggles to hide/show Green section header bars and lyrics source indicators.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/preferences/AppearancePreferences.kt` -> `MusicPlayerUiStyle`, `musicPlayerUiStyle`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/AudioPlayerControls.kt` -> `AudioPlayerControls`, `MusicLayoutDialog`
+
+### [FEATURE: Compact-Media-Notification-Subtext] | Aliases: notification elapsed duplicate, compact notification, clean notification subtext
+> **1-Line Summary:** Removes redundant elapsed/remaining subtext from the notification title row when the system notification seekbar is active.
+* **User Intention (Non-Negotiable):** Modern Android media notifications already render an interactive seekbar with current position and duration. Removing duplicate text keeps notification bars concise and readable.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/MediaPlaybackService.kt` -> `buildNotification`
+
+### [FEATURE: Unicode-TextNormalizer-And-JVM-Tests] | Aliases: namida text normalizer, diacritic cleaner, search normalizer
+> **1-Line Summary:** Ports Namida's Unicode NFKD cleaner to strip combining diacritics, zero-width characters, and extra whitespace for reliable search and lyrics matching.
+* **User Intention (Non-Negotiable):** Accented track titles, artist names, or search queries (e.g. `Café`, `Über`) match seamlessly with their ASCII and diacritic variants across local music indexing and online lyrics queries.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/utils/text/TextNormalizer.kt` -> `normalizeForSearch`
+  * `app/src/test/java/app/gyrolet/mpvrx/utils/text/TextNormalizerTest.kt` -> `stripsDiacriticsZeroWidthAndExtraWhitespace`
+
+
