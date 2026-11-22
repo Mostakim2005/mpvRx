@@ -186,11 +186,18 @@ object PlaybackBookmarkOps {
       val existingKeys =
         dao.getInGroup(groupKey)
           .mapTo(HashSet()) { it.positionMs to it.title.trim() }
+      val skippedThumbnails = mutableListOf<String>()
       val toInsert =
         imported.bookmarks.filter { entry ->
           val key = entry.positionMs to entry.title.trim()
-          if (key in existingKeys) false else existingKeys.add(key)
+          if (key in existingKeys) {
+            entry.thumbnailPath?.takeIf { it.isNotBlank() }?.let(skippedThumbnails::add)
+            false
+          } else {
+            existingKeys.add(key)
+          }
         }
+      skippedThumbnails.forEach { path -> runCatching { java.io.File(path).delete() } }
       if (toInsert.isNotEmpty()) {
         dao.addAll(toInsert)
       }

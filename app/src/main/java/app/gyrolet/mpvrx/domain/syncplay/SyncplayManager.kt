@@ -57,8 +57,11 @@ class SyncplayManager(
   private var listenJob: Job? = null
   private var messageCollectorJob: Job? = null
   private var backgroundDisconnectJob: Job? = null
+  private var stateSendJob: Job? = null
+  private var fileSendJob: Job? = null
+  private var helloSyncJob: Job? = null
   @Volatile private var sessionGeneration = 0L
-  private var loggedIn = false
+  @Volatile private var loggedIn = false
   private var lastLocalPlaybackState = SyncplayPlaybackState(position = 0.0, paused = true)
   private var lastLocalFile: SyncplayFile? = null
   private var lastServerLatencyCalculation: Double? = null
@@ -154,7 +157,8 @@ class SyncplayManager(
       )
     if (!client.isConnected() || !loggedIn) return
 
-    scope.launch {
+    stateSendJob?.cancel()
+    stateSendJob = scope.launch {
       sendState(lastLocalPlaybackState, forced = doSeek != null, doSeek = doSeek)
     }
   }
@@ -163,7 +167,8 @@ class SyncplayManager(
     lastLocalFile = file
     if (!client.isConnected() || !loggedIn) return
 
-    scope.launch {
+    fileSendJob?.cancel()
+    fileSendJob = scope.launch {
       sendFile(file)
       requestUserList()
     }
@@ -249,7 +254,8 @@ class SyncplayManager(
         )
 
       startPingLoop()
-      scope.launch {
+      helloSyncJob?.cancel()
+      helloSyncJob = scope.launch {
         sendCurrentFile()
         requestUserList()
         sendState(currentPlaybackState(), forced = false, doSeek = null)
@@ -321,11 +327,17 @@ class SyncplayManager(
     pingJob?.cancel()
     listenJob?.cancel()
     messageCollectorJob?.cancel()
+    stateSendJob?.cancel()
+    fileSendJob?.cancel()
+    helloSyncJob?.cancel()
     pingJob = null
     connectJob = null
     handshakeJob = null
     listenJob = null
     messageCollectorJob = null
+    stateSendJob = null
+    fileSendJob = null
+    helloSyncJob = null
     clientIgnoringOnTheFly = 0
     serverIgnoringOnTheFly = 0
     lastServerLatencyCalculation = null

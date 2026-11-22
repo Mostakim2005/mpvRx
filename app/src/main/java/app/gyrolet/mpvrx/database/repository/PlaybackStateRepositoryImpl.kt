@@ -95,8 +95,10 @@ class PlaybackStateRepositoryImpl(
       }
       return
     }
-    database.videoDataDao().upsert(playbackState)
-    stateCache[playbackState.mediaTitle] = playbackState
+    fullLoadMutex.withLock {
+      database.videoDataDao().upsert(playbackState)
+      stateCache[playbackState.mediaTitle] = playbackState
+    }
   }
 
   override suspend fun getVideoDataByTitle(mediaTitle: String): PlaybackStateEntity? {
@@ -134,9 +136,11 @@ class PlaybackStateRepositoryImpl(
   }
 
   override suspend fun clearAllPlaybackStates() {
-    database.videoDataDao().clearAllPlaybackStates()
-    stateCache.clear()
-    allStatesLoaded.set(true)
+    fullLoadMutex.withLock {
+      database.videoDataDao().clearAllPlaybackStates()
+      stateCache.clear()
+      allStatesLoaded.set(true)
+    }
   }
 
   override suspend fun deleteByTitle(mediaTitle: String) {
@@ -145,8 +149,10 @@ class PlaybackStateRepositoryImpl(
       secureStateCache.remove(mediaTitle)
       return
     }
-    database.videoDataDao().deleteByTitle(mediaTitle)
-    stateCache.remove(mediaTitle)
+    fullLoadMutex.withLock {
+      database.videoDataDao().deleteByTitle(mediaTitle)
+      stateCache.remove(mediaTitle)
+    }
   }
 
   override suspend fun updateMediaTitle(
@@ -171,9 +177,11 @@ class PlaybackStateRepositoryImpl(
       }
       return
     }
-    database.videoDataDao().updateMediaTitle(oldTitle, newTitle)
-    stateCache.remove(oldTitle)?.let { state ->
-      stateCache[newTitle] = state.copy(mediaTitle = newTitle)
+    fullLoadMutex.withLock {
+      database.videoDataDao().updateMediaTitle(oldTitle, newTitle)
+      stateCache.remove(oldTitle)?.let { state ->
+        stateCache[newTitle] = state.copy(mediaTitle = newTitle)
+      }
     }
   }
 

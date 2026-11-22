@@ -419,13 +419,17 @@ class MediaPlaybackService :
 
   fun isForegroundReady(): Boolean = foregroundReady
 
+  @Synchronized
   private fun updateExternalDisplayWakeLock(active: Boolean) {
     if (active) {
       if (externalDisplayWakeLock?.isHeld != true) {
         externalDisplayWakeLock =
           (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:external-display")
-            .apply { acquire() }
+            .apply {
+              setReferenceCounted(false)
+              acquire()
+            }
       }
     } else {
       externalDisplayWakeLock?.let { if (it.isHeld) it.release() }

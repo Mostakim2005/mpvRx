@@ -38,7 +38,12 @@ private object RetryWithoutRangeSignal : IOException("Stored partial is not resu
 class UpdateManager(
   private val context: Context,
 ) {
-  private val client = OkHttpClient.Builder().withMeasureTelemetry().build()
+  private val client =
+    app.gyrolet.mpvrx.network.SharedHttpClient.derive {
+      connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+      readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+      callTimeout(10, java.util.concurrent.TimeUnit.MINUTES)
+    }
   private val json = Json {
     ignoreUnknownKeys = true
     coerceInputValues = true
@@ -343,12 +348,17 @@ class UpdateManager(
           var totalBytesRead: Long = if (appending) alreadyDownloaded else 0L
 
           if (totalBytesRead > 0L) emit(progressOf(totalBytesRead, totalBytes))
+          var lastEmitTimeMs = android.os.SystemClock.elapsedRealtime()
 
           while (inputStream.read(buffer).also { bytesRead = it } != -1) {
             currentCoroutineContext().ensureActive()
             outputStream.write(buffer, 0, bytesRead)
             totalBytesRead += bytesRead
-            emit(progressOf(totalBytesRead, totalBytes))
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            if (nowMs - lastEmitTimeMs >= 100L || (totalBytes != null && totalBytesRead >= totalBytes)) {
+              lastEmitTimeMs = nowMs
+              emit(progressOf(totalBytesRead, totalBytes))
+            }
           }
           outputStream.flush()
           outputStream.close()

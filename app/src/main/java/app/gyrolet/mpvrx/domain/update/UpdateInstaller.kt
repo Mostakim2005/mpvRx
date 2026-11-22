@@ -232,28 +232,30 @@ object UpdateInstaller {
   }
 
   suspend fun onResult(context: Context, intent: Intent) = withContext(Dispatchers.IO) {
-    val current = UpdateWork.state(context).value
-    if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) != current.sessionId ||
-      current.sessionId < 0 || intent.getStringExtra("token") != current.sessionToken) return@withContext
-    when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-      PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-        @Suppress("DEPRECATION")
-        val confirmation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-          intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-        } else intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-        if (confirmation == null) {
-          current.release?.let { manualInstall(context, it, launch = false) }
-          return@withContext
+    installMutex.withLock {
+      val current = UpdateWork.state(context).value
+      if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) != current.sessionId ||
+        current.sessionId < 0 || intent.getStringExtra("token") != current.sessionToken) return@withLock
+      when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+        PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+          @Suppress("DEPRECATION")
+          val confirmation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+          } else intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+          if (confirmation == null) {
+            current.release?.let { manualInstall(context, it, launch = false) }
+            return@withLock
+          }
+          approvalIntent = confirmation
+          UpdateWork.update(context) { it.copy(stage = UpdateStage.APPROVAL) }
+          // Do not start an activity from a background receiver. Notification and sheet both work.
+          UpdateNotifications.status(context, UpdateStage.APPROVAL, confirmation)
         }
-        approvalIntent = confirmation
-        UpdateWork.update(context) { it.copy(stage = UpdateStage.APPROVAL) }
-        // Do not start an activity from a background receiver. Notification and sheet both work.
-        UpdateNotifications.status(context, UpdateStage.APPROVAL, confirmation)
-      }
-      PackageInstaller.STATUS_SUCCESS -> completed(context)
-      else -> {
-        // Keep the verified APK and remember the fallback, including across process restarts.
-        current.release?.let { manualInstall(context, it, launch = false) }
+        PackageInstaller.STATUS_SUCCESS -> completed(context)
+        else -> {
+          // Keep the verified APK and remember the fallback, including across process restarts.
+          current.release?.let { manualInstall(context, it, launch = false) }
+        }
       }
     }
   }

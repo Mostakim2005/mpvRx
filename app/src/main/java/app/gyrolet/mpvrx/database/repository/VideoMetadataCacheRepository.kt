@@ -291,14 +291,14 @@ class VideoMetadataCacheRepository(
       val publicPaths = files.filter { vaultFlags[it.first.absolutePath] != true }.map { it.first.absolutePath }
       val cachedMap =
         if (publicPaths.isEmpty()) emptyMap()
-        else dao.getMetadataBatch(publicPaths).associateBy { it.path }
+        else publicPaths.distinct().chunked(500).flatMap { chunk -> dao.getMetadataBatch(chunk) }.associateBy { it.path }
 
       val vaultPathToHash =
         files.filter { vaultFlags[it.first.absolutePath] == true }
           .associate { (file, _, _) -> file.absolutePath to VaultCrypto.hmacKey(file.absolutePath) }
       val secCachedByHash =
         if (vaultPathToHash.isEmpty() || secureDao == null) emptyMap()
-        else secureDao.getMetadataBatch(vaultPathToHash.values.distinct()).associateBy { it.pathHash }
+        else vaultPathToHash.values.distinct().chunked(500).flatMap { chunk -> secureDao.getMetadataBatch(chunk) }.associateBy { it.pathHash }
 
       // Separate cached and uncached files
       val cachedFiles = mutableListOf<Triple<String, File, MediaInfoOps.VideoMetadata>>()
@@ -582,8 +582,11 @@ class VideoMetadataCacheRepository(
 
   private fun formatSize(bytes: Long): String {
     if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB")
-    val digitGroups = (kotlin.math.log10(bytes.toDouble()) / kotlin.math.log10(1024.0)).toInt()
+    val units = arrayOf("B", "KB", "MB", "GB", "TB", "PB")
+    val digitGroups =
+      (kotlin.math.log10(bytes.toDouble()) / kotlin.math.log10(1024.0))
+        .toInt()
+        .coerceIn(0, units.lastIndex)
     val value = bytes / 1024.0.pow(digitGroups.toDouble())
     return "%.1f %s".format(value, units[digitGroups])
   }

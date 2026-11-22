@@ -3136,7 +3136,7 @@ fun restartFromBeginning() {
   private val subtitleAddMutex = Mutex()
 
   // Mapping from mpv internal path/URI to the original source URI (resolves deletion issues)
-  private val mpvPathToUriMap = mutableMapOf<String, String>()
+  private val mpvPathToUriMap = java.util.concurrent.ConcurrentHashMap<String, String>()
 
   fun calculateVideoHash(uri: Uri) {
     _videoHash.value = null
@@ -4557,10 +4557,11 @@ fun restartFromBeginning() {
 
     timerJob =
       viewModelScope.launch {
-        for (time in seconds downTo 0) {
+        for (time in seconds downTo 1) {
           _remainingTime.value = time
           delay(1000)
         }
+        _remainingTime.value = 0
         PlaybackSession.setPropertyBoolean("pause", true)
         showToast(appContext.getString(R.string.toast_sleep_timer_ended))
       }

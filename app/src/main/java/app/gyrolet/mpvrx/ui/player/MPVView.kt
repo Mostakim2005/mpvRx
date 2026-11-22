@@ -872,6 +872,8 @@ class MPVView(
   }
 
   override fun onDetachedFromWindow() {
+    initInputsJob?.cancel()
+    initInputsJob = null
     if (MotionInterpolation.isBuildSupported) {
       context.getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(displayListener)
     }

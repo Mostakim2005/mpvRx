@@ -340,7 +340,8 @@ object ZipArchiveMedia {
     val header = readFully(channel, entry.localHeaderOffset, LOCAL_HEADER_LENGTH)
     if (header.getInt(0) != LOCAL_HEADER_SIGNATURE) return null
     val start = entry.localHeaderOffset + LOCAL_HEADER_LENGTH + header.u16(26) + header.u16(28)
-    return (start to entry.size).takeIf { start + entry.size <= channel.size() }
+    val channelSize = channel.size()
+    return (start to entry.size).takeIf { start in 0L..channelSize && entry.size <= channelSize - start }
   }
 
   fun sourceOf(value: String): String? = parsePlaybackLocation(value)?.archivePath

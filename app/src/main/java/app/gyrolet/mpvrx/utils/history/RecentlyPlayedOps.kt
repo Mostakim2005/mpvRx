@@ -289,7 +289,9 @@ object RecentlyPlayedOps {
           // It's a local file path - use it directly
           val filePath =
             if (path.startsWith("file://")) {
-              path.removePrefix("file://")
+              val raw = path.removePrefix("file://")
+              val decoded = Uri.decode(raw)
+              if (java.io.File(decoded).exists()) decoded else raw
             } else {
               path
             }

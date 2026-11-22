@@ -355,10 +355,14 @@ class App :
     }
   }
 
+  private var isChangingConfiguration = false
+
   override fun onActivityStarted(activity: Activity) {
     isInForeground = true
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_STARTED")
-    if (startedActivityCount++ == 0) {
+    val wasConfigChange = isChangingConfiguration
+    isChangingConfiguration = false
+    if (startedActivityCount++ == 0 && !wasConfigChange) {
       app.gyrolet.mpvrx.domain.secure.SecureFolderSession.onAppForegrounded()
       mediaStoreLiveMonitor.start()
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppForegrounded()
@@ -371,8 +375,9 @@ class App :
 
   override fun onActivityStopped(activity: Activity) {
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_STOPPED")
+    isChangingConfiguration = activity.isChangingConfigurations
     startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
-    if (startedActivityCount == 0 && !activity.isChangingConfigurations) {
+    if (startedActivityCount == 0 && !isChangingConfiguration) {
       isInForeground = false
       app.gyrolet.mpvrx.domain.secure.SecureFolderSession.onAppBackgrounded()
       applicationScope.launch(Dispatchers.IO) {

@@ -2014,19 +2014,14 @@ class PlayerActivity :
         reportJellyfinStop()
       }
 
-      if ((isUserFinishing || isFinishing || scriptRuntimeRestartPending) && !keepBackgroundPlaybackAlive) {
-        if (serviceBound) {
-          runCatching { unbindService(serviceConnection) }
-          serviceBound = false
-        }
-        if (ownsPlaybackSession) stopService(Intent(this, MediaPlaybackService::class.java))
-        mediaPlaybackService = null
-      } else if (keepBackgroundPlaybackAlive && serviceBound) {
-        // Unbind but keep the service running for background audio
+      if (serviceBound) {
         runCatching { unbindService(serviceConnection) }
         serviceBound = false
-        mediaPlaybackService = null
       }
+      if ((isUserFinishing || isFinishing || scriptRuntimeRestartPending) && !keepBackgroundPlaybackAlive) {
+        if (ownsPlaybackSession) stopService(Intent(this, MediaPlaybackService::class.java))
+      }
+      mediaPlaybackService = null
 
       // Release the Activity's focus before the service requests it for detached playback.
       // Otherwise the Activity's focus listener would receive LOSS and pause playback just as
