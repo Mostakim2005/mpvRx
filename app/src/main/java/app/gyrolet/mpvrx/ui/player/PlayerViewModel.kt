@@ -104,6 +104,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -2626,7 +2627,7 @@ fun restartFromBeginning() {
         if (skipThumbnail) {
           null
         } else {
-          kotlinx.coroutines.async {
+          async {
             app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(
               appContext,
               isSecure = isSecure,
