@@ -1343,7 +1343,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
                     app.gyrolet.mpvrx.repository.NetworkRepository::class.java
                 ).getConnectionById(source.connectionId)
             }
-            if (conn != null && conn.protocol != app.gyrolet.mpvrx.domain.network.NetworkProtocol.DLNA) {
+            if (conn != null && conn.protocol == app.gyrolet.mpvrx.domain.network.NetworkProtocol.SMB) {
                 val host = conn.host
                 val filePath = source.relativePath.removePrefix("/")
                 "smb://$host/${conn.path.trim('/')}/$filePath"

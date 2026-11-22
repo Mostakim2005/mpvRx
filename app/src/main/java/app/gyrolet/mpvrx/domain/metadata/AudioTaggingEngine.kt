@@ -63,7 +63,8 @@ class AudioTaggingEngine(
         musicCompanionDao.updateLyricSync(
           id = existing.id,
           offsetMs = offsetMs,
-          embedded = true,
+          // Container tag writers currently write sidecar .lrc only; record accurately until TagLib/JAudioTagger is integrated.
+          embedded = false,
           timestamp = System.currentTimeMillis(),
         )
       }

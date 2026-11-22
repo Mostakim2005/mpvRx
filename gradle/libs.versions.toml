@@ -59,6 +59,8 @@ haze = "2.0.1"
 kyant = "2.0.1"
 kyant-shapes = "1.2.1"
 androidsvg = "1.4"
+measureAndroid = "0.22.0"
+measureGradle = "0.14.0"
 
 [libraries]
 androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidsvg" }
@@ -80,7 +82,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-material3-android = { group = "androidx.compose.material3", name = "material3", version.ref = "androidxMaterial3" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "androidxAppcompat" }
 composables-material-symbols-rounded-filled-android = { module = "com.composables:icons-material-symbols-rounded-filled-android", version.ref = "materialSymbols" }
-composables-material-symbols-rounded-filled-cmp = { module = "com.composables:icons-material-symbols-rounded-filled-cmp-jvm", version.ref = "materialSymbols" }
+measure-android = { module = "sh.measure:measure-android", version.ref = "measureAndroid" }
 androidx-compose-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout-compose", version.ref = "composeConstraintLayout" }
 mediasession = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "navigation3" }
@@ -162,3 +164,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 room = { id = "androidx.room", version.ref = "room" }
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+measure-android = { id = "sh.measure.android.gradle", version.ref = "measureGradle" }

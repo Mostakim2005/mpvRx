@@ -63,10 +63,10 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run JVM unit tests
+      - name: Run ktlint and JVM unit tests
         if: ${{ matrix.distribution.id == 'standard' }}
         shell: bash
-        run: ./gradlew testStandardDebugUnitTest --stacktrace --no-daemon --max-workers=2
+        run: ./gradlew ktlintCheck testStandardDebugUnitTest --stacktrace --no-daemon --max-workers=2
 
       - name: Build release APKs
         shell: bash

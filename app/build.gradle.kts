@@ -66,7 +66,7 @@ plugins {
   alias(libs.plugins.ksp)
   alias(libs.plugins.room)
   alias(libs.plugins.ktlint)
-  id("sh.measure.android.gradle") version "0.14.0" apply false
+  alias(libs.plugins.measure.android) apply false
 }
 
 // Supply the ingestion key through a local Gradle property or the CI secret.
@@ -402,7 +402,7 @@ configurations.configureEach {
 }
 
 dependencies {
-  implementation("sh.measure:measure-android:0.22.0")
+  implementation(libs.measure.android)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
   testImplementation(libs.kotlin.test.junit)
@@ -425,7 +425,6 @@ dependencies {
   implementation(libs.androidx.compose.constraintlayout)
   implementation(libs.androidx.constraintlayout)
   implementation(libs.composables.material.symbols.rounded.filled.android)
-  implementation(libs.composables.material.symbols.rounded.filled.cmp)
   implementation(libs.mediasession)
   implementation(libs.androidx.documentfile)
   implementation(libs.androidx.palette)
