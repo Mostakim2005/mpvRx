@@ -15,7 +15,10 @@ package app.gyrolet.mpvrx.utils.security
  */
 object LogRedactor {
   private val SENSITIVE_QUERY_PARAM =
-    Regex("""([?&](?:t|s|p|password|token|api_key|apikey|access_token|auth|key|secret)=)([^&#\s]+)""", RegexOption.IGNORE_CASE)
+    Regex(
+      """([?&](?:t|s|p|password|token|api_key|apikey|access_token|auth|key|secret)=)([^&#\s]+)""",
+      RegexOption.IGNORE_CASE,
+    )
   private val USERINFO_IN_URL =
     Regex("""(https?://)([^/@\s:]+):([^/@\s]+)@""", RegexOption.IGNORE_CASE)
   private val BEARER_HEADER =
