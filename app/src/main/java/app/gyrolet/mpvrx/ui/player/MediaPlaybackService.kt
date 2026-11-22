@@ -1766,7 +1766,7 @@ class MediaPlaybackService :
       .Builder(this, NOTIFICATION_CHANNEL_ID)
       .setContentTitle(mediaTitle.ifBlank { getString(R.string.player_unknown_video) })
       .setContentText(chapterContentText())
-      .setSubText(playbackTimeText())
+      .setSubText(if (mediaDurationSeconds > 0.0) null else playbackTimeText())
       .setSmallIcon(R.drawable.ic_launcher_monochrome)
       .setLargeIcon(thumbnail)
       .setContentIntent(buildContentIntent())
