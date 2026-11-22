@@ -238,19 +238,31 @@ object BookmarkThumbnailStore {
       FileOutputStream(tempFile).use { out ->
         out.write(encrypted)
         out.flush()
-        out.fd.sync()
       }
       if (!tempFile.renameTo(destFile)) {
         tempFile.delete()
         return null
       }
-      destFile.absolutePath
+      // Pre-populate the in-memory LRU cache so the UI renders the newly captured thumbnail
+      // immediately without re-reading, decrypting, and JPEG-decoding it back from disk.
+      val path = destFile.absolutePath
+      val cachedCopy =
+        runCatching {
+          if (scaled === source) scaled.copy(Bitmap.Config.RGB_565, false) else scaled
+        }.getOrNull()
+      if (cachedCopy != null && !cachedCopy.isRecycled) {
+        val targetCache = if (isSecure) secureBitmapCache else publicBitmapCache
+        targetCache.put(path, cachedCopy)
+      }
+      path
     } catch (_: Throwable) {
       runCatching { tempFile.delete() }
       runCatching { destFile.delete() }
       null
     } finally {
-      if (scaled !== source && !scaled.isRecycled) {
+      val cached =
+        if (isSecure) secureBitmapCache.get(destFile.absolutePath) else publicBitmapCache.get(destFile.absolutePath)
+      if (scaled !== source && scaled !== cached && !scaled.isRecycled) {
         scaled.recycle()
       }
     }

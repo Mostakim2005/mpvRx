@@ -2616,9 +2616,23 @@ fun restartFromBeginning() {
     val draft = buildPlaybackBookmarkDraft() ?: return false
     val isSecure = isItemSecure(PlaybackSession.state.value.currentItem) || isCurrentMediaSecure.value
     if (isSecure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return false
+    val skipThumbnail = playerPreferences.bookmarkQuickAddMinimalist.get() || isAudioOnly.value
     val metaSnapshot = snapshotBookmarkMediaMetadata()
     playerUpdate.value = PlayerUpdates.BookmarkCreated()
     viewModelScope.launch(Dispatchers.IO) {
+      // Grab the current video frame immediately in parallel with Room writes so the card
+      // and thumbnail appear without waiting on sequential metadata/reference DB updates.
+      val thumbDeferred =
+        if (skipThumbnail) {
+          null
+        } else {
+          kotlinx.coroutines.async {
+            app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(
+              appContext,
+              isSecure = isSecure,
+            )
+          }
+        }
       val insertedId =
         if (isSecure) {
           val id = secureBookmarkStore.add(draft)
@@ -2639,7 +2653,22 @@ fun restartFromBeginning() {
           id
         }
       recordBookmarkMediaRef(draft.mediaId)
-      captureAndAttachBookmarkThumbnail(insertedId, isSecure)
+      val capturedPath = thumbDeferred?.await()
+      if (capturedPath != null) {
+        val updatedRows =
+          if (isSecure) {
+            secureBookmarkStore.updateThumbnail(insertedId, capturedPath)
+          } else {
+            playbackBookmarkDao.updateThumbnail(insertedId, capturedPath)
+          }
+        if (updatedRows == 0) {
+          app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(
+            appContext,
+            capturedPath,
+            isSecure = isSecure,
+          )
+        }
+      }
     }
     return true
   }

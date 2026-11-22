@@ -140,6 +140,10 @@ class PlayerPreferences(
   val useWavySeekbar = preferenceStore.getBoolean("use_wavy_seekbar", true)
 
   val customSkipDuration = preferenceStore.getInt("custom_skip_duration", 90)
+  // When true, quick-adding a bookmark skips thumbnail capture for instant chapter-like rows.
+  val bookmarkQuickAddMinimalist = preferenceStore.getBoolean("bookmark_quick_add_minimalist", false)
+  // When true, the in-player Bookmarks panel renders compact chapter-like rows (title + tags + time).
+  val bookmarkPanelMinimalistView = preferenceStore.getBoolean("bookmark_panel_minimalist_view", false)
   val enableIntroDb = preferenceStore.getBoolean("enable_introdb", false)
   val introSegmentProvider = preferenceStore.getEnum("intro_segment_provider", IntroSegmentProvider.HYBRID)
   val detectIntroOutroFromChapters = preferenceStore.getBoolean("detect_intro_outro_from_chapters", true)

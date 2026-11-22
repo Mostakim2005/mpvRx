@@ -138,7 +138,7 @@ internal fun BookmarkThumbnailImage(
   isSecure: Boolean = false,
   cornerRadius: Dp = 8.dp,
   placeholderTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-  contentScale: ContentScale = ContentScale.Crop,
+  contentScale: ContentScale = ContentScale.Fit,
   containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
 ) {
   val context = LocalContext.current
@@ -193,7 +193,7 @@ internal fun BookmarkActionMenuDialog(
             thumbnailPath = bookmark.thumbnailPath,
             isSecure = isSecure,
             cornerRadius = 8.dp,
-            contentScale = ContentScale.Crop,
+            contentScale = ContentScale.Fit,
             modifier = Modifier.width(88.dp).aspectRatio(16f / 9f),
           )
         }
@@ -395,7 +395,7 @@ private fun BookmarkGridCard(
         thumbnailPath = bookmark.thumbnailPath,
         isSecure = isSecure,
         cornerRadius = 0.dp,
-        contentScale = ContentScale.Crop,
+        contentScale = ContentScale.Fit,
         modifier = Modifier.fillMaxSize(),
       )
 
@@ -986,9 +986,9 @@ internal fun BookmarkSplitPanel(
               }
             }
           } else {
-            // Landscape sidebar: derive height from the panel width so cards stay 16:9 and the card
-            // never stretches to fill the column. `cardCount` is the grid-density control here.
-            val rowHeight = ((maxWidth - 12.dp) * 9f / 16f).coerceIn(40.dp, 140.dp)
+            // Landscape sidebar: preserve full 16:9 frame height without an artificial 140dp cap
+            // so wide sidebar widths (e.g. 30%-35%) show the full uncropped frame.
+            val rowHeight = ((maxWidth - 12.dp) * 9f / 16f).coerceIn(48.dp, 220.dp)
             LazyColumn(
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),

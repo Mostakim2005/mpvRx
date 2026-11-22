@@ -523,7 +523,7 @@ private fun BookmarkGalleryCard(
         thumbnailPath = item.row.thumbnailPath,
         isSecure = isSecure,
         cornerRadius = 0.dp,
-        contentScale = ContentScale.Crop,
+        contentScale = ContentScale.Fit,
         modifier = Modifier.fillMaxSize(),
       )
       Box(
