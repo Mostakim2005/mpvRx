@@ -125,6 +125,12 @@ class AppearancePreferences(
   // A new key, because "player_buttons_opacity" stored a multiplier whose 100% kept buttons translucent.
   val playerButtonsBackgroundOpacity = preferenceStore.getFloat("player_buttons_background_opacity", 0.55f)
   val showMusicTab = preferenceStore.getBoolean("show_music_tab", true)
+  // Music player layout style: NAMIDA (default) or MPVRX_CLASSIC (selectable; Row 2 above Row 1).
+  val musicPlayerUiStyle = preferenceStore.getEnum("music_player_ui_style", MusicPlayerUiStyle.NAMIDA)
+  // Visibility toggles for the upper/middle ("green") sections of the Music Now Playing screen.
+  val musicShowHeaderBar = preferenceStore.getBoolean("music_show_header_bar", true)
+  val musicShowMetaRow = preferenceStore.getBoolean("music_show_meta_row", true)
+  val musicShowLyricsSourceLine = preferenceStore.getBoolean("music_show_lyrics_source_line", true)
   val showProfileTab = preferenceStore.getBoolean("show_profile_tab", true)
   val profileName = preferenceStore.getString("profile_name", "")
   val profileImagePath = preferenceStore.getString("profile_image_path", "")
@@ -388,3 +394,7 @@ fun MultiChoiceSegmentedButton(
   }
 }
 
+enum class MusicPlayerUiStyle {
+  NAMIDA,
+  MPVRX_CLASSIC,
+}

@@ -1020,6 +1020,10 @@ fun AudioPlayerControls(
       null
     }
   val appearancePreferences = koinInject<AppearancePreferences>()
+  val musicPlayerUiStyle by appearancePreferences.musicPlayerUiStyle.collectAsState()
+  val musicShowHeaderBar by appearancePreferences.musicShowHeaderBar.collectAsState()
+  val musicShowMetaRow by appearancePreferences.musicShowMetaRow.collectAsState()
+  val musicShowLyricsSourceLine by appearancePreferences.musicShowLyricsSourceLine.collectAsState()
   val audioVisualizerStyle by audioPreferences.audioVisualizerStyle.collectAsState()
   val audioWavySeekbar by audioPreferences.audioWavySeekbar.collectAsState()
   val backgroundPlaybackEnabled by audioPreferences.audioBackgroundPlayback.collectAsState()
@@ -1828,13 +1832,14 @@ fun AudioPlayerControls(
               audiobook?.book?.title ?: cleanSongTitle(lastValidTitle, displayArtist)
             }
 
-          // 1. Song Title Only
+          // 1. Song Title Only (Namida NTextSize.s20 compact scale so titles fit without clipping)
           Text(
             text = displayTitle,
-            style = (if (isCompactLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium)
-              .copy(fontWeight = FontWeight.ExtraBold,
-                fontSize = if (isShortLandscape) 18.sp else if (isCompactLandscape) 22.sp else MaterialTheme.typography.headlineMedium.fontSize,
-                lineHeight = if (isShortLandscape) 22.sp else if (isCompactLandscape) 26.sp else MaterialTheme.typography.headlineMedium.lineHeight),
+            style = MaterialTheme.typography.titleLarge.copy(
+              fontWeight = FontWeight.Bold,
+              fontSize = if (isShortLandscape) 17.sp else if (isCompactLandscape) 19.sp else 20.sp,
+              lineHeight = if (isShortLandscape) 21.sp else if (isCompactLandscape) 23.sp else 24.sp,
+            ),
             fontFamily = fontFamilyForText(displayTitle),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -1844,11 +1849,14 @@ fun AudioPlayerControls(
           )
           Spacer(modifier = Modifier.height(2.dp))
 
-          // 2. Singer / Artist Name
+          // 2. Singer / Artist Name (Namida NTextSize.s14 compact scale)
           Text(
             text = displayArtist,
-            style = (if (isCompactLandscape) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium)
-              .copy(fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.bodyMedium.copy(
+              fontWeight = FontWeight.Medium,
+              fontSize = if (isCompactLandscape) 13.sp else 14.sp,
+              lineHeight = if (isCompactLandscape) 17.sp else 18.sp,
+            ),
             fontFamily = fontFamilyForText(displayArtist),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -1874,7 +1882,7 @@ fun AudioPlayerControls(
             "${stringResource(R.string.audiobook_chapter_number, bookChapterIndex + 1)} / ${chapters.size}"
           } else if (playlistInfo != null) "Track $playlistInfo" else "Audio Media"
 
-          Row(
+          if (musicShowMetaRow) Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2893,7 +2901,7 @@ fun AudioPlayerControls(
             }
           } else {
             androidx.compose.animation.AnimatedVisibility(
-              visible = !isLyricsFullscreen,
+              visible = !isLyricsFullscreen && musicShowHeaderBar,
               enter = fadeIn(animationSpec = tween(300)) +
                 androidx.compose.animation.expandVertically(animationSpec = tween(300)),
               exit = fadeOut(animationSpec = tween(300)) +
@@ -2904,7 +2912,7 @@ fun AudioPlayerControls(
                 horizontalAlignment = Alignment.CenterHorizontally,
               ) {
                 headerBar()
-                if (!showInPlaceLyrics) Spacer(modifier = Modifier.height(16.dp))
+                if (!showInPlaceLyrics) Spacer(modifier = Modifier.height(8.dp))
               }
             }
 
@@ -2920,22 +2928,30 @@ fun AudioPlayerControls(
               modifier = Modifier.padding(horizontal = controlsSidePadding),
               horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-              Spacer(modifier = Modifier.height(4.dp))
+              Spacer(modifier = Modifier.height(2.dp))
               trackMetadataView()
               if (!showInPlaceLyrics) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 currentLyricStripView()
+                Spacer(modifier = Modifier.height(2.dp))
+              } else if (musicShowLyricsSourceLine) {
                 Spacer(modifier = Modifier.height(4.dp))
-              } else {
-                Spacer(modifier = Modifier.height(6.dp))
                 lyricsSourceLineView()
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
               }
               seekbarView()
-              Spacer(modifier = Modifier.height(22.dp))
-              playbackControlsRow()
-              Spacer(modifier = Modifier.height(18.dp))
-              bottomActionRow()
+              Spacer(modifier = Modifier.height(10.dp))
+              if (musicPlayerUiStyle == app.gyrolet.mpvrx.preferences.MusicPlayerUiStyle.MPVRX_CLASSIC) {
+                // Classic/Sketch layout: utility action row (Row 2) above transport row (Row 1 at bottom)
+                bottomActionRow()
+                Spacer(modifier = Modifier.height(10.dp))
+                playbackControlsRow()
+              } else {
+                // Namida-inspired default: transport controls above compact bottom utility bar
+                playbackControlsRow()
+                Spacer(modifier = Modifier.height(10.dp))
+                bottomActionRow()
+              }
             }
           }
         }
@@ -3082,9 +3098,81 @@ fun AudioPlayerControls(
             fontWeight = FontWeight.Bold,
           )
           Text(
-            text = if (isPortrait) "Portrait" else "Landscape",
+            text = "Player Layout Style",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            listOf(
+              app.gyrolet.mpvrx.preferences.MusicPlayerUiStyle.NAMIDA to "Namida (Default)",
+              app.gyrolet.mpvrx.preferences.MusicPlayerUiStyle.MPVRX_CLASSIC to "mpvRx Classic",
+            ).forEach { (styleOption, label) ->
+              val isSelectedStyle = musicPlayerUiStyle == styleOption
+              Surface(
+                shape = RoundedCornerShape(10.dp),
+                color =
+                  if (isSelectedStyle) {
+                    MaterialTheme.colorScheme.primaryContainer
+                  } else {
+                    MaterialTheme.colorScheme.surfaceContainer
+                  },
+                modifier =
+                  Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { appearancePreferences.musicPlayerUiStyle.set(styleOption) },
+              ) {
+                Text(
+                  text = label,
+                  style = MaterialTheme.typography.labelMedium,
+                  fontWeight = if (isSelectedStyle) FontWeight.Bold else FontWeight.Medium,
+                  color =
+                    if (isSelectedStyle) {
+                      MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                      MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+              }
+            }
+          }
+          Text(
+            text = "Upper Sections",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+          )
+          listOf(
+            Triple("Top header bar", musicShowHeaderBar) { v: Boolean -> appearancePreferences.musicShowHeaderBar.set(v) },
+            Triple("Track, speed & A-B row", musicShowMetaRow) { v: Boolean -> appearancePreferences.musicShowMetaRow.set(v) },
+            Triple("Lyrics source bar", musicShowLyricsSourceLine) { v: Boolean -> appearancePreferences.musicShowLyricsSourceLine.set(v) },
+          ).forEach { (label, checked, onToggle) ->
+            Row(
+              modifier =
+                Modifier
+                  .fillMaxWidth()
+                  .clip(RoundedCornerShape(8.dp))
+                  .clickable { onToggle(!checked) }
+                  .padding(horizontal = 8.dp, vertical = 2.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Checkbox(checked = checked, onCheckedChange = null)
+              Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+              )
+            }
+          }
+          Text(
+            text = if (isPortrait) "Action Row (Portrait)" else "Action Row (Landscape)",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
           )
           MusicActionRowButton.values()
             .filter { it != MusicActionRowButton.DOWNLOAD || app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP }
