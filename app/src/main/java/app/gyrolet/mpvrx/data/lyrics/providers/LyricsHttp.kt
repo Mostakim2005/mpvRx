@@ -46,7 +46,7 @@ internal val lyricsJson =
     isLenient = true
   }
 
-internal val LYRICS_AGENT = "mpvRx/${BuildConfig.VERSION_NAME} (https://github.com/Riteshp2001/mpvRx)"
+internal val LYRICS_AGENT = "mpvRx/${BuildConfig.VERSION_NAME} (https://github.com/Mostakim2005/mpvRx)"
 
 private const val TIMEOUT_SECONDS = 6L
 

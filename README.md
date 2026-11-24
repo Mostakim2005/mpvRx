@@ -5,25 +5,22 @@
 <h1 align="center">mpvRx</h1>
 
 <p align="center">
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.gyrolet.mpvrx%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FRiteshp2001%2FmpvRx%22%2C%22author%22%3A%22Riteshp2001%22%2C%22name%22%3A%22mpvRx%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22minimumUpdateAgeDays%5C%22%3A%5C%22%5C%22%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22zippedApkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22tarballedApkFilterRegEx%5C%22%3A%5C%22%5C%22%7D%22%2C%22overrideSource%22%3Anull%7D">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.gyrolet.mpvrx%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMostakim2005%2FmpvRx%22%2C%22author%22%3A%22Mostakim2005%22%2C%22name%22%3A%22mpvRx%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22minimumUpdateAgeDays%5C%22%3A%5C%22%5C%22%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22zippedApkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22tarballedApkFilterRegEx%5C%22%3A%5C%22%5C%22%7D%22%2C%22overrideSource%22%3Anull%7D">
     <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80" />
   </a>
 </p>
 
 <p align="center">
-  <b>Feature-rich, Efficient Powerful Android video player based on libmpv.</b>
+  <b>Feature-rich, efficient, and powerful Android video &amp; Namida-style music player based on libmpv.</b>
   <br>
-  <i>No ads. No trackers. No noise. Just a serious video player with a calmer surface and a sharper edge.</i>
+  <i>No ads. No trackers. No noise. Forked from <a href="https://github.com/Riteshp2001/mpvRx">Riteshp2001/mpvRx</a> with uncropped fast bookmarks, an encrypted Secure Vault, and durable library storage.</i>
 </p>
-
-> [!IMPORTANT]
-> [Join us on Telegram](https://t.me/+yA0f2nknCAc1ODZl)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-brightgreen.svg" />
   <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" />
-  <img src="https://img.shields.io/github/v/release/Riteshp2001/mpvRx.svg?logo=github&label=Release&cacheSeconds=3600" />
-  <img src="https://img.shields.io/github/downloads/Riteshp2001/mpvRx/total?logo=github&cacheSeconds=3600" />
+  <img src="https://img.shields.io/github/v/release/Mostakim2005/mpvRx.svg?logo=github&label=Release&cacheSeconds=3600" />
+  <img src="https://img.shields.io/github/downloads/Mostakim2005/mpvRx/total?logo=github&cacheSeconds=3600" />
 </p>
 
 ---
@@ -230,8 +227,11 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 | **Local Music Library** | Browse songs, albums, artists, and audio playlists with cover art, search, sorting, and grid/list views |
 | **Choose Your Music Source** | Switch the Music tab between local storage, Jellyfin, and Navidrome |
 | **Library Filters** | Exclude selected audio folders and set a minimum track duration |
-| **Dedicated Now Playing View** | Artwork, track metadata, playback controls, and an up-next queue in a music-focused layout |
-| **Lyrics** | View local or embedded lyrics, fetch online lyrics from LRCLIB, and switch between available sources |
+| **Dedicated Now Playing View** | Defaults to a Namida-inspired layout with centered artwork, compact title/artist scale, and inline timestamps, plus an optional mpvRx Classic layout and per-section visibility toggles |
+| **Lyrics & Tap-to-Seek** | View local, embedded, or online LRCLIB lyrics; tap any synced line in fullscreen mode to seek immediately; calibrate offsets with 1-point anchor sync and embed `USLT`/`SYLT`/`LYRICS`/`©lyr` tags |
+| **Tag Editor & Companion Video** | Fullscreen metadata editor with iTunes/MusicBrainz artwork lookup, automatic file renaming, and `yt-dlp` companion music video downloads |
+| **Unicode Search Normalization** | NFKD diacritic and zero-width cleaner (`TextNormalizer`) for reliable song, folder, and lyrics matching |
+| **Folders Back Navigation** | Stepping back from nested folders preserves the active Music sub-tab (`Folders`) instead of resetting to Songs or Home |
 | **Four Audio Visualizers** | Choose Blob, Galaxy, Cuboid, or Particle visualizations, with an optional audio-reactive wavy seekbar |
 | **Audio Playlists & Favorites** | Create local audio playlists, keep favorite tracks together, and start normal or shuffled playback |
 | **Audiobook Library** | Open the book icon in Music to import a file, selected files, or one book folder including disc subfolders; M4B is recognized |
@@ -239,6 +239,32 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 | **Audiobook Listening** | Book progress/resume through the normal audio player, shared playlist/speed controls, a whole-book seekbar with chapter markers, artwork, visualizers, configured seek gestures, pause rewind and sleep timers |
 | **Playback Bookmarks** | In video and audio player layouts, tap the bookmark icon to open chapters/bookmarks; long-press it to add a named point. Custom points persist and appear on the existing seekbar, with rename and delete actions |
 | **Audiobook Text** | Display supplied embedded lyrics or readable local LRC text in the existing lyrics view, without automatic online song matching |
+
+</details>
+
+<details close>
+<summary><b>🔖 Cross-Video & Global Bookmarks</b></summary>
+
+| Feature | Description |
+|---|---|
+| **Dual-Orientation Drawers** | Portrait drawer adapts dynamically to the video's native aspect ratio; landscape sidebar supports 20%–35% width presets with a compact 2-tier toolbar |
+| **Video ⇄ Global Scope** | Switch between current-video and global library bookmarks across the portrait drawer, landscape sidebar, Chapters sheet, and fullscreen gallery; global cards launch their source video at the saved timestamp |
+| **Uncropped Thumbnails & Fast Capture** | Renders full uncropped frames (`ContentScale.Fit`, up to `220dp` in the landscape sidebar) using an in-memory bitmap cache with parallel Room and AES-encrypted disk persistence |
+| **Fullscreen Bookmark Gallery** | Natural vertical scrolling, multi-tag autocomplete filtering, orientation-specific column caps, and minimalist quick-add preferences |
+| **Phone-Safe Editor Orientation** | Bookmark and metadata editors stay in portrait on phones and cleanly dismiss the keyboard before restoring the player's orientation |
+
+</details>
+
+<details close>
+<summary><b>🔐 Secure Folder, MVX1 Vault & Durable Storage</b></summary>
+
+| Feature | Description |
+|---|---|
+| **Single-Session App PIN Gate** | Protects private media with your Secure Folder PIN and strong biometrics (`SecureFolderSession`), prompting once per session without exposing the device screen-lock prompt |
+| **Hard Database Segregation** | Physically isolates public metadata (`.store/library.dat`) from Secure Vault records (`.vault/v_idx.dat`) so private bookmarks, thumbnails, resume states, and history never mix into public surfaces |
+| **MVX1 AES-128-CTR Encryption** | Encrypts vault media (`.vault/media/`), thumbnails, watch stats, and sensitive database fields with hardware-accelerated AES-128-CTR and a loopback range-seeking proxy for `libmpv` |
+| **5-Tap Stealth Secret Mode** | Five quick taps on the Profile header wordmark unlock quarantined Secret Statistics after authentication, auto-locking when backgrounded |
+| **Uninstall-Proof Library** | Standard builds host the live Room database, Secure Vault, settings sync, and bookmark thumbnails under `Documents/mpvRx/` (with `.nomedia`) so reinstalling or clearing app data preserves your library |
 
 </details>
 
@@ -369,19 +395,12 @@ _Just a Pro tip if your battery consumption stays within 200 mAh and belwo 0.9W 
 ---
 
 <div align="center">
-  <a href="https://github.com/Riteshp2001/mpvRx/releases">
+  <a href="https://github.com/Mostakim2005/mpvRx/releases/latest">
     <img src="https://img.shields.io/badge/Download-Stable_Release-blue?style=for-the-badge&logo=github" alt="Stable Release">
   </a>
-  <!-- <a href="https://riteshp2001.github.io/mpvRx/">
-    <img src="https://img.shields.io/badge/Download-Preview_Build-orange?style=for-the-badge&logo=github" alt="Preview Build">
-  </a> -->
 </div>
 
-<!-- <div align="center">
-  <i>Note: Previews may be unstable and are intended for testing purposes only.</i>
-</div> -->
-
-For help, reproducible bug reports, or feature suggestions, start with the [support guide](SUPPORT.md) and [existing issues](https://github.com/Riteshp2001/mpvRx/issues).
+For help, reproducible bug reports, or feature suggestions, start with the [support guide](SUPPORT.md) and [existing issues](https://github.com/Mostakim2005/mpvRx/issues).
 
 ---
 
@@ -420,29 +439,11 @@ For help, reproducible bug reports, or feature suggestions, start with the [supp
 
 ---
 
-## Support
+## Upstream & Support
 
-If you find mpvRx useful and would like to support its development, consider buying me a coffee! Your support keeps the project alive and helps push new features.
+This repository (`Mostakim2005/mpvRx`) is an actively maintained fork of [Riteshp2001/mpvRx](https://github.com/Riteshp2001/mpvRx), originally created by **Ritesh Pandit** and built on the open-source mpv-android ecosystem.
 
-<div align="center">
-
-### ☕ Buy Me a Coffee
-
-<a href="https://www.buymeacoffee.com/riteshp2001">
-  <img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee">
-</a>
-
-### UPI
-
-`panditritesh2001@okhdfcbank`
-
-<a href="upi://pay?pa=panditritesh2001@okhdfcbank&pn=Ritesh%20Pandit&cu=INR">
-  <img src="fastlane/metadata/android/en-US/images/upiqr-code.svg" width="250" height="250" alt="UPI QR Code">
-</a>
-
-Scan with any UPI app (Google Pay, PhonePe, Paytm, BHIM)
-
-</div>
+For bug reports or feature ideas specific to this fork, please open an issue in [Mostakim2005/mpvRx/issues](https://github.com/Mostakim2005/mpvRx/issues).
 
 ---
 
@@ -457,18 +458,19 @@ To cut a signed GitHub release through Actions, configure these repository secre
 | `SIGNING_STORE_PASSWORD` | Password for the keystore |
 | `KEY_PASSWORD` | Password for the signing key |
 
-Then bump `versionCode` and `versionName` in `app/build.gradle.kts`, create a tag, and push it:
+Then bump `releaseVersionCode` and `versionName` in `app/build.gradle.kts`, add a matching `## X.Y.Z` section to `CHANGELOG.md`, commit with subject `chore(release): vX.Y.Z`, create an annotated tag, and push both:
 
 ```bash
-git tag -a v1.3.1 -m "Release version 1.3.1"
-git push origin v1.3.1
+git commit -m "chore(release): v3.3.0"
+git tag -a v3.3.0 -m "Release v3.3.0"
+git push origin master v3.3.0
 ```
 
 Preview releases use the same flow with preview tags such as:
 
 ```bash
-git tag -a v1.3.1-preview.1 -m "Preview release"
-git push origin v1.3.1-preview.1
+git tag -a v3.3.0-preview.1 -m "Preview release"
+git push origin v3.3.0-preview.1
 ```
 
 ---
@@ -481,21 +483,22 @@ Thank you to the player projects, music apps, libraries, and individual contribu
 
 | Explore the credits | Includes |
 |---|---|
+| [Upstream project](https://github.com/Riteshp2001/mpvRx) | Ritesh Pandit (`Riteshp2001/mpvRx`) |
 | [Playback & player projects](CITATION.md#playback--player-projects) | mpv-android, mpvExtended, mpvKt, MpvRex, Next Player, Neo Player |
 | [Music & media apps](CITATION.md#music--media-apps) | PixelPlayer, Gramophone, AFinity, Chora, BitChord |
 | [Video processing & streaming](CITATION.md#video-processing--streaming) | hdr-toys, anacrolix/torrent |
 
 > Special thanks to [SunnyVishnu3](https://github.com/SunnyVishnu3) for the `yt-dlp` native integration and SDK 29+ bypass logic.
 
-[Full acknowledgments & citation information](CITATION.md) · [All contributors](https://github.com/Riteshp2001/mpvRx/graphs/contributors)
+[Full acknowledgments & citation information](CITATION.md) · [All contributors](https://github.com/Mostakim2005/mpvRx/graphs/contributors)
 
 ### Contributors
 
 Thank you to everyone who helps build and improve mpvRx.
 
 <div align="center">
-  <a href="https://github.com/Riteshp2001/mpvRx/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=Riteshp2001/mpvRx" alt="mpvRx contributors" width="800" />
+  <a href="https://github.com/Mostakim2005/mpvRx/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Mostakim2005/mpvRx" alt="mpvRx contributors" width="800" />
   </a>
 </div>
 
@@ -503,7 +506,7 @@ Thank you to everyone who helps build and improve mpvRx.
 
 ## Community
 
-[Get help](SUPPORT.md) · [Report a bug](https://github.com/Riteshp2001/mpvRx/issues/new?template=bug_report.md) · [Suggest a feature](https://github.com/Riteshp2001/mpvRx/issues/new?template=feature_request.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+[Get help](SUPPORT.md) · [Report a bug](https://github.com/Mostakim2005/mpvRx/issues/new?template=bug_report.md) · [Suggest a feature](https://github.com/Mostakim2005/mpvRx/issues/new?template=feature_request.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 
 ---
 
@@ -515,10 +518,10 @@ Distributed under **GNU Affero General Public License v3.0 (AGPL-3.0-or-later)**
 
 ## Star History
 
-<a href="https://www.star-history.com/#Riteshp2001/mpvRx&type=date&legend=top-left">
+<a href="https://www.star-history.com/#Mostakim2005/mpvRx&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Riteshp2001/mpvRx&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Riteshp2001/mpvRx&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Riteshp2001/mpvRx&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Mostakim2005/mpvRx&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Mostakim2005/mpvRx&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Mostakim2005/mpvRx&type=date&legend=top-left" />
  </picture>
 </a>

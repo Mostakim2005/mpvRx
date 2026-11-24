@@ -4,13 +4,13 @@ mpvRx is part of an open-source media ecosystem. This page preserves the project
 
 ## Citing mpvRx
 
-When mentioning, reviewing, or building on mpvRx, link to the [project repository](https://github.com/Riteshp2001/mpvRx). Include the release tag or commit you used so others can identify the same version.
+When mentioning, reviewing, or building on this fork of mpvRx, link to the [project repository](https://github.com/Mostakim2005/mpvRx) (and [upstream mpvRx](https://github.com/Riteshp2001/mpvRx)). Include the release tag or commit you used so others can identify the same version.
 
 Suggested plain-text reference:
 
 ```text
-mpvRx contributors. mpvRx — Android video and music player.
-https://github.com/Riteshp2001/mpvRx
+mpvRx contributors. mpvRx — Android video and music player (Mostakim2005 fork).
+https://github.com/Mostakim2005/mpvRx
 Version: <release tag or commit hash>
 ```
 
@@ -22,6 +22,7 @@ The groups below organize the existing credits by project type; they are not an 
 
 | Project | Source |
 |---|---|
+| Upstream mpvRx | [Riteshp2001/mpvRx](https://github.com/Riteshp2001/mpvRx) |
 | mpv-android | [mpv-android on GitHub](https://github.com/mpv-android) |
 | mpvExtended | [marlboro-advance/mpvEx](https://github.com/marlboro-advance/mpvEx) |
 | mpvKt | [abdallahmehiz/mpvKt](https://github.com/abdallahmehiz/mpvKt) |
@@ -52,12 +53,12 @@ The groups below organize the existing credits by project type; they are not an 
 |---|---|
 | [SunnyVishnu3](https://github.com/SunnyVishnu3) | `yt-dlp` native integration and SDK 29+ bypass logic |
 
-Thank you also to everyone contributing code, translations, documentation, bug reports, and testing. The [GitHub contributor history](https://github.com/Riteshp2001/mpvRx/graphs/contributors) records repository contributions.
+Thank you also to everyone contributing code, translations, documentation, bug reports, and testing. The [GitHub contributor history](https://github.com/Mostakim2005/mpvRx/graphs/contributors) records repository contributions.
 
 ## Keeping credits accurate
 
 Preserve upstream copyright and license notices when adapting code or assets. These acknowledgments supplement, rather than replace, the [project license](LICENSE) and notices accompanying third-party work.
 
-If a credit is missing or incorrect, [open an issue](https://github.com/Riteshp2001/mpvRx/issues/new) or a pull request with the relevant source link and the attribution to add or correct.
+If a credit is missing or incorrect, [open an issue](https://github.com/Mostakim2005/mpvRx/issues/new) or a pull request with the relevant source link and the attribution to add or correct.
 
 [Back to the README](README.md#acknowledgments)

@@ -41,8 +41,8 @@ Never publish passwords, API keys, access tokens, authenticated stream URLs, pri
 
 ## Secure folder
 
-The secure folder provides a PIN-protected entry with optional Android biometrics and media move/restore operations. It is an access-control convenience inside the app, not a substitute for full-device encryption, a strong device lock, or a separate encrypted container.
+The Secure Folder uses a dedicated app PIN (with optional strong biometrics) and physically isolates vault records in `.vault/v_idx.dat`, encrypting vault media, thumbnails, watch stats, and sensitive database fields with `MVX1` AES-128-CTR under `Documents/mpvRx/`. Keep a strong device lock alongside it for OS-level protection.
 
 ## Verify behavior
 
-The source code, Android manifest, release history, and build workflows are public in the [mpvRx repository](https://github.com/Riteshp2001/mpvRx).
+The source code, Android manifest, release history, and build workflows are public in the [mpvRx repository](https://github.com/Mostakim2005/mpvRx).

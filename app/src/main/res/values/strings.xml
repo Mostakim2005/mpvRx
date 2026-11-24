@@ -622,7 +622,7 @@
   <string name="timer_remaining">%s remaining</string>
   <string name="toast_sleep_timer_ended">Sleep timer ended</string>
   <string name="volume_slider_absolute_value" translatable="false">%d</string>
-  <string name="github_repo_url" translatable="false">https://github.com/Riteshp2001/mpvRx</string>
+  <string name="github_repo_url" translatable="false">https://github.com/Mostakim2005/mpvRx</string>
   <string name="swap_the_volume_and_brightness_slider">Swap volume and brightness slider</string>
   <string name="pref_player_display_reduce_player_animation">Reduce player animation</string>
   <!-- Animation settings -->
@@ -1814,9 +1814,10 @@
   <string name="ui_decrease_zoom">Decrease zoom</string>
   <string name="ui_increase_zoom">Increase zoom</string>
   <string name="ui_by_ritesh_pandit">By Ritesh Pandit</string>
+  <string name="ui_fork_attribution" translatable="false">Fork by Mostakim2005 · Upstream by Ritesh Pandit</string>
   <string name="ui_github">GitHub</string>
   <string name="ui_privacy_policy">Privacy policy</string>
-  <string name="privacy_policy_url" translatable="false">https://mpvrx.vercel.app/docs/reference/privacy-and-permissions</string>
+  <string name="privacy_policy_url" translatable="false">https://github.com/Mostakim2005/mpvRx/blob/master/website/content/docs/reference/privacy-and-permissions.mdx</string>
   <string name="ui_device_info">Device Info</string>
   <string name="ui_buy_me_a_coffee">Buy Me a Coffee</string>
   <string name="ui_if_you_enjoy_mpvrx_consider_supporting_its_development_every_bit">If you enjoy mpvRx, consider supporting its development. Every bit helps!</string>

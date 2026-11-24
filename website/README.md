@@ -26,7 +26,7 @@ The production site is written to `dist/`.
 
 ## Vercel
 
-Import `Riteshp2001/mpvRx` into Vercel with the repository root as the Root
+Import `Mostakim2005/mpvRx` into Vercel with the repository root as the Root
 Directory. The repository-level `vercel.json` installs this workspace, builds
 Blume, and publishes `website/dist` automatically.
 

@@ -27,7 +27,7 @@ This policy applies to this repository's issues, pull requests, reviews, and oth
 
 ## Reporting a concern
 
-Contact the [project maintainer](https://github.com/Riteshp2001) through a private contact method they make available. Include relevant links, a brief account of what happened, and any immediate concerns.
+Contact the [project maintainer](https://github.com/Mostakim2005) through a private contact method they make available. Include relevant links, a brief account of what happened, and any immediate concerns.
 
 If no private contact method is listed, open a brief issue asking for a private reporting channel. Do not include names, sensitive evidence, or the details of the report in that public request. You can also use GitHub's built-in reporting tools for conduct on GitHub.
 

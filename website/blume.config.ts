@@ -10,9 +10,9 @@ export default defineConfig({
     text: "mpvRx",
   },
   banner: {
-    content: "mpvRx 2.5.0 is available",
+    content: "mpvRx 3.3.0 is available",
     link: {
-      href: "https://github.com/Riteshp2001/mpvRx/releases/latest",
+      href: "https://github.com/Mostakim2005/mpvRx/releases/latest",
       text: "View release",
     },
   },
@@ -22,10 +22,10 @@ export default defineConfig({
   navigation: {
     actions: [
       { href: "/docs", label: "Docs" },
-      { href: "https://github.com/Riteshp2001/mpvRx/releases", label: "Releases" },
+      { href: "https://github.com/Mostakim2005/mpvRx/releases", label: "Releases" },
     ],
     cta: {
-      href: "https://github.com/Riteshp2001/mpvRx/releases/latest",
+      href: "https://github.com/Mostakim2005/mpvRx/releases/latest",
       label: "Download",
     },
     repo: true,
@@ -50,7 +50,7 @@ export default defineConfig({
     output: "static",
   },
   github: {
-    owner: "Riteshp2001",
+    owner: "Mostakim2005",
     repo: "mpvRx",
     branch: "master",
     dir: "website/content",
@@ -75,7 +75,7 @@ export default defineConfig({
       name: "mpvRx",
       operatingSystem: "Android 8.0 and newer",
       price: 0,
-      sameAs: ["https://github.com/Riteshp2001/mpvRx"],
+      sameAs: ["https://github.com/Mostakim2005/mpvRx"],
     },
   },
   theme: {

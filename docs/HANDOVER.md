@@ -1,6 +1,6 @@
-# Handover — mpvRx v3.2.2 bookmark, secure-folder and storage batch
+# Handover — mpvRx v3.3.0 release, Namida music UX, and security/storage batch
 
-Last updated: 2026-11-18 (v3.2.2: bookmark scope, secure segregation, PIN gate, durable storage) · Branch `master` · Tag `v3.2.2`
+Last updated: 2026-11-24 (v3.3.0 released; repo metadata/About/docs synced on `master`) · Branch `master` · Tag `v3.3.0`
 
 ## 1. How this batch is verified
 
@@ -35,12 +35,13 @@ the standard APK build), and only then push the next. A cancelled run proves not
 
 | Run | Commit | Workflow | Result |
 | --- | --- | --- | --- |
-| `44240833002` | `c0d03734` | CI/CD Build | **success** — JVM unit tests, standard release APK, signing, upload |
-| `44242561708` | `3f3ea718` | CI/CD Build | **success** — same pipeline on the release commit |
+| `45440995888` | `cfb75b18` | CI/CD Build | **success** — JVM unit tests, standard release APK, signing, upload |
+| `45440993670` | `cfb75b18` (`v3.3.0`) | Make release | **success** — tag/version/CHANGELOG validation, signed APK, release published |
+| `44749087264` | `de3aadb0` (`v3.2.3`) | Make release | **success** — MVX1 AES-CTR vault segregation & Room schema v35 release |
 | `44242573783` | `3f3ea718` (`v3.2.2`) | Make release | **success** — tag/version/CHANGELOG validation, signed APK, release published |
 
-GitHub Release `v3.2.2` (published 2026-11-18) carries one asset:
-`mpvRx-arm64-v8a-v3.2.2.apk` (≈63 MB, sha256 `30edbdf8…980`).
+GitHub Release `v3.3.0` (published 2026-11-24) carries one asset:
+`mpvRx-arm64-v8a-v3.3.0.apk` (`63,410,173` bytes, sha256 `a2e05c917439772f7a432cea9d876951c5487a389f6e061a3fb9926d5946d2e4`).
 Query the workflow after every new push and extend this table. A cancelled run proves nothing:
 `build.yml` cancels the in-progress run for the same ref, so wait for each run to finish before
 pushing again.
@@ -90,18 +91,9 @@ playing needs that restore suppressed, hence the separate `keepsPlayingAfterToss
 the outer `MiniPlayer` (where `dismissPlayer` is built) — injecting it in only one of the two was
 the compile error CI caught.
 
-## 3. Remaining work
+## 3. Current state & follow-ups
 
-**v3.2.2 is shipped and released** (commits `69ee22c0`…`3f3ea718`, tag `v3.2.2`, GitHub Release
-with the arm64 APK). The only outstanding item is on-device confirmation of R-10…R-13 and the
-ANR fix — CI proves it compiles, unit-tests and packages, not that it behaves correctly on a phone.
-
-**No repair items remain open — the backlog (R-01 … R-13) is complete.** Statuses mirror `PRODUCT.md` § 4; the
-per-item fixes are in § 2 and `DECISIONS_AND_TRAPS.md`. One deliberate scope boundary: R-06
-shipped the download *affordances* only (its item spec said "no downloader logic changes"); the
-companion-video downloader sheet, `MusicCompanionDao` attach-binding and audio-replacement prompt
-from `PRODUCT.md`'s music-side spec remain their own feature
-([FEATURE: Granular-Quality-Downloader-And-Configurable-Presets]).
+**v3.3.0 is shipped and released** (tag `v3.3.0`, GitHub Release with `mpvRx-arm64-v8a-v3.3.0.apk`), including all security, concurrency, data durability, accessibility, Namida music UI, fullscreen lyrics tap-to-seek, `TextNormalizer`, and uncropped fast bookmark capture improvements. Subsequent commits on `master` update the in-app `AboutScreen` / `UpdateManager` URLs (`Mostakim2005/mpvRx`), `README.md`, and docs, queued for the next release (`v3.3.1` or later).
 
 ## 4. Traps that shaped this batch
 
@@ -121,12 +113,12 @@ from `PRODUCT.md`'s music-side spec remain their own feature
 - New: landscape status-bar insets must be a window-condition check, not a preference check;
   portrait-only editors must capture and restore the player's orientation.
 
-## 5. Release path when the batch is done
+## 5. Release path when cutting a new release
 
 1. Confirm the final `build.yml` run for `master` is green.
-2. Bump `versionName`/`versionCode` and `CHANGELOG.md` (v3.2.2).
-3. `git commit -m "chore(release): v3.2.2"`.
-4. `git tag -a v3.2.2 -m "Release v3.2.2"` then `git push origin master --tags`
+2. Bump `releaseVersionCode` and `versionName` in `app/build.gradle.kts`, and add a matching `## X.Y.Z` section to `CHANGELOG.md`.
+3. `git commit -m "chore(release): vX.Y.Z"`.
+4. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` then `git push origin master vX.Y.Z`
    (`GIT_TERMINAL_PROMPT=0`), which triggers `release.yml`.
 
 Do not tag until every item above is either shipped and built green or explicitly deferred.

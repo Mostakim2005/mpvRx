@@ -7,34 +7,35 @@
 flowchart TB
     subgraph UI["📱 UI & Presentation Layer (Jetpack Compose)"]
         PlayerView["Player Activity & Surface (mpv native)"]
-        PortraitDrawer["Portrait Bookmark Drawer (Native Video Ratio + 1R/2R/3R 16:9 Cards + Tag Filter)"]
-        LandscapeSidebar["Landscape Bookmark Sidebar (20%-35% + Non-Overflow 2-Tier Toolbar + Global Scope)"]
+        PortraitDrawer["Portrait Bookmark Drawer (Native Video Ratio + ContentScale.Fit + Tag Filter)"]
+        LandscapeSidebar["Landscape Bookmark Sidebar (20%-35% + 220dp Fit Thumbnails + Global Scope)"]
         GalleryModal["Bookmark Gallery Screen (Vertical Scroll + Tag Autocomplete)"]
         ProfileSec["Profile Screen (5-Tap Stealth Mode)"]
-        AudioUI["Audio Player Controls (2-Line/3-Line Lyrics + 50/50 & 40/60 Landscape Split)"]
+        AudioUI["Audio Player Controls (Namida Default / Classic + Section Toggles + Tap-to-Seek Lyrics)"]
         MusicCustomUI["Music Customization (Tag Editor + Video-in-Art + Downloader)"]
     end
 
     subgraph State["🧠 State & ViewModel Layer"]
-        PlayerVM["PlayerViewModel (Queue, PlaybackState, Tags, Scope)"]
+        PlayerVM["PlayerViewModel (Queue, PlaybackState, Parallel Bitmap Cache, Scope)"]
         GalleryVM["BookmarkGalleryViewModel"]
         AudioVM["AudioPlayerViewModel"]
         SecDetector["SecretTapDetector"]
     end
 
     subgraph Domain["⚙️ Domain & Security Layer"]
-        Registry["SecureMediaRegistry (In-Memory Mirror)"]
+        Registry["SecureMediaRegistry (In-Memory Mirror + SecureFolderSession)"]
         Matcher["BookmarkMediaMatcher (Fingerprints)"]
         TagRules["BookmarkTagRules (Normalization)"]
+        TextNorm["TextNormalizer (Unicode NFKD Search Cleaner)"]
         Identity["PlaybackIdentity (SHA-256 Digest Engine)"]
         Geometry["VideoGeometryEngine (Native Aspect Ratio Budget)"]
-        VaultPersistence["VaultPersistenceManager (Durable Storage /sdcard/Documents/mpvRx/)"]
+        VaultPersistence["DurableStorageManager + VaultCrypto (MVX1 AES-128-CTR)"]
     end
 
     subgraph Data["💾 Storage & Persistence Layer"]
-        RoomDB[("Live MpvRx Room Database (<UserFolder>/database/mpvrx.db)")]
-        WatchStats[("Watch Stats JSON (Public & Quarantined Files)")]
-        DurableVault["Durable Root <UserRoot>/ (.nomedia, database/, vault/, thumbnails/, music/, lyrics/)"]
+        RoomDB[("Segregated Room DBs (.store/library.dat & .vault/v_idx.dat)")]
+        WatchStats[("Watch Stats JSON (Public & AES-Encrypted Vault Files)")]
+        DurableVault["Durable Root Documents/mpvRx/ (.nomedia, .store/, .vault/, thumbnails/, music/, lyrics/)"]
     end
 
     PlayerView --> PlayerVM
@@ -49,6 +50,7 @@ flowchart TB
     PlayerVM --> Identity
     PlayerVM --> Matcher
     PlayerVM --> Geometry
+    AudioVM --> TextNorm
     GalleryVM --> Registry
     SecDetector --> WatchStats
 
@@ -71,7 +73,7 @@ flowchart TB
 | Dependency Injection | Koin | Lightweight Kotlin-native DI with zero reflection overhead and immediate startup speeds. |
 | Persistence | AndroidX Room (SQLite) + AtomicFile | Robust schema migrations for bookmarks/tags/music and atomic file writes for JSON statistics snapshots. |
 | Media ID Hash | Java `MessageDigest` (SHA-256) | Generates collision-resistant stable identifiers for media across URI schemes and filesystem paths. |
-| Durable Storage | `/sdcard/Documents/mpvRx/` (with `.nomedia`) | Hosts the live Room database, vault media and bookmark thumbnails outside app-private storage, so uninstalling or clearing the app cannot delete them. The PIN hash stays app-private on purpose and is re-created after a reinstall. |
+| Durable Storage | `Documents/mpvRx/` (`.store/` + `.vault/` + `.nomedia`) | Hosts the segregated public (`.store/library.dat`) and `MVX1`-encrypted Secure Vault (`.vault/v_idx.dat`, `.vault/media/`) databases plus bookmark thumbnails outside app-private storage, so uninstalling or clearing the app cannot delete them. |
 
 ---
 

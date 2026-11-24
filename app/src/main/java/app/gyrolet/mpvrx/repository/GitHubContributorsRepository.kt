@@ -250,7 +250,7 @@ internal class GitHubContributorsRepository(
   )
 
   private companion object {
-    const val API_URL = "https://api.github.com/repos/Riteshp2001/mpvRx"
+    const val API_URL = "https://api.github.com/repos/Mostakim2005/mpvRx"
     const val PAGE_SIZE = 100
     const val CACHE_TTL_MS = 24L * 60L * 60L * 1_000L
     val contributorOrder = compareByDescending<GitHubContributor> { it.contributions }
