@@ -1,3 +1,13 @@
+## 3.3.0 — Namida Music UX, Bookmark Capture & Security Hardening
+
+- **Namida Music Player Default & Layout Toggles:** Music playback now defaults to the Namida layout with centered artwork, compact title/artist typography, and inline timestamps, while keeping the mpvRx Classic layout (`Row 2` above `Row 1`) and per-section visibility toggles available in the layout menu.
+- **Fullscreen Lyrics Tap-to-Seek:** Tapping any synced lyric line in fullscreen lyrics mode jumps playback directly to that timestamp, using a compact typography scale that fits more lines on screen.
+- **Music Folders Navigation & Clean Notifications:** Pressing Back inside a Music folder steps back folder-by-folder while staying on the Folders tab, and media notifications omit duplicate elapsed/remaining text when the system seekbar is shown.
+- **Unicode Search Normalization:** Added Unicode NFKD diacritic and zero-width character normalization for more reliable music search and lyrics matching.
+- **Uncropped Bookmarks & Faster Capture:** Bookmark thumbnails now render uncropped (`ContentScale.Fit`) with a taller `220dp` landscape sidebar cap, parallel background capture/encryption, minimalist quick-add preferences, and safer Secure Folder editor dismissal with clean IME hiding before orientation restore.
+- **Security, Stability & Accessibility:** Hardened backup rules, PIN hashing, URL scheme routing, and log redaction; resolved concurrency races, SQLite bind limits, resource leaks, and atomic/durable storage edge cases; added TalkBack/keyboard support to toggles and sliders and fixed theme contrast.
+- **Release tag:** `v3.3.0`.
+
 ## 3.2.3
 
 - **Vault Storage & Encryption**: Segregate vault database and encrypt durable storage with MVX1 AES-CTR.
