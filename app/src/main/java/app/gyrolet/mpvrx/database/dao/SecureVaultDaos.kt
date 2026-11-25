@@ -152,6 +152,12 @@ interface SecureBookmarkDao {
   @Query("SELECT * FROM secure_bookmark_groups WHERE presetCode = :presetCode ORDER BY updatedAt DESC LIMIT 1")
   suspend fun findGroupByPresetCode(presetCode: String): SecureBookmarkGroupEntity?
 
+  @Query(
+    "SELECT * FROM secure_bookmark_groups WHERE lower(oshash) = lower(:oshash) AND oshash IS NOT NULL " +
+      "ORDER BY updatedAt DESC LIMIT 1",
+  )
+  suspend fun findGroupByOhash(oshash: String): SecureBookmarkGroupEntity?
+
   @Query("SELECT * FROM secure_bookmark_groups WHERE fingerprint = :fingerprint ORDER BY updatedAt DESC LIMIT 1")
   suspend fun findGroupByFingerprint(fingerprint: String): SecureBookmarkGroupEntity?
 

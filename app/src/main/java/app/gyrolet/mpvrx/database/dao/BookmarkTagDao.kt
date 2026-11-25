@@ -30,6 +30,9 @@ data class BookmarkGalleryRow(
 
 @Dao
 interface BookmarkTagDao {
+  @Query("SELECT * FROM bookmark_tags ORDER BY id ASC")
+  suspend fun getAllTagsOnce(): List<BookmarkTagEntity>
+
   @Query("SELECT * FROM bookmark_tags WHERE bookmarkId = :bookmarkId ORDER BY name")
   suspend fun tagsFor(bookmarkId: Long): List<BookmarkTagEntity>
 

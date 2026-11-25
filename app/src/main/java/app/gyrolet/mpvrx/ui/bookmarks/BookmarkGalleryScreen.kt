@@ -11,6 +11,8 @@ package app.gyrolet.mpvrx.ui.bookmarks
 
 import android.content.res.Configuration
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,6 +79,7 @@ import app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules
 import app.gyrolet.mpvrx.domain.bookmark.filterByTags
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.AppTextField
+import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkTagChipRow
@@ -83,6 +87,7 @@ import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkThumbnailImage
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.media.MediaUtils
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
@@ -151,6 +156,8 @@ fun BookmarkGalleryContent(
 ) {
   val context = LocalContext.current
   val repository = koinInject<BookmarkGalleryRepository>()
+  val syncRepository = koinInject<PcBookmarkSyncRepository>()
+  val coroutineScope = rememberCoroutineScope()
   val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
   val isUnlocked by app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState.collectAsStateWithLifecycle()
 
@@ -164,19 +171,54 @@ fun BookmarkGalleryContent(
   var onlyCurrentVideo by rememberSaveable(currentMediaId, initialOnlyCurrentVideo) {
     mutableStateOf(initialOnlyCurrentVideo && currentMediaId != null)
   }
+  var onlyUnlinked by rememberSaveable { mutableStateOf(false) }
+  var isSyncing by remember { mutableStateOf(false) }
+  var pendingLinkGroupKey by remember { mutableStateOf<String?>(null) }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
 
-  val items by remember(scope) { repository.observeItems(scope) }.collectAsStateWithLifecycle(initialValue = emptyList())
-  val vocabulary by remember(scope) { repository.observeFilterTags(scope) }.collectAsStateWithLifecycle(initialValue = emptyList())
+  val linkVideoLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pickedUri ->
+      val targetKey = pendingLinkGroupKey
+      pendingLinkGroupKey = null
+      if (pickedUri != null && !targetKey.isNullOrBlank()) {
+        coroutineScope.launch {
+          syncRepository
+            .linkOrphanGroupToUri(targetKey, pickedUri)
+            .onSuccess { linked ->
+              Toast.makeText(
+                context,
+                context.getString(R.string.bookmark_gallery_linked_toast, linked.displayName, linked.bookmarkCount),
+                Toast.LENGTH_LONG,
+              ).show()
+            }.onFailure { err ->
+              Toast.makeText(
+                context,
+                err.message ?: context.getString(R.string.bookmark_gallery_unavailable),
+                Toast.LENGTH_SHORT,
+              ).show()
+            }
+        }
+      }
+    }
+
+  val items by remember(scope) {
+    repository.observeItems(scope)
+  }.collectAsStateWithLifecycle(initialValue = emptyList())
+  val vocabulary by remember(scope) {
+    repository.observeFilterTags(scope)
+  }.collectAsStateWithLifecycle(initialValue = emptyList())
+  val hasUnlinkedItems = remember(items, secureOnly) { !secureOnly && items.any { it.playableUri.isNullOrBlank() } }
 
   val filtered =
-    remember(items, selectedTags, onlyCurrentVideo, currentMediaId) {
+    remember(items, selectedTags, onlyCurrentVideo, onlyUnlinked, currentMediaId, secureOnly) {
       items
         .filterByTags(selectedTags.toSet())
         .filter { item ->
-          !onlyCurrentVideo || currentMediaId == null || item.row.mediaId == currentMediaId
+          val matchesVideo = !onlyCurrentVideo || currentMediaId == null || item.row.mediaId == currentMediaId
+          val matchesUnlinked = !onlyUnlinked || (!secureOnly && item.playableUri.isNullOrBlank())
+          matchesVideo && matchesUnlinked
         }
     }
   val suggestions =
@@ -196,10 +238,18 @@ fun BookmarkGalleryContent(
         availableWidth = maxWidth,
         maxColumns = maxColumnCount,
       )
+    val launchPointToVideo: (BookmarkGalleryItem) -> Unit = { item ->
+      pendingLinkGroupKey = item.row.mediaId
+      linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
+    }
     val openItem: (BookmarkGalleryItem) -> Unit = { item ->
       val target = item.playableUri
       if (target.isNullOrBlank()) {
-        Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
+        if (!secureOnly) {
+          launchPointToVideo(item)
+        } else {
+          Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
+        }
       } else {
         MediaUtils.playFile(
           source = target,
@@ -260,6 +310,41 @@ fun BookmarkGalleryContent(
             )
           }
           Spacer(Modifier.weight(1f))
+          if (!secureOnly) {
+            SmallIconAction(
+              icon = Icons.RoundedFilled.Refresh,
+              contentDescription = stringResource(R.string.bookmark_gallery_sync_pc),
+              onClick = {
+                if (!isSyncing) {
+                  isSyncing = true
+                  coroutineScope.launch {
+                    syncRepository
+                      .syncWithPcHub()
+                      .onSuccess { res ->
+                        Toast.makeText(
+                          context,
+                          context.getString(
+                            R.string.bookmark_gallery_sync_done,
+                            res.inserted,
+                            res.updated,
+                            res.thumbnailsDownloaded,
+                          ),
+                          Toast.LENGTH_LONG,
+                        ).show()
+                      }.onFailure { err ->
+                        Toast.makeText(
+                          context,
+                          context.getString(R.string.bookmark_gallery_sync_failed, err.message ?: "Error"),
+                          Toast.LENGTH_LONG,
+                        ).show()
+                      }
+                    isSyncing = false
+                  }
+                }
+              },
+              label = if (isSyncing) "..." else null,
+            )
+          }
           // 0 asks the grid to fit as many cards as the width allows; a number pins it.
           SmallIconAction(
             icon = Icons.RoundedFilled.GridView,
@@ -324,11 +409,23 @@ fun BookmarkGalleryContent(
           }
         }
 
-        if (suggestions.isNotEmpty()) {
+        if (suggestions.isNotEmpty() || hasUnlinkedItems || onlyUnlinked) {
           LazyRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
+            if (hasUnlinkedItems || onlyUnlinked) {
+              item(key = "__unlinked_filter") {
+                ScopePill(
+                  label = stringResource(R.string.bookmark_gallery_filter_unlinked),
+                  selected = onlyUnlinked,
+                  onClick = {
+                    onlyUnlinked = !onlyUnlinked
+                    if (onlyUnlinked) onlyCurrentVideo = false
+                  },
+                )
+              }
+            }
             items(suggestions, key = { it }) { tag ->
               TagPill(
                 text = tag,
@@ -367,6 +464,11 @@ fun BookmarkGalleryContent(
             BookmarkGalleryCard(
               item = item,
               onOpen = { openItem(item) },
+              onLinkVideo = if (!secureOnly && item.playableUri.isNullOrBlank()) {
+                { launchPointToVideo(item) }
+              } else {
+                null
+              },
               isSecure = secureOnly,
               showMediaTitle = !onlyCurrentVideo,
             )
@@ -494,6 +596,7 @@ private fun TagPill(
 private fun BookmarkGalleryCard(
   item: BookmarkGalleryItem,
   onOpen: () -> Unit,
+  onLinkVideo: (() -> Unit)? = null,
   width: Dp = Dp.Unspecified,
   isSecure: Boolean = false,
   showMediaTitle: Boolean = true,
@@ -545,6 +648,37 @@ private fun BookmarkGalleryCard(
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
+      }
+      if (onLinkVideo != null) {
+        Surface(
+          shape = RoundedCornerShape(6.dp),
+          color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.92f),
+          modifier =
+            Modifier
+              .align(Alignment.TopEnd)
+              .padding(4.dp)
+              .clip(RoundedCornerShape(6.dp))
+              .clickable(onClick = onLinkVideo),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+          ) {
+            Icon(
+              imageVector = Icons.RoundedFilled.Link,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onTertiaryContainer,
+              modifier = Modifier.size(11.dp),
+            )
+            Text(
+              text = stringResource(R.string.bookmark_gallery_link_video),
+              style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
+              color = MaterialTheme.colorScheme.onTertiaryContainer,
+              maxLines = 1,
+            )
+          }
+        }
       }
       Column(
         modifier =

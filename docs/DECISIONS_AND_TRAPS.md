@@ -330,3 +330,22 @@ flowchart LR
   * **Option A (Rejected):** Synchronous disk write and encryption on the same coroutine path before notifying the UI. Caused visible 100-300ms UI pauses on high-bitrate video.
   * **Option B (Chosen):** Populate `BitmapMemoryCache` immediately upon bitmap grab, parallelize Room insertion and background AES encrypted disk writing via `Dispatchers.IO`, keeping the playback thread completely unblocked.
 
+---
+
+### [DECISION: Public-Only-LAN-Bookmark-Sync-And-Oshash-Matching] | Aliases: unified bookmark hub, vault separation r-11, oshash cross-device match
+> **1-Line Summary:** Standardizes on `AV Manager` `vault.db` as the PC sync hub using Stash-identical 64-bit `oshash` and `syncUuid` tombstones while keeping `SecureVaultDatabase` strictly isolated from LAN sync.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Rationale:** Keeps the Go Stash binary unmodified, protects `R-11` Secure Vault isolation (`SecureVaultDatabase` paths never leave device over HTTP), and ensures bookmarks for temporarily missing/PC-only videos sync as linkable orphans.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/preferences/SettingsManager.kt` -> `SENSITIVE_PREFERENCE_KEYS` (`bookmark_sync_token`)
+
+---
+
+### [TRAP: BookmarkTagRules-Normalize-Returns-String-And-EncodeToString-Import] | Aliases: tag normalize return type, kotlinx serialization encodeToString, bookmark tag entity
+> **1-Line Summary:** `BookmarkTagRules.normalize(raw)` returns a `String` (public `BookmarkTagEntity` has no `nameHash`), and `Json.encodeToString(obj)` requires `import kotlinx.serialization.encodeToString`.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` -> `readArchive`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/PlaybackBookmarkOps.kt` -> `importArchiveIntoCurrent`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt`
+

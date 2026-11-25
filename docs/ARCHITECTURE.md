@@ -324,6 +324,42 @@ flowchart LR
 
 ---
 
+### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video
+> **1-Line Summary:** Bridges `MpvRxDatabase` v36 (`oshash`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via LAN REST (`X-Sync-Token`), Preset `.zip` v2 archives, and SAF `OpenDocument` orphan linking while isolating `SecureVaultDatabase` v2.
+* **How It Works (Plain English):**
+  * Computing identical 64-bit OpenSubtitles `oshash` over `File` and SAF `content://` descriptors lets phone bookmarks auto-link to PC/Stash scenes regardless of filename differences.
+  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge`) and binary JPEG thumbnails (`/api/sync/thumbnail/{uuid}`) exclusively with public `MpvRxDatabase` (`R-11` isolation).
+  * Unlinked remote groups land in `bookmark_groups` and appear under `Unlinked only` in `BookmarkGalleryScreen` so one tap of `Point to video` binds a local URI + `oshash` + `BookmarkMediaRefEntity`.
+* **Data Flow Diagram:**
+```mermaid
+flowchart LR
+    classDef publicDb fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
+    classDef secureDb fill:#881337,stroke:#f43f5e,stroke-width:2px,color:#fff1f2
+    classDef syncNode fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#ffffff
+    classDef pcHub fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fffbeb
+
+    PublicDB[("MpvRxDatabase v36\noshash, syncUuid, tombstones")]:::publicDb
+    SecureDB[("SecureVaultDatabase v2\nMVX1 Encrypted (Isolated R-11)")]:::secureDb
+    PresetV2["Preset .zip v2 Archive\ntags, primaryTag, oshash, thumbs"]:::syncNode
+    SyncRepo["PcBookmarkSyncRepository\nOkHttp + X-Sync-Token"]:::syncNode
+    AvHub[("AV Manager vault.db\n<-> Stash localhost:9999")]:::pcHub
+    OrphanUI["BookmarkGalleryScreen\nPoint to Video (OpenDocument)"]:::publicDb
+
+    PublicDB <--> SyncRepo <-->|LWW Merge + JPEG| AvHub
+    PublicDB <--> PresetV2
+    SecureDB <-.->|"Local ZIP Only\n(Never LAN Synced)"| PresetV2
+    OrphanUI -->|Updates oshash + MediaRef| PublicDB
+```
+
+> **Legend box:** Emerald = Public DB & Orphan Linker UI | Rose = Isolated Secure Vault | Indigo = Sync Repository & Preset v2 `.zip` | Amber = PC Hub (`AV Manager` + `Stash`)
+
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` -> `computeOshash`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` -> `MIGRATION_35_36`, `SECURE_MIGRATION_1_2`
+
+---
+
 ## 4. Verification & Health Checks
 
 ### [VERIFY: Cloud-And-Unit-TestSuite] | Aliases: test commands, gradle check, unit tests

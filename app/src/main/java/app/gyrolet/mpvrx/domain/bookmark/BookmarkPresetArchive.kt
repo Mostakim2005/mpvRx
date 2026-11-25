@@ -29,8 +29,11 @@ import java.util.zip.ZipOutputStream
 
 @Serializable
 data class BookmarkPresetManifest(
-  val schemaVersion: Int = 1,
+  val schemaVersion: Int = 2,
   val presetCode: String? = null,
+  val oshash: String? = null,
+  val fingerprint: String? = null,
+  val stemKey: String? = null,
   val sourceLabel: String = "",
   val durationSec: Int = 0,
   val width: Int = 0,
@@ -42,15 +45,21 @@ data class BookmarkPresetManifest(
 
 @Serializable
 data class BookmarkPresetEntry(
+  val syncUuid: String? = null,
   val positionMs: Long,
+  val endPositionMs: Long? = null,
   val title: String,
+  val primaryTag: String? = null,
+  val tags: List<String> = emptyList(),
   val createdAt: Long = 0L,
+  val updatedAt: Long = 0L,
   val thumbnailEntry: String? = null,
 )
 
 data class ImportedBookmarkPreset(
   val manifest: BookmarkPresetManifest,
   val bookmarks: List<PlaybackBookmarkEntity>,
+  val importedTagsByIndex: List<List<String>> = emptyList(),
 )
 
 /**
@@ -78,6 +87,7 @@ object BookmarkPresetArchive {
     output: OutputStream,
     group: BookmarkGroupEntity?,
     bookmarks: List<PlaybackBookmarkEntity>,
+    tagsByBookmarkId: Map<Long, List<String>> = emptyMap(),
   ) {
     val sorted = bookmarks.sortedWith(compareBy<PlaybackBookmarkEntity> { it.positionMs }.thenBy { it.createdAt })
     val seenThumbPaths = LinkedHashMap<String, String>()
@@ -94,17 +104,28 @@ object BookmarkPresetArchive {
           } else {
             null
           }
+        val tagList = tagsByBookmarkId[bookmark.id].orEmpty()
+        val pTag = bookmark.primaryTag?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: tagList.firstOrNull()
         BookmarkPresetEntry(
+          syncUuid = bookmark.syncUuid,
           positionMs = bookmark.positionMs.coerceAtLeast(0L),
+          endPositionMs = bookmark.endPositionMs,
           title = bookmark.title,
+          primaryTag = pTag,
+          tags = tagList,
           createdAt = bookmark.createdAt,
+          updatedAt = bookmark.updatedAt,
           thumbnailEntry = zipEntryName,
         )
       }
 
     val manifest =
       BookmarkPresetManifest(
+        schemaVersion = 2,
         presetCode = group?.presetCode,
+        oshash = group?.oshash,
+        fingerprint = group?.fingerprint,
+        stemKey = group?.stemKey,
         sourceLabel = group?.sourceLabel.orEmpty(),
         durationSec = group?.durationSec ?: 0,
         width = group?.width ?: 0,
@@ -176,6 +197,7 @@ object BookmarkPresetArchive {
     }
 
     val materializedPaths = HashMap<String, String>()
+    val importedTags = ArrayList<List<String>>(manifest.bookmarks.size)
     val importedBookmarks =
       manifest.bookmarks.map { entry ->
         val savedThumbPath =
@@ -199,17 +221,33 @@ object BookmarkPresetArchive {
               }
             }
           }
+        val cleanTags =
+          (entry.tags.ifEmpty { listOfNotNull(entry.primaryTag) })
+            .map { raw -> BookmarkTagRules.normalize(raw) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        importedTags.add(cleanTags)
+        val created = entry.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         PlaybackBookmarkEntity(
           mediaId = targetGroupKey,
           positionMs = entry.positionMs.coerceAtLeast(0L),
           title = entry.title.trim().ifBlank { "Bookmark" },
-          createdAt = entry.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+          createdAt = created,
           bookTrackId = null,
           thumbnailPath = savedThumbPath,
+          endPositionMs = entry.endPositionMs,
+          primaryTag = entry.primaryTag?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: cleanTags.firstOrNull(),
+          syncUuid = entry.syncUuid?.trim()?.takeIf { it.isNotEmpty() },
+          originApp = "preset_zip",
+          updatedAt = entry.updatedAt.takeIf { it > 0L } ?: created,
         )
       }
 
-    return ImportedBookmarkPreset(manifest = manifest, bookmarks = importedBookmarks)
+    return ImportedBookmarkPreset(
+      manifest = manifest,
+      bookmarks = importedBookmarks,
+      importedTagsByIndex = importedTags,
+    )
   }
 
   suspend fun exportToUri(
@@ -217,11 +255,12 @@ object BookmarkPresetArchive {
     uri: Uri,
     group: BookmarkGroupEntity?,
     bookmarks: List<PlaybackBookmarkEntity>,
+    tagsByBookmarkId: Map<Long, List<String>> = emptyMap(),
   ): Result<Int> =
     withContext(Dispatchers.IO) {
       runCatching {
         context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-          writeArchive(output, group, bookmarks)
+          writeArchive(output, group, bookmarks, tagsByBookmarkId)
         } ?: throw IllegalStateException("Could not open preset destination")
         bookmarks.size
       }

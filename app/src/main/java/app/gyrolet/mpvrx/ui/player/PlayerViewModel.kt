@@ -1172,6 +1172,7 @@ class PlayerViewModel(
     val stemKey =
       app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(item.originalUri)
         ?: item.title?.let { app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher.normalizedStem(it) }
+    val oshash = resolveItemOshash(rawId, item)
     return app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMetadata(
       rawMediaId = rawId,
       fileSizeBytes = fileSizeBytes,
@@ -1180,7 +1181,47 @@ class PlayerViewModel(
       durationSec = durationSec,
       sourceLabel = label,
       stemKey = stemKey,
+      oshash = oshash,
     )
+  }
+
+  private val ohashCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+  private fun resolveItemOshash(
+    rawId: String,
+    item: PlaybackItem,
+  ): String? {
+    ohashCache[rawId]?.let { return it.ifEmpty { null } }
+    val candidates = listOf(item.playableUri, item.originalUri).filter { it.isNotBlank() }
+    for (candidate in candidates) {
+      val computed =
+        when {
+          candidate.startsWith("content://", ignoreCase = true) ->
+            app.gyrolet.mpvrx.domain.bookmark.OshashCalculator.computeOshash(
+              appContext,
+              Uri.parse(candidate),
+            )
+          candidate.startsWith("http://", ignoreCase = true) ||
+            candidate.startsWith("https://", ignoreCase = true) ||
+            candidate.startsWith("smb://", ignoreCase = true) ||
+            candidate.startsWith("ftp://", ignoreCase = true) -> null
+          else -> {
+            val localPath =
+              if (candidate.startsWith("file://", ignoreCase = true)) {
+                Uri.parse(candidate).path ?: candidate
+              } else {
+                PlaybackIdentity.normalizeLocalPath(candidate)
+              }
+            app.gyrolet.mpvrx.domain.bookmark.OshashCalculator.computeOshash(java.io.File(localPath))
+          }
+        }
+      if (!computed.isNullOrBlank()) {
+        ohashCache[rawId] = computed
+        return computed
+      }
+    }
+    ohashCache[rawId] = ""
+    return null
   }
 
   private fun isItemSecure(
@@ -1254,6 +1295,7 @@ class PlayerViewModel(
                     fingerprint = meta?.fingerprint,
                     stemKey = meta?.stemKey,
                     durationSec = meta?.durationSec ?: 0,
+                    oshash = meta?.oshash,
                   )
                 if (meta != null && secureBookmarkStore.countInGroup(resolved) > 0) {
                   secureBookmarkStore.ensureGroupMetadata(groupKey = resolved, metadata = meta)
@@ -1278,6 +1320,7 @@ class PlayerViewModel(
                     fingerprint = meta?.fingerprint,
                     stemKey = meta?.stemKey,
                     durationSec = meta?.durationSec ?: 0,
+                    oshash = meta?.oshash,
                   )
                 if (meta != null && playbackBookmarkDao.countInGroup(resolved) > 0) {
                   app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
@@ -2583,6 +2626,8 @@ fun restartFromBeginning() {
       bookTrackId = item.audiobook?.trackId,
       positionMs = positionMs,
       title = defaultTitle,
+      syncUuid = java.util.UUID.randomUUID().toString(),
+      originApp = "mpvrx",
     )
   }
 
@@ -2843,6 +2888,10 @@ fun restartFromBeginning() {
           bookmarkTagDao.bumpMemory(name = name, displayName = name)
         }
       }
+      playbackBookmarkDao.updateBookmarkPrimaryTag(
+        id = bookmarkId,
+        primaryTag = normalizedTags.firstOrNull(),
+      )
     }
   }
 
@@ -2980,11 +3029,23 @@ fun restartFromBeginning() {
     kotlinx.coroutines.withContext(Dispatchers.IO) {
       val group = activeBookmarkGroup.value
       val bookmarks = playbackBookmarks.value
+      val isSecure = isCurrentMediaSecure.value
+      val tagsByBookmarkId =
+        bookmarks.associate { bm ->
+          val tags =
+            if (isSecure) {
+              secureBookmarkStore.tagsFor(bm.id).map { it.name }
+            } else {
+              bookmarkTagDao.tagsFor(bm.id).map { it.name }
+            }
+          bm.id to tags
+        }
       app.gyrolet.mpvrx.domain.bookmark.BookmarkPresetArchive.exportToUri(
         context = appContext,
         uri = uri,
         group = group,
         bookmarks = bookmarks,
+        tagsByBookmarkId = tagsByBookmarkId,
       )
     }
 

@@ -17,6 +17,7 @@ import androidx.room.PrimaryKey
   tableName = "bookmark_groups",
   indices = [
     Index(value = ["presetCode"]),
+    Index(value = ["oshash"]),
     Index(value = ["fingerprint"]),
     Index(value = ["stemKey"]),
   ],
@@ -24,6 +25,7 @@ import androidx.room.PrimaryKey
 data class BookmarkGroupEntity(
   @PrimaryKey val groupKey: String,
   val presetCode: String? = null,
+  val oshash: String? = null,
   val fingerprint: String? = null,
   val stemKey: String? = null,
   val durationSec: Int = 0,

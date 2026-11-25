@@ -8,7 +8,11 @@ import androidx.room.PrimaryKey
 @Entity(
   tableName = "playback_bookmarks",
   foreignKeys = [ForeignKey(entity = AudiobookTrackEntity::class, parentColumns = ["id"], childColumns = ["bookTrackId"], onDelete = ForeignKey.CASCADE)],
-  indices = [Index(value = ["mediaId"]), Index(value = ["bookTrackId"])],
+  indices = [
+    Index(value = ["mediaId"]),
+    Index(value = ["bookTrackId"]),
+    Index(value = ["syncUuid"]),
+  ],
 )
 data class PlaybackBookmarkEntity(
   @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -18,6 +22,11 @@ data class PlaybackBookmarkEntity(
   val createdAt: Long = System.currentTimeMillis(),
   val bookTrackId: Long? = null,
   val thumbnailPath: String? = null,
+  val endPositionMs: Long? = null,
+  val primaryTag: String? = null,
+  val syncUuid: String? = null,
+  val originApp: String = "mpvrx",
+  val updatedAt: Long = System.currentTimeMillis(),
 ) {
   companion object {
     fun audiobookMediaId(bookId: Long): String = "audiobook:$bookId"

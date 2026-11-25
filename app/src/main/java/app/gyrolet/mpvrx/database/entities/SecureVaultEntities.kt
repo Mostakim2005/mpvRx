@@ -31,7 +31,10 @@ data class SecureVaultMediaEntity(
 
 @Entity(
   tableName = "secure_bookmarks",
-  indices = [Index(value = ["mediaId"])],
+  indices = [
+    Index(value = ["mediaId"]),
+    Index(value = ["syncUuid"]),
+  ],
 )
 data class SecureBookmarkEntity(
   @PrimaryKey(autoGenerate = true)
@@ -42,12 +45,17 @@ data class SecureBookmarkEntity(
   val createdAt: Long = System.currentTimeMillis(),
   val bookTrackId: Long? = null,
   val thumbnailPath: String? = null,
+  val endPositionMs: Long? = null,
+  val primaryTag: String? = null,
+  val syncUuid: String? = null,
+  val updatedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(
   tableName = "secure_bookmark_groups",
   indices = [
     Index(value = ["presetCode"]),
+    Index(value = ["oshash"]),
     Index(value = ["fingerprint"]),
     Index(value = ["stemKey"]),
   ],
@@ -56,6 +64,7 @@ data class SecureBookmarkGroupEntity(
   @PrimaryKey
   val groupKey: String,
   val presetCode: String? = null,
+  val oshash: String? = null,
   val fingerprint: String? = null,
   val stemKey: String? = null,
   val durationSec: Int = 0,

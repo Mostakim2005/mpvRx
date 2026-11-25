@@ -105,6 +105,7 @@ object MediaServersPreferencesScreen : Screen {
     var navidromeServerToEdit by remember { mutableStateOf<NavidromeServer?>(null) }
     var isAddAudiobookshelfServerOpen by remember { mutableStateOf(false) }
     var audiobookshelfServerToEdit by remember { mutableStateOf<AudiobookshelfServer?>(null) }
+    var isBookmarkSyncDialogOpen by remember { mutableStateOf(false) }
 
     Scaffold(
       topBar = {
@@ -602,7 +603,7 @@ object MediaServersPreferencesScreen : Screen {
 
           // --- AUDIOBOOKSHELF SECTION ---
           item {
-            PreferenceSectionHeader(position = PreferenceSectionPosition.Last, 
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle,
               title = stringResource(R.string.pref_audiobookshelf_title),
             )
           }
@@ -786,9 +787,33 @@ object MediaServersPreferencesScreen : Screen {
               }
             }
           }
+
+          // --- AV MANAGER & STASH BOOKMARK SYNC SECTION ---
+          item {
+            PreferenceSectionHeader(
+              position = PreferenceSectionPosition.Last,
+              title = stringResource(R.string.bookmark_sync_pref_section),
+            )
+          }
+
+          item {
+            PreferenceCard {
+              ExpressivePreferenceItem {
+                BookmarkSyncServerRow(
+                  modifier = Modifier.settingsSearchTarget(R.string.bookmark_sync_pref_section),
+                  onOpenConfig = { isBookmarkSyncDialogOpen = true },
+                )
+              }
+            }
+          }
         }
       }
     }
+
+    BookmarkSyncConfigDialog(
+      isOpen = isBookmarkSyncDialogOpen,
+      onDismiss = { isBookmarkSyncDialogOpen = false },
+    )
 
     // Add / Re-authenticate Jellyfin Server Dialog
     AddJellyfinServerDialog(

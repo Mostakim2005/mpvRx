@@ -69,6 +69,7 @@ class SettingsManager(
       "ai_together_api_key",
       "ai_custom_openai_api_key",
       "seerr_api_key",
+      "bookmark_sync_token",
       "secure_folder_pin_hash",
       "secure_folder_pin_salt",
       "secure_folder_security_answer_hash",

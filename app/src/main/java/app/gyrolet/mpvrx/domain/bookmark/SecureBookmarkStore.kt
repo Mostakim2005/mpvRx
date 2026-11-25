@@ -77,6 +77,10 @@ class SecureBookmarkStore(
       createdAt = createdAt,
       bookTrackId = bookTrackId,
       thumbnailPath = decNullable(thumbnailPath),
+      endPositionMs = endPositionMs,
+      primaryTag = decNullable(primaryTag),
+      syncUuid = syncUuid,
+      updatedAt = updatedAt,
     )
 
   private fun PlaybackBookmarkEntity.toSecure(): SecureBookmarkEntity =
@@ -88,12 +92,17 @@ class SecureBookmarkStore(
       createdAt = createdAt,
       bookTrackId = bookTrackId,
       thumbnailPath = encNullable(thumbnailPath),
+      endPositionMs = endPositionMs,
+      primaryTag = encNullable(primaryTag),
+      syncUuid = syncUuid,
+      updatedAt = updatedAt,
     )
 
   private fun SecureBookmarkGroupEntity.toDomain(): BookmarkGroupEntity =
     BookmarkGroupEntity(
       groupKey = groupKey,
       presetCode = decNullable(presetCode),
+      oshash = oshash,
       fingerprint = fingerprint,
       stemKey = decNullable(stemKey),
       durationSec = durationSec,
@@ -108,6 +117,7 @@ class SecureBookmarkStore(
     SecureBookmarkGroupEntity(
       groupKey = groupKey,
       presetCode = encNullable(presetCode),
+      oshash = oshash,
       fingerprint = fingerprint,
       stemKey = encNullable(stemKey),
       durationSec = durationSec,
@@ -227,12 +237,23 @@ class SecureBookmarkStore(
     fingerprint: String?,
     stemKey: String?,
     durationSec: Int,
+    oshash: String? = null,
   ): String =
     withContext(Dispatchers.IO) {
       bookmarkDao.findLinkedGroupKey(rawMediaId)?.let { return@withContext it }
       if (bookmarkDao.countInGroup(rawMediaId) > 0) return@withContext rawMediaId
 
       val groups = bookmarkDao.getAllGroups().map { it.toDomain() }
+      if (!oshash.isNullOrBlank()) {
+        groups
+          .filter { !it.oshash.isNullOrBlank() && it.oshash.equals(oshash, ignoreCase = true) }
+          .maxByOrNull { it.updatedAt }
+          ?.let { matched ->
+            bookmarkDao.upsertMediaLink(SecureBookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey))
+            return@withContext matched.groupKey
+          }
+      }
+
       fingerprint?.let { fp ->
         groups
           .filter { it.fingerprint == fp }
@@ -275,6 +296,7 @@ class SecureBookmarkStore(
       BookmarkGroupEntity(
         groupKey = groupKey,
         presetCode = existing?.presetCode,
+        oshash = metadata.oshash ?: existing?.oshash,
         fingerprint = metadata.fingerprint ?: existing?.fingerprint,
         stemKey = metadata.stemKey ?: existing?.stemKey,
         durationSec = metadata.durationSec.takeIf { it > 0 } ?: existing?.durationSec ?: 0,
@@ -398,15 +420,37 @@ class SecureBookmarkStore(
       val existingKeys =
         getInGroup(groupKey)
           .mapTo(HashSet()) { it.positionMs to it.title.trim() }
-      val toInsert =
-        imported.bookmarks.filter { entry ->
-          val key = entry.positionMs to entry.title.trim()
-          if (key in existingKeys) false else existingKeys.add(key)
+      val toInsert = mutableListOf<Pair<PlaybackBookmarkEntity, List<String>>>()
+      imported.bookmarks.forEachIndexed { idx, entry ->
+        val key = entry.positionMs to entry.title.trim()
+        if (existingKeys.add(key)) {
+          toInsert.add(entry to imported.importedTagsByIndex.getOrElse(idx) { emptyList() })
         }
-      if (toInsert.isNotEmpty()) {
-        addAll(toInsert)
       }
-      ensureGroupMetadata(groupKey, metadata, forceLinkRawMediaId = true)
+      toInsert.forEach { (entry, tags) ->
+        val newId = add(entry)
+        if (tags.isNotEmpty() && newId > 0L) {
+          replaceTags(newId, tags)
+        }
+      }
+      val mergedMeta =
+        if (metadata != null) {
+          metadata.copy(oshash = metadata.oshash ?: imported.manifest.oshash)
+        } else if (!imported.manifest.oshash.isNullOrBlank()) {
+          BookmarkMediaMetadata(
+            rawMediaId = groupKey,
+            fileSizeBytes = imported.manifest.fileSizeBytes,
+            width = imported.manifest.width,
+            height = imported.manifest.height,
+            durationSec = imported.manifest.durationSec,
+            sourceLabel = imported.manifest.sourceLabel,
+            stemKey = imported.manifest.stemKey,
+            oshash = imported.manifest.oshash,
+          )
+        } else {
+          null
+        }
+      ensureGroupMetadata(groupKey, mergedMeta, forceLinkRawMediaId = metadata != null)
       val existingGroup = getGroup(groupKey)
       val importedCode = imported.manifest.presetCode?.trim()?.takeIf { it.isNotBlank() }
       if (existingGroup?.presetCode.isNullOrBlank() && importedCode != null) {

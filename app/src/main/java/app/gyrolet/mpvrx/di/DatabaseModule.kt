@@ -1093,6 +1093,39 @@ val MIGRATION_25_26 =
     }
   }
 
+val MIGRATION_35_36 =
+  object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL("ALTER TABLE `playback_bookmarks` ADD COLUMN `endPositionMs` INTEGER DEFAULT NULL")
+      db.execSQL("ALTER TABLE `playback_bookmarks` ADD COLUMN `primaryTag` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `playback_bookmarks` ADD COLUMN `syncUuid` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `playback_bookmarks` ADD COLUMN `originApp` TEXT NOT NULL DEFAULT 'mpvrx'")
+      db.execSQL("ALTER TABLE `playback_bookmarks` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("UPDATE `playback_bookmarks` SET `updatedAt` = `createdAt` WHERE `updatedAt` = 0")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_bookmarks_syncUuid` ON `playback_bookmarks` (`syncUuid`)")
+      db.execSQL("ALTER TABLE `bookmark_groups` ADD COLUMN `oshash` TEXT DEFAULT NULL")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_bookmark_groups_oshash` ON `bookmark_groups` (`oshash`)")
+      db.execSQL(
+        "CREATE TABLE IF NOT EXISTS `bookmark_sync_tombstones` " +
+          "(`syncUuid` TEXT NOT NULL, `groupKey` TEXT, `deletedAt` INTEGER NOT NULL, PRIMARY KEY(`syncUuid`))",
+      )
+    }
+  }
+
+val SECURE_MIGRATION_1_2 =
+  object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL("ALTER TABLE `secure_bookmarks` ADD COLUMN `endPositionMs` INTEGER DEFAULT NULL")
+      db.execSQL("ALTER TABLE `secure_bookmarks` ADD COLUMN `primaryTag` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `secure_bookmarks` ADD COLUMN `syncUuid` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `secure_bookmarks` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("UPDATE `secure_bookmarks` SET `updatedAt` = `createdAt` WHERE `updatedAt` = 0")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_secure_bookmarks_syncUuid` ON `secure_bookmarks` (`syncUuid`)")
+      db.execSQL("ALTER TABLE `secure_bookmark_groups` ADD COLUMN `oshash` TEXT DEFAULT NULL")
+      db.execSQL("CREATE INDEX IF NOT EXISTS `index_secure_bookmark_groups_oshash` ON `secure_bookmark_groups` (`oshash`)")
+    }
+  }
+
 val DatabaseModule =
   module {
     single<Json> {
@@ -1146,6 +1179,7 @@ val DatabaseModule =
           MIGRATION_32_33,
           MIGRATION_33_34,
           MIGRATION_34_35,
+          MIGRATION_35_36,
         ).build()
     }
 
@@ -1159,6 +1193,7 @@ val DatabaseModule =
           secureDbPath.absolutePath,
         )
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+        .addMigrations(SECURE_MIGRATION_1_2)
         .build()
     }
 

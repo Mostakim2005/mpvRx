@@ -38,7 +38,7 @@ import app.gyrolet.mpvrx.database.entities.SecureVideoMetadataEntity
     SecurePlaybackStateEntity::class,
     SecureVideoMetadataEntity::class,
   ],
-  version = 1,
+  version = 2,
   exportSchema = true,
 )
 abstract class SecureVaultDatabase : RoomDatabase() {

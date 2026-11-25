@@ -421,4 +421,17 @@
   * `app/src/main/java/app/gyrolet/mpvrx/utils/text/TextNormalizer.kt` -> `normalizeForSearch`
   * `app/src/test/java/app/gyrolet/mpvrx/utils/text/TextNormalizerTest.kt` -> `stripsDiacriticsZeroWidthAndExtraWhitespace`
 
+### [FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker] | Aliases: bookmark lan sync, av manager sync, stash bookmark sync, preset zip v2, orphan point to video, oshash
+> **1-Line Summary:** Adds OpenSubtitles 64-bit `oshash` matching, Preset `.zip` v2 tag/duration/thumbnail round-trips, public-only LAN sync with `AV Manager`/`Stash`, and 1-tap orphan "Point to video" linking in Bookmark Gallery.
+* **User Intention (Non-Negotiable):** Users can synchronize timestamps, multi-tags (`primaryTag` = first tag), durations (`endPositionMs`), and JPEG thumbnails across **mpvRx**, **AV Manager**, and **Stash**, even when videos are missing or reside on another device, and link unlinked orphan bookmark groups to a local video later in one tap. Secure Folder bookmarks remain strictly isolated from public DB and LAN sync (`R-11`).
+* **Visual / UI Behavior:**
+  * **Media Servers Settings (`BookmarkSyncPreferencesSection`):** Adds `AV Manager & Stash Bookmark Sync` card + dialog for Hub URL, `X-Sync-Token` (excluded from XML backups), Connection Test, and 1-tap `Sync bookmarks now`.
+  * **Bookmark Gallery (`BookmarkGalleryScreen`):** Adds TopBar Refresh Sync trigger, `Unlinked only` filter pill (`!secureOnly`), and clickable `Point to video` badge on unlinked orphan cards launching `ActivityResultContracts.OpenDocument`.
+* **Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` -> `computeOshash`, `computeFromBytes`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` -> `writeArchive`, `readArchive`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryContent`, `BookmarkGalleryCard`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` -> `BookmarkSyncServerRow`, `BookmarkSyncConfigDialog`
+
 

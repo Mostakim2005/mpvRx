@@ -82,8 +82,9 @@ import app.gyrolet.mpvrx.domain.network.NetworkConnection
     BookmarkTagMemoryEntity::class,
     BookmarkMediaRefEntity::class,
     app.gyrolet.mpvrx.database.entities.MusicCompanionEntity::class,
+    app.gyrolet.mpvrx.database.entities.BookmarkSyncTombstoneEntity::class,
   ],
-  version = 35,
+  version = 36,
   exportSchema = true,
 )
 @TypeConverters(NetworkProtocolConverter::class, NetworkStreamEntryTypeConverter::class)
@@ -121,6 +122,8 @@ abstract class MpvRxDatabase : RoomDatabase() {
   abstract fun snapshotFolderDao(): SnapshotFolderDao
 
   abstract fun bookmarkTagDao(): BookmarkTagDao
+
+  abstract fun bookmarkSyncTombstoneDao(): app.gyrolet.mpvrx.database.dao.BookmarkSyncTombstoneDao
 
   abstract fun musicCompanionDao(): MusicCompanionDao
 }

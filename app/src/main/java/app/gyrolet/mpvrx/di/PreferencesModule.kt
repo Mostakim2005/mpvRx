@@ -13,6 +13,7 @@ import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.AiPreferences
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.AudioPreferences
+import app.gyrolet.mpvrx.preferences.BookmarkSyncPreferences
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.preferences.DecoderPreferences
 import app.gyrolet.mpvrx.preferences.DownloadPreferences
@@ -52,6 +53,7 @@ val PreferencesModule =
     singleOf(::SettingsManager)
     singleOf(::SecureFolderPreferences)
     singleOf(::SeerrPreferences)
+    singleOf(::BookmarkSyncPreferences)
     singleOf(::MediaServerPreferences)
     singleOf(::DownloadPreferences)
   }

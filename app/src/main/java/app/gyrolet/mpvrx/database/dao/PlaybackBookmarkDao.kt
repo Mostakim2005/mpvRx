@@ -144,6 +144,70 @@ interface PlaybackBookmarkDao {
   @Query(
     """
     SELECT g.* FROM bookmark_groups g
+    WHERE lower(g.oshash) = lower(:oshash)
+      AND g.oshash IS NOT NULL
+      AND EXISTS (SELECT 1 FROM playback_bookmarks b WHERE b.mediaId = g.groupKey)
+    ORDER BY g.updatedAt DESC
+    LIMIT 1
+    """,
+  )
+  suspend fun findGroupByOhash(oshash: String): BookmarkGroupEntity?
+
+  @Query("UPDATE bookmark_groups SET oshash = :oshash, updatedAt = :updatedAt WHERE groupKey = :groupKey")
+  suspend fun updateGroupOhash(
+    groupKey: String,
+    oshash: String?,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  @Query("SELECT * FROM playback_bookmarks WHERE bookTrackId IS NULL ORDER BY positionMs ASC, id ASC")
+  suspend fun getPublicBookmarks(): List<PlaybackBookmarkEntity>
+
+  @Query("SELECT * FROM playback_bookmarks WHERE syncUuid = :syncUuid LIMIT 1")
+  suspend fun findBookmarkBySyncUuid(syncUuid: String): PlaybackBookmarkEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertSyncBookmark(bookmark: PlaybackBookmarkEntity): Long
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertSyncMediaRef(ref: app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity)
+
+  @Query("UPDATE playback_bookmarks SET primaryTag = :primaryTag, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun updateBookmarkPrimaryTag(
+    id: Long,
+    primaryTag: String?,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  @Query("UPDATE playback_bookmarks SET updatedAt = :updatedAt WHERE id = :id")
+  suspend fun touchBookmarkUpdatedAt(
+    id: Long,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  @Query(
+    """
+    UPDATE playback_bookmarks
+    SET endPositionMs = :endPositionMs,
+        primaryTag = :primaryTag,
+        syncUuid = :syncUuid,
+        originApp = :originApp,
+        updatedAt = :updatedAt
+    WHERE id = :id
+    """,
+  )
+  suspend fun updateBookmarkSyncMetadata(
+    id: Long,
+    endPositionMs: Long?,
+    primaryTag: String?,
+    syncUuid: String?,
+    originApp: String,
+    updatedAt: Long,
+  )
+
+  @Query(
+    """
+    SELECT g.* FROM bookmark_groups g
     WHERE g.fingerprint = :fingerprint
       AND g.fingerprint IS NOT NULL
       AND EXISTS (SELECT 1 FROM playback_bookmarks b WHERE b.mediaId = g.groupKey)

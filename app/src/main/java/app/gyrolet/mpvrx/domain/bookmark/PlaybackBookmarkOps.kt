@@ -38,6 +38,7 @@ data class BookmarkMediaMetadata(
   val durationSec: Int = 0,
   val sourceLabel: String = "",
   val stemKey: String? = null,
+  val oshash: String? = null,
 ) {
   val fingerprint: String?
     get() = BookmarkMediaMatcher.exactFingerprint(fileSizeBytes, width, height, durationSec)
@@ -53,16 +54,32 @@ object PlaybackBookmarkOps {
   private fun daoOrNull(): PlaybackBookmarkDao? =
     runCatching { GlobalContext.getOrNull()?.get<PlaybackBookmarkDao>() }.getOrNull()
 
+  private fun tombstoneDaoOrNull(): app.gyrolet.mpvrx.database.dao.BookmarkSyncTombstoneDao? =
+    runCatching {
+      GlobalContext.getOrNull()?.get<app.gyrolet.mpvrx.database.dao.BookmarkSyncTombstoneDao>()
+    }.getOrNull()
+
+  private fun tagDaoOrNull(): app.gyrolet.mpvrx.database.dao.BookmarkTagDao? =
+    runCatching { GlobalContext.getOrNull()?.get<app.gyrolet.mpvrx.database.dao.BookmarkTagDao>() }.getOrNull()
+
   suspend fun resolveGroupKey(
     dao: PlaybackBookmarkDao,
     rawMediaId: String,
     fingerprint: String?,
     stemKey: String?,
     durationSec: Int,
+    oshash: String? = null,
   ): String =
     withContext(Dispatchers.IO) {
       dao.findLinkedGroupKey(rawMediaId)?.let { return@withContext it }
       if (dao.countInGroup(rawMediaId) > 0) return@withContext rawMediaId
+
+      if (!oshash.isNullOrBlank()) {
+        dao.findGroupByOhash(oshash)?.let { matched ->
+          dao.upsertMediaLink(BookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey))
+          return@withContext matched.groupKey
+        }
+      }
 
       fingerprint?.let { fp ->
         dao.findGroupByFingerprint(fp)?.let { matched ->
@@ -100,6 +117,7 @@ object PlaybackBookmarkOps {
       BookmarkGroupEntity(
         groupKey = groupKey,
         presetCode = existing?.presetCode,
+        oshash = metadata.oshash ?: existing?.oshash,
         fingerprint = metadata.fingerprint ?: existing?.fingerprint,
         stemKey = metadata.stemKey ?: existing?.stemKey,
         durationSec = metadata.durationSec.takeIf { it > 0 } ?: existing?.durationSec ?: 0,
@@ -187,21 +205,67 @@ object PlaybackBookmarkOps {
         dao.getInGroup(groupKey)
           .mapTo(HashSet()) { it.positionMs to it.title.trim() }
       val skippedThumbnails = mutableListOf<String>()
-      val toInsert =
-        imported.bookmarks.filter { entry ->
-          val key = entry.positionMs to entry.title.trim()
-          if (key in existingKeys) {
-            entry.thumbnailPath?.takeIf { it.isNotBlank() }?.let(skippedThumbnails::add)
-            false
-          } else {
-            existingKeys.add(key)
+      val toInsert = mutableListOf<Pair<PlaybackBookmarkEntity, List<String>>>()
+      imported.bookmarks.forEachIndexed { idx, entry ->
+        val key = entry.positionMs to entry.title.trim()
+        if (key in existingKeys) {
+          entry.thumbnailPath?.takeIf { it.isNotBlank() }?.let(skippedThumbnails::add)
+        } else {
+          existingKeys.add(key)
+          toInsert.add(entry to imported.importedTagsByIndex.getOrElse(idx) { emptyList() })
+        }
+      }
+      skippedThumbnails.forEach { path -> runCatching { java.io.File(path).delete() } }
+      val tagDao = tagDaoOrNull()
+      val now = System.currentTimeMillis()
+      toInsert.forEach { (entry, tags) ->
+        val newId = dao.insertSyncBookmark(entry)
+        if (tagDao != null && tags.isNotEmpty() && newId > 0L) {
+          val tagEntities =
+            tags
+              .map { BookmarkTagRules.normalize(it) }
+              .filter { it.isNotBlank() }
+              .distinct()
+              .map { norm ->
+                app.gyrolet.mpvrx.database.entities.BookmarkTagEntity(
+                  bookmarkId = newId,
+                  name = norm,
+                  displayName = norm,
+                )
+              }
+          if (tagEntities.isNotEmpty()) {
+            tagDao.insertAll(tagEntities)
+            tagEntities.forEach { t ->
+              tagDao.insertMemory(
+                app.gyrolet.mpvrx.database.entities.BookmarkTagMemoryEntity(
+                  name = t.name,
+                  displayName = t.displayName,
+                  lastUsedAt = now,
+                ),
+              )
+              tagDao.bumpMemory(name = t.name, displayName = t.displayName, lastUsedAt = now)
+            }
           }
         }
-      skippedThumbnails.forEach { path -> runCatching { java.io.File(path).delete() } }
-      if (toInsert.isNotEmpty()) {
-        dao.addAll(toInsert)
       }
-      ensureGroupMetadata(dao, groupKey, metadata, forceLinkRawMediaId = true)
+      val mergedMetadata =
+        if (metadata != null) {
+          metadata.copy(oshash = metadata.oshash ?: imported.manifest.oshash)
+        } else if (!imported.manifest.oshash.isNullOrBlank()) {
+          BookmarkMediaMetadata(
+            rawMediaId = groupKey,
+            fileSizeBytes = imported.manifest.fileSizeBytes,
+            width = imported.manifest.width,
+            height = imported.manifest.height,
+            durationSec = imported.manifest.durationSec,
+            sourceLabel = imported.manifest.sourceLabel,
+            stemKey = imported.manifest.stemKey,
+            oshash = imported.manifest.oshash,
+          )
+        } else {
+          null
+        }
+      ensureGroupMetadata(dao, groupKey, mergedMetadata, forceLinkRawMediaId = metadata != null)
       val existingGroup = dao.getGroup(groupKey)
       val importedCode = imported.manifest.presetCode?.trim()?.takeIf { it.isNotBlank() }
       if (existingGroup?.presetCode.isNullOrBlank() && importedCode != null) {
@@ -215,6 +279,15 @@ object PlaybackBookmarkOps {
     context: Context,
     bookmark: PlaybackBookmarkEntity,
   ) = withContext(Dispatchers.IO) {
+    bookmark.syncUuid?.trim()?.takeIf { it.isNotEmpty() }?.let { sUuid ->
+      tombstoneDaoOrNull()?.upsert(
+        app.gyrolet.mpvrx.database.entities.BookmarkSyncTombstoneEntity(
+          syncUuid = sUuid,
+          groupKey = bookmark.mediaId,
+          deletedAt = System.currentTimeMillis(),
+        ),
+      )
+    }
     dao.delete(bookmark.id)
     val thumbPath = bookmark.thumbnailPath
     if (!thumbPath.isNullOrBlank() && dao.countByThumbnailPath(thumbPath) == 0) {
