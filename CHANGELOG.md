@@ -1,3 +1,11 @@
+## 3.3.1 — Bookmark LAN Sync, Oshash Matching & Fork Retargeting
+
+- **Unified Bookmark Matching & Preset v2:** Added OpenSubtitles 64-bit `oshash` content matching and updated Preset `.zip` v2 archives to round-trip multi-tags, durations (`endPositionMs`), and thumbnails even when videos are unlinked or stored on another device.
+- **AV Manager & Stash LAN Sync + Orphan Linker:** Added public-only LAN bookmark synchronization with AV Manager / Stash (with Hub URL, `X-Sync-Token`, connection testing, and manual sync in Media Servers settings), plus an `Unlinked only` gallery filter and 1-tap `Point to video` orphan linker while keeping Secure Folder bookmarks isolated.
+- **In-App Updater & Repo Retargeting:** Retargeted the in-app updater, About screen, README, documentation, and website links to `Mostakim2005/mpvRx`.
+- **Bookmark Tag Memory Fix:** Fixed `bumpMemory` timestamp handling in `PlaybackBookmarkOps` and `PcBookmarkSyncRepository`.
+- **Release tag:** `v3.3.1`.
+
 ## 3.3.0 — Namida Music UX, Bookmark Capture & Security Hardening
 
 - **Namida Music Player Default & Layout Toggles:** Music playback now defaults to the Namida layout with centered artwork, compact title/artist typography, and inline timestamps, while keeping the mpvRx Classic layout (`Row 2` above `Row 1`) and per-section visibility toggles available in the layout menu.
