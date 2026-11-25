@@ -243,7 +243,7 @@ object PlaybackBookmarkOps {
                   lastUsedAt = now,
                 ),
               )
-              tagDao.bumpMemory(name = t.name, displayName = t.displayName, lastUsedAt = now)
+              tagDao.bumpMemory(name = t.name, displayName = t.displayName, now = now)
             }
           }
         }

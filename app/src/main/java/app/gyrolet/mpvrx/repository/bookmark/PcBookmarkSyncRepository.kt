@@ -547,7 +547,7 @@ class PcBookmarkSyncRepository(
     )
     clean.forEach { name ->
       tagDao.insertMemory(BookmarkTagMemoryEntity(name = name, displayName = name, lastUsedAt = now))
-      tagDao.bumpMemory(name = name, displayName = name, lastUsedAt = now)
+      tagDao.bumpMemory(name = name, displayName = name, now = now)
     }
   }
 
