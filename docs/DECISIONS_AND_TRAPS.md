@@ -349,3 +349,11 @@ flowchart LR
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/PlaybackBookmarkOps.kt` -> `importArchiveIntoCurrent`
   * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt`
 
+---
+
+### [TRAP: Android-Loopback-Hub-URL-And-Short-Sync-Timeouts] | Aliases: 127.0.0.1 on phone, syncClient readTimeout 90s, friendlyNetworkError
+> **1-Line Summary:** Default `SharedHttpClient` (`30s` read timeout) can time out during cold Cryptomator/Stash syncs and `127.0.0.1` refers to the Android device itself; `PcBookmarkSyncRepository` uses a `90s` read / `120s` call `syncClient` with explicit loopback/timeout/401 diagnostics and an inline settings warning.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncClient`, `friendlyNetworkError`, `isLoopbackUrl`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` -> `BookmarkSyncConfigDialog`
+

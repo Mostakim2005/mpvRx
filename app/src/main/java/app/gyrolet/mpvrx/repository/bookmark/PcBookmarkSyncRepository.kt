@@ -31,11 +31,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -169,18 +173,30 @@ class PcBookmarkSyncRepository(
   private val bookmarkDao get() = database.playbackBookmarkDao()
   private val tagDao get() = database.bookmarkTagDao()
   private val tombstoneDao get() = database.bookmarkSyncTombstoneDao()
+  private val syncClient: OkHttpClient by lazy {
+    httpClient
+      .newBuilder()
+      .connectTimeout(15, TimeUnit.SECONDS)
+      .readTimeout(90, TimeUnit.SECONDS)
+      .writeTimeout(60, TimeUnit.SECONDS)
+      .callTimeout(120, TimeUnit.SECONDS)
+      .build()
+  }
 
   suspend fun testConnection(
     hubUrl: String = prefs.hubUrl.get(),
     token: String = prefs.syncToken.get(),
   ): Result<String> =
     withContext(Dispatchers.IO) {
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       runCatching {
-        val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
         require(baseUrl.isNotEmpty()) { "Enter AV Manager URL" }
         val req = buildRequestBuilder("$baseUrl/api/sync/status", token).get().build()
         val body =
-          httpClient.newCall(req).execute().use { resp ->
+          syncClient.newCall(req).execute().use { resp ->
+            if (resp.code == 401 || resp.code == 403) {
+              error("Invalid Sync Token (HTTP ${resp.code})")
+            }
             if (!resp.isSuccessful) error("HTTP ${resp.code}")
             resp.body.string()
           }
@@ -189,6 +205,8 @@ class PcBookmarkSyncRepository(
         val stashMsg =
           if (status.stash.reachable) "Stash OK (${status.stash.markerCount} markers)" else "Stash offline"
         "$vaultMsg • $stashMsg"
+      }.recoverCatching { err ->
+        throw friendlyNetworkError(baseUrl, err)
       }
     }
 
@@ -197,8 +215,8 @@ class PcBookmarkSyncRepository(
     token: String = prefs.syncToken.get(),
   ): Result<PcSyncResult> =
     withContext(Dispatchers.IO) {
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       runCatching {
-        val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
         require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
         VaultCrypto.ensureInitialized(context)
 
@@ -277,7 +295,10 @@ class PcBookmarkSyncRepository(
             .build()
 
         val mergeBody =
-          httpClient.newCall(mergeReq).execute().use { resp ->
+          syncClient.newCall(mergeReq).execute().use { resp ->
+            if (resp.code == 401 || resp.code == 403) {
+              error("Invalid Sync Token (HTTP ${resp.code})")
+            }
             if (!resp.isSuccessful) error("Sync HTTP ${resp.code}")
             resp.body.string()
           }
@@ -456,6 +477,8 @@ class PcBookmarkSyncRepository(
           thumbnailsUploaded = uploadedThumbs,
           stashReachable = bundle.stashReachable,
         )
+      }.recoverCatching { err ->
+        throw friendlyNetworkError(baseUrl, err)
       }
     }
 
@@ -560,7 +583,7 @@ class PcBookmarkSyncRepository(
     val req = buildRequestBuilder("$baseUrl/api/sync/thumbnail/$syncUuid", token).get().build()
     val bytes =
       runCatching {
-        httpClient.newCall(req).execute().use { resp ->
+        syncClient.newCall(req).execute().use { resp ->
           if (!resp.isSuccessful) return@use null
           resp.body.bytes()
         }
@@ -590,7 +613,7 @@ class PcBookmarkSyncRepository(
         .post(payload.toRequestBody(JSON_MEDIA_TYPE))
         .build()
     return runCatching {
-      httpClient.newCall(req).execute().use { it.isSuccessful }
+      syncClient.newCall(req).execute().use { it.isSuccessful }
     }.getOrDefault(false)
   }
 
@@ -654,6 +677,40 @@ class PcBookmarkSyncRepository(
     fun formatIsoUtc(epochMs: Long): String {
       val safeMs = epochMs.coerceAtLeast(0L)
       return DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(safeMs).atOffset(ZoneOffset.UTC))
+    }
+
+    internal fun isLoopbackUrl(baseUrl: String): Boolean {
+      val host = Uri.parse(baseUrl).host?.lowercase().orEmpty()
+      return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    }
+
+    internal fun friendlyNetworkError(
+      baseUrl: String,
+      err: Throwable,
+    ): IllegalStateException {
+      val detail =
+        when (err) {
+          is SocketTimeoutException ->
+            "Timed out connecting to $baseUrl (PC hub may be busy — retry shortly)"
+          is ConnectException,
+          is UnknownHostException,
+          ->
+            if (isLoopbackUrl(baseUrl)) {
+              "127.0.0.1 / localhost points to this phone, not your PC. Use AV Manager LAN IP"
+            } else {
+              "Could not reach $baseUrl — ensure AV Manager is running on PC & on same LAN"
+            }
+          else -> {
+            val raw = err.message?.trim().orEmpty()
+            when {
+              raw.contains("401") || raw.contains("403") ->
+                "Invalid Sync Token — copy the token from AV Manager Settings"
+              raw.isNotEmpty() -> raw
+              else -> err::class.java.simpleName
+            }
+          }
+        }
+      return IllegalStateException(detail, err)
     }
   }
 }

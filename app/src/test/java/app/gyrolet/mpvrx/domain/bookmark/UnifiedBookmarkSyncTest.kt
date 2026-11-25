@@ -12,6 +12,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -115,5 +117,29 @@ class UnifiedBookmarkSyncTest {
     assertTrue(ms > 0L)
     assertNotNull(PcBookmarkSyncRepository.formatIsoUtc(ms))
     assertEquals(0L, PcBookmarkSyncRepository.parseIsoMillis("invalid"))
+  }
+
+  @Test
+  fun syncDiagnosticsExplainLoopbackAndTimeouts() {
+    val loopbackErr =
+      PcBookmarkSyncRepository.friendlyNetworkError(
+        "http://127.0.0.1:8000",
+        ConnectException("Failed to connect"),
+      )
+    assertTrue(loopbackErr.message.orEmpty().contains("phone", ignoreCase = true))
+
+    val lanErr =
+      PcBookmarkSyncRepository.friendlyNetworkError(
+        "http://192.168.0.100:8000",
+        ConnectException("Connection refused"),
+      )
+    assertTrue(lanErr.message.orEmpty().contains("192.168.0.100:8000"))
+
+    val timeoutErr =
+      PcBookmarkSyncRepository.friendlyNetworkError(
+        "http://192.168.0.100:8000",
+        SocketTimeoutException("timeout"),
+      )
+    assertTrue(timeoutErr.message.orEmpty().contains("Timed out", ignoreCase = true))
   }
 }

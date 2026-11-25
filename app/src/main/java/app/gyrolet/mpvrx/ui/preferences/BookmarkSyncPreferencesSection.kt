@@ -165,6 +165,13 @@ internal fun BookmarkSyncConfigDialog(
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
         )
+        if (urlInput.contains("127.0.0.1") || urlInput.contains("localhost", ignoreCase = true)) {
+          Text(
+            text = stringResource(R.string.bookmark_sync_loopback_warning),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+          )
+        }
         OutlinedTextField(
           value = tokenInput,
           onValueChange = { tokenInput = it },
