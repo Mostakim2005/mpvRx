@@ -1,3 +1,10 @@
+## 3.3.2 — AV Manager Sync Timeouts, Loopback Guard & Connection Diagnostics
+
+- **Dedicated Sync HTTP Timeouts:** Added a dedicated `OkHttpClient` configuration (`15s` connect, `90s` read, `60s` write, `120s` call) in `PcBookmarkSyncRepository` across connection checks, `/api/sync/merge`, and thumbnail transfers so warm/cold Cryptomator and Stash syncs finish reliably.
+- **Phone Loopback URL Warning:** Added an inline warning inside `BookmarkSyncPreferencesSection` (`Media Servers -> AV Manager & Stash Bookmark Sync`) whenever `127.0.0.1` or `localhost` is entered on Android, reminding to use the PC's LAN IP (`http://<PC-LAN-IP>:8000`).
+- **Actionable Sync Error Diagnostics:** Added clear user-facing diagnostics (`friendlyNetworkError` / `isLoopbackUrl`) distinguishing phone loopback mistakes, LAN unreachable errors, socket timeouts, and invalid `X-Sync-Token` (`HTTP 401`/`403`) responses, backed by pure-JVM unit tests in `UnifiedBookmarkSyncTest`.
+- **Release tag:** `v3.3.2`.
+
 ## 3.3.1 — Bookmark LAN Sync, Oshash Matching & Fork Retargeting
 
 - **Unified Bookmark Matching & Preset v2:** Added OpenSubtitles 64-bit `oshash` content matching and updated Preset `.zip` v2 archives to round-trip multi-tags, durations (`endPositionMs`), and thumbnails even when videos are unlinked or stored on another device.
