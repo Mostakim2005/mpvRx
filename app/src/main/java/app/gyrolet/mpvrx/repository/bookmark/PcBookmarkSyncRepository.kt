@@ -33,6 +33,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.net.ConnectException
 import java.net.SocketTimeoutException
+import java.net.URI
 import java.net.UnknownHostException
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -680,8 +681,10 @@ class PcBookmarkSyncRepository(
     }
 
     internal fun isLoopbackUrl(baseUrl: String): Boolean {
-      val host = Uri.parse(baseUrl).host?.lowercase().orEmpty()
-      return host == "127.0.0.1" || host == "localhost" || host == "::1"
+      val host =
+        runCatching { URI(baseUrl).host?.lowercase().orEmpty() }
+          .getOrDefault("")
+      return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
     }
 
     internal fun friendlyNetworkError(
