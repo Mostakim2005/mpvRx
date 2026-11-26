@@ -53,6 +53,7 @@ internal object AudiobookPlayback {
     _saveFailed.value = true
   }
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + handler)
+  private val seekDispatcher = Dispatchers.IO.limitedParallelism(1)
   private data class SaveWork(val progress: AudiobookProgress? = null, val completion: CompletableDeferred<Unit>? = null)
   private val saves = Channel<SaveWork>(Channel.UNLIMITED)
   private data class RemoteProgress(
@@ -228,37 +229,78 @@ internal object AudiobookPlayback {
       sleepStoppedTrack = null
       val seconds = _book.value?.book?.takeIf { it.id == progress.item.bookId }?.rewindSeconds ?: 0
       if (pausedAt > 0 && pausedTrack == progress.item.trackId && SystemClock.elapsedRealtime() - pausedAt >= 5000 && seconds > 0) {
-        seek((progress.positionMs - seconds * 1000L).coerceAtLeast(0))
+        seekImmediate((progress.positionMs - seconds * 1000L).coerceAtLeast(0))
       }
       pausedAt = 0
     }
   }
 
-  fun seek(positionMs: Long) {
+  private fun seekImmediate(positionMs: Long) {
     pausedAt = 0
     PlaybackSession.command("seek", (positionMs.coerceAtLeast(0) / 1000.0).toString(), "absolute+exact")
   }
 
+  fun seek(positionMs: Long) {
+    pausedAt = 0
+    val expectedGeneration = PlaybackSession.state.value.generation
+    val targetSeconds = (positionMs.coerceAtLeast(0) / 1000.0).toString()
+    scope.launch(seekDispatcher) {
+      PlaybackSession.commandForGeneration(expectedGeneration, "seek", targetSeconds, "absolute+exact")
+    }
+  }
+
   fun seekBy(seconds: Int) {
-    val progress = PlaybackSession.audiobookProgress() ?: return
-    val book = _book.value?.takeIf { it.book.id == progress.item.bookId } ?: return
-    seekInBook(book.positionInBook(progress.item.trackId, progress.positionMs) + seconds * 1000L)
+    val expectedGeneration = PlaybackSession.state.value.generation
+    scope.launch(seekDispatcher) {
+      val progress = PlaybackSession.audiobookProgress() ?: return@launch
+      val book = _book.value?.takeIf { it.book.id == progress.item.bookId } ?: return@launch
+      seekInBookResolved(
+        book = book,
+        expectedBookId = progress.item.bookId,
+        positionMs = book.positionInBook(progress.item.trackId, progress.positionMs) + seconds * 1000L,
+        expectedGeneration = expectedGeneration,
+        resumePlayback = false,
+      )
+    }
   }
 
   fun seekInBook(positionMs: Long, resumePlayback: Boolean = false) {
     val state = PlaybackSession.state.value
     val info = state.currentItem?.audiobook ?: return
     val book = _book.value?.takeIf { it.book.id == info.bookId } ?: return
+    val expectedGeneration = state.generation
+    scope.launch(seekDispatcher) {
+      seekInBookResolved(
+        book = book,
+        expectedBookId = info.bookId,
+        positionMs = positionMs,
+        expectedGeneration = expectedGeneration,
+        resumePlayback = resumePlayback,
+      )
+    }
+  }
+
+  private fun seekInBookResolved(
+    book: Audiobook,
+    expectedBookId: Long,
+    positionMs: Long,
+    expectedGeneration: Long,
+    resumePlayback: Boolean,
+  ) {
+    val current = PlaybackSession.state.value
+    val info = current.currentItem?.audiobook ?: return
+    if (current.generation != expectedGeneration || info.bookId != expectedBookId) return
     val (track, localPosition) = book.resolvePosition(positionMs) ?: return
     pausedAt = 0
     sleepStoppedTrack = null
     if (track.id == info.trackId) {
-      seek(localPosition)
-      if (resumePlayback) PlaybackSession.setPropertyBoolean("pause", false)
-    } else {
-      scope.launch(Dispatchers.IO) {
-        PlaybackSession.seekAudiobookTrack(info.bookId, track.id, localPosition, state.generation, resumePlayback)
+      val targetSeconds = (localPosition.coerceAtLeast(0) / 1000.0).toString()
+      if (!PlaybackSession.commandForGeneration(expectedGeneration, "seek", targetSeconds, "absolute+exact")) return
+      if (resumePlayback && PlaybackSession.isCurrentGeneration(expectedGeneration)) {
+        PlaybackSession.setPropertyBoolean("pause", false)
       }
+    } else {
+      PlaybackSession.seekAudiobookTrack(info.bookId, track.id, localPosition, expectedGeneration, resumePlayback)
     }
   }
 

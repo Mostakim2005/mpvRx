@@ -180,6 +180,7 @@ sequenceDiagram
   * The default is a *stale-but-safe* value, not an error: the observed-property flows emit the real value as soon as the event pump resumes, so the next recomposition corrects the UI.
   * Registering an observed property never waits at all — a zero-timeout `tryLock` failure is deferred to the pump, which registers it off the UI thread.
   * Surface attachment flags are `@Volatile`, so the UI thread can check them without taking the native lock.
+  * Relative double-tap/remote seeks (`PlayerViewModel.seekBy`) and UI-initiated audiobook seeks (`AudiobookPlayback.seek` / `seekBy` / `seekInBook`) run off the Main thread on single-threaded sequential IO dispatchers (`RelativeSeekBatcher` coalesces rapid bursts that arrive while libmpv is mid-seek and skips redundant EOF `100%` exact seeks), keeping native `commandForGeneration` locks off Compose gesture handlers.
 * **Data Flow Diagram:**
 ```mermaid
 sequenceDiagram
@@ -196,8 +197,11 @@ sequenceDiagram
     PS-->>UI: observed flow emits the real value
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `UI_NATIVE_READ_TIMEOUT_MS`, `tryLock`, `registerObserved`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `attachedSurfaceOwner`, `attachedSurfaceWidth` (`@Volatile`)
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` :: `UI_NATIVE_READ_TIMEOUT_MS`, `withReadyCoreRead`, `registerObservedLocked`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` :: `attachedSurfaceOwner`, `attachedSurfaceWidth` (`@Volatile`)
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/RelativeSeekBatcher.kt` :: `RelativeSeekBatcher`, `enqueue`, `takeNext`, `cancelPending`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` :: `seekBy`, `executeRelativeSeekBatch`, `cancelPendingRelativeSeek`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/AudiobookPlayback.kt` :: `seek`, `seekBy`, `seekInBook`, `seekInBookResolved`, `seekImmediate`
 
 ---
 

@@ -148,8 +148,13 @@ flowchart LR
   * **Option A (Rejected):** Keep `nativeLock.lock()` for all reads. Correct values, but the UI thread blocks behind `mpv_get_property` for the whole handoff, which is the ANR itself.
   * **Option B (Chosen):** One helper for every property read. On the main looper it attempts `tryLock(150 ms)` and returns the caller's default on timeout; off the main thread it keeps a blocking lock. Observed-property registration never waits (zero-timeout attempt, deferred to the pump), and Surface/attachment flags are `@Volatile` so composition can read them without the lock.
 * **Trade-off accepted:** A timed-out read briefly renders a stale/default value. That is safe because the observed flows re-emit once the lock is free, and it is strictly better than a frozen UI. Do not "fix" a default by re-introducing an unbounded UI-thread lock.
+* **Extension (Tap & Audiobook Seeking Off Main Thread):** Even with `150 ms` read timeouts, executing `PlaybackSession.command("seek", ...)` directly on the Main thread inside `GestureHandler` still blocks unboundedly on `nativeLock.withLock` during Surface handoffs or slow network demuxing, and repeating `100` `absolute-percent+exact` past EOF stalls rapid taps. Tap seeks (`PlayerViewModel.seekBy`) now coalesce through `RelativeSeekBatcher` onto a single-thread IO dispatcher via `commandForGeneration`, and UI audiobook seeks run on a sequential `AudiobookPlayback` IO dispatcher (while internal `onPauseRequested` keeps synchronous `seekImmediate` inside its existing `nativeLock` scope).
+* **Verified By:** `app/src/test/java/app/gyrolet/mpvrx/ui/player/RelativeSeekBatcherTest.kt :: rapidTapsPastSixtySecondsCoalesceSingleFlightPerWorker`, `RelativeSeekBatcherTest.kt :: oppositeTapsCancelingToZeroRetireWithoutExtraSeek`, `RelativeSeekBatcherTest.kt :: generationChangeAndCancelPendingDiscardStaleOffsetsWithoutBreakingFutureWorkers`, `RelativeSeekBatcherTest.kt :: accumulatesLargeOffsetsWithSaturationInsteadOfIntOverflow`
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` -> `UI_NATIVE_READ_TIMEOUT_MS`, `tryLock`, `registerObserved`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlaybackSession.kt` :: `UI_NATIVE_READ_TIMEOUT_MS`, `withReadyCoreRead`, `registerObservedLocked`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/RelativeSeekBatcher.kt` :: `RelativeSeekBatcher`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerViewModel.kt` :: `seekBy`, `executeRelativeSeekBatch`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/AudiobookPlayback.kt` :: `seek`, `seekBy`, `seekInBook`, `seekImmediate`
 
 ---
 

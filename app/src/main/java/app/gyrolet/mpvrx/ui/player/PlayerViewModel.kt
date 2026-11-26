@@ -618,6 +618,8 @@ class PlayerViewModel(
   private val metadataCache = object : android.util.LruCache<String, Pair<String, String>>(100) {}
   private val playbackStateDispatcher = Dispatchers.Default.limitedParallelism(1)
   private val renderPrepDispatcher = Dispatchers.Default.limitedParallelism(1)
+  private val relativeSeekDispatcher = Dispatchers.IO.limitedParallelism(1)
+  private val relativeSeekBatcher = RelativeSeekBatcher()
   private var autoCropJob: Job? = null
   private var autoCropReadinessJob: Job? = null
   private var autoCropAnalyzedGeneration = -1L
@@ -4143,6 +4145,7 @@ fun restartFromBeginning() {
       tvSeekFeedbackJob = null
     }
     _seekState.value = SeekState()
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
     isGestureSeeking = false
     lastScrubTarget = Double.NaN
@@ -6316,6 +6319,7 @@ fun restartFromBeginning() {
    * Cancels UI-originated native work before PlayerActivity releases its Surface.
    */
   fun prepareForPlayerTeardown() {
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
 
     synchronized(ambientScheduleLock) {
@@ -6339,7 +6343,12 @@ fun restartFromBeginning() {
   }
 
   // ==================== Seeking ====================
-  // Mirrors mpv-android: every seek goes straight to mpv, which coalesces queued seeks itself.
+  // Relative tap seeks execute on a single sequential IO worker off the Main thread so rapid
+  // multi-tap bursts never block on nativeLock while still firing immediately on tap one.
+
+  private fun cancelPendingRelativeSeek() {
+    relativeSeekBatcher.cancelPending()
+  }
 
   fun seekBy(offset: Int) {
     cancelFrameSeek()
@@ -6348,20 +6357,51 @@ fun restartFromBeginning() {
       AudiobookPlayback.seekBy(offset)
       return
     }
+    val generation = PlaybackSession.state.value.generation
+    val workerId = relativeSeekBatcher.enqueue(generation, offset) ?: return
+    viewModelScope.launch(relativeSeekDispatcher) {
+      try {
+        while (isActive) {
+          val batch = relativeSeekBatcher.takeNext(workerId) ?: break
+          if (!relativeSeekBatcher.isTokenValid(batch.cancellationToken)) continue
+          if (!PlaybackSession.isCurrentGeneration(batch.generation)) continue
+          executeRelativeSeekBatch(batch)
+        }
+      } finally {
+        relativeSeekBatcher.finishWorker(workerId)
+      }
+    }
+  }
+
+  private fun executeRelativeSeekBatch(batch: RelativeSeekBatcher.Batch) {
+    if (PlaybackSession.state.value.currentItem?.audiobook != null) {
+      AudiobookPlayback.seekBy(batch.offsetSeconds)
+      return
+    }
     val durationSeconds = PlaybackSession.getPropertyDouble("duration") ?: _preciseDuration.value.toDouble()
     val currentPos = PlaybackSession.getPropertyDouble("time-pos") ?: _precisePosition.value.toDouble()
-    val reachesEnd = durationSeconds > 0.0 && currentPos + offset >= durationSeconds
-    if (reachesEnd) {
-      // Keep the existing explicit EOF transition when skipping past the final frame.
-      PlaybackSession.command("seek", "100", "absolute-percent+exact")
-    } else {
-      PlaybackSession.command("seek", offset.toString(), "relative")
+    if (!relativeSeekBatcher.isTokenValid(batch.cancellationToken)) return
+    val alreadyAtEof = batch.offsetSeconds > 0 && PlaybackSession.getPropertyBoolean("eof-reached") == true
+    if (alreadyAtEof) return
+    val reachesEnd = durationSeconds > 0.0 && currentPos + batch.offsetSeconds >= durationSeconds
+    val issued =
+      if (reachesEnd) {
+        // Keep the existing explicit EOF transition when skipping past the final frame.
+        PlaybackSession.commandForGeneration(batch.generation, "seek", "100", "absolute-percent+exact")
+      } else {
+        PlaybackSession.commandForGeneration(batch.generation, "seek", batch.offsetSeconds.toString(), "relative")
+      }
+    if (!issued) return
+    val synchronizedPosition =
+      if (reachesEnd) durationSeconds else (currentPos + batch.offsetSeconds).coerceAtLeast(0.0)
+    val isPausedNow = PlaybackSession.getPropertyBoolean("pause") ?: (paused ?: false)
+    viewModelScope.launch(Dispatchers.Main) {
+      syncplayManager.updatePlayerState(
+        synchronizedPosition,
+        isPausedNow,
+        doSeek = true,
+      )
     }
-    syncplayManager.updatePlayerState(
-      if (reachesEnd) durationSeconds else (currentPos + offset).coerceAtLeast(0.0),
-      paused ?: false,
-      doSeek = true,
-    )
   }
 
   /** TV scrubbing never consults the phone's touch/double-tap mappings or saved duration. */
@@ -6394,6 +6434,7 @@ fun restartFromBeginning() {
     if (!position.isFinite()) return
     val target = clampSeekTarget(position.toDouble())
     if (abs(target - lastScrubTarget) < SCRUB_SEEK_STEP_SECONDS) return
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
     lastScrubTarget = target
     // Unlike setting time-pos, `seek` lets mpv show a frame from each spot before taking the next one.
@@ -6406,6 +6447,7 @@ fun restartFromBeginning() {
     val target = clampSeekTarget(position.toDouble())
     // Re-seeking within one step of the live seek would replay the decode and freeze the picture.
     if (lastScrubTarget.isNaN() || abs(target - lastScrubTarget) >= SCRUB_SEEK_STEP_SECONDS) {
+      cancelPendingRelativeSeek()
       cancelFrameSeek()
       PlaybackSession.command("seek", target.toString(), "absolute")
     }
@@ -6421,6 +6463,7 @@ fun restartFromBeginning() {
     isGestureSeeking = true
     _precisePosition.value = target.toFloat()
     if (abs(target - lastScrubTarget) < SCRUB_SEEK_STEP_SECONDS) return
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
     lastScrubTarget = target
     PlaybackSession.command("seek", target.toString(), "absolute")
@@ -6439,6 +6482,7 @@ fun restartFromBeginning() {
     position: Int,
     fast: Boolean = false,
   ) {
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
     val target = clampSeekTarget(position.toDouble())
     PlaybackSession.command("seek", target.toString(), if (fast) "absolute+keyframes" else "absolute+exact")
@@ -7563,11 +7607,13 @@ fun restartFromBeginning() {
       }
 
     if (!finished) {
+      cancelPendingRelativeSeek()
       cancelFrameSeek()
       PlaybackSession.command("seek", targetPosition.toString(), "absolute+keyframes")
       return
     }
 
+    cancelPendingRelativeSeek()
     cancelFrameSeek()
     frameSeekJob =
       viewModelScope.launch(Dispatchers.IO) {
