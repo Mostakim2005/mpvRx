@@ -26,7 +26,7 @@ internal fun resolveBookmarkSyncTarget(
   bookmarks: List<PlaybackBookmarkEntity>,
   positionMsOf: (PlaybackBookmarkEntity) -> Long,
   currentPositionMs: Long,
-  currentMediaId: Long?,
+  currentMediaId: String?,
   isGlobalScope: Boolean,
 ): BookmarkSyncTarget {
   if (bookmarks.isEmpty()) {

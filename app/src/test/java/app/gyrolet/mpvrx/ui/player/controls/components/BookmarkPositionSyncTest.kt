@@ -20,7 +20,7 @@ class BookmarkPositionSyncTest {
   private fun bookmark(
     id: Long,
     positionMs: Long,
-    mediaId: Long = 10L,
+    mediaId: String = "video-10",
   ) = PlaybackBookmarkEntity(
     id = id,
     mediaId = mediaId,
@@ -43,7 +43,7 @@ class BookmarkPositionSyncTest {
         bookmarks = bookmarks,
         positionMsOf = { it.positionMs },
         currentPositionMs = 45_000L,
-        currentMediaId = 10L,
+        currentMediaId = "video-10",
         isGlobalScope = false,
       )
     assertEquals(2L, between.activeBookmarkId)
@@ -55,7 +55,7 @@ class BookmarkPositionSyncTest {
         bookmarks = bookmarks,
         positionMsOf = { it.positionMs },
         currentPositionMs = 60_000L,
-        currentMediaId = 10L,
+        currentMediaId = "video-10",
         isGlobalScope = false,
       )
     assertEquals(3L, exact.activeBookmarkId)
@@ -75,7 +75,7 @@ class BookmarkPositionSyncTest {
         bookmarks = bookmarks,
         positionMsOf = { it.positionMs },
         currentPositionMs = 4_000L,
-        currentMediaId = 10L,
+        currentMediaId = "video-10",
         isGlobalScope = false,
       )
     assertNull(target.activeBookmarkId)
@@ -87,10 +87,10 @@ class BookmarkPositionSyncTest {
   fun handlesUnsortedAndGlobalScopeFilteringByCurrentMediaId() {
     val bookmarks =
       listOf(
-        bookmark(id = 101L, positionMs = 40_000L, mediaId = 99L),
-        bookmark(id = 102L, positionMs = 55_000L, mediaId = 10L),
-        bookmark(id = 103L, positionMs = 20_000L, mediaId = 10L),
-        bookmark(id = 104L, positionMs = 44_000L, mediaId = 99L),
+        bookmark(id = 101L, positionMs = 40_000L, mediaId = "video-99"),
+        bookmark(id = 102L, positionMs = 55_000L, mediaId = "video-10"),
+        bookmark(id = 103L, positionMs = 20_000L, mediaId = "video-10"),
+        bookmark(id = 104L, positionMs = 44_000L, mediaId = "video-99"),
       )
 
     val target =
@@ -98,7 +98,7 @@ class BookmarkPositionSyncTest {
         bookmarks = bookmarks,
         positionMsOf = { it.positionMs },
         currentPositionMs = 45_000L,
-        currentMediaId = 10L,
+        currentMediaId = "video-10",
         isGlobalScope = true,
       )
     assertEquals(103L, target.activeBookmarkId)
@@ -110,15 +110,15 @@ class BookmarkPositionSyncTest {
   fun fallsBackToActiveChapterWhenCurrentMediaHasNoMatchingBookmarks() {
     val globalOtherMedia =
       listOf(
-        bookmark(id = 201L, positionMs = 15_000L, mediaId = 99L),
-        bookmark(id = 202L, positionMs = 30_000L, mediaId = 99L),
+        bookmark(id = 201L, positionMs = 15_000L, mediaId = "video-99"),
+        bookmark(id = 202L, positionMs = 30_000L, mediaId = "video-99"),
       )
     val target =
       resolveBookmarkSyncTarget(
         bookmarks = globalOtherMedia,
         positionMsOf = { it.positionMs },
         currentPositionMs = 20_000L,
-        currentMediaId = 10L,
+        currentMediaId = "video-10",
         isGlobalScope = true,
       )
     assertNull(target.activeBookmarkId)
