@@ -1,3 +1,11 @@
+## 3.4.0 — Chapter Sync, 1-JAVID Consolidation, Progress Bars & JAVID Set Browser
+
+- **Chapter-Style Sync to Video:** Added a **Sync to video** control in the portrait bookmark drawer, landscape sidebar, and Chapters sheet to jump the bookmark/chapter list straight to the active scene matching the current playback position.
+- **Canonical 1-JAVID Consolidation & Timeline Density Merge:** Enforced strict single-group consolidation per canonical `JAVID` across PC syncs and local matches, plus 1-tap **Merge nearby timestamps (10s)** in Link / JAVID management using rolling-window clustering (`earliest` / `average` / `weighted_average`) while keeping alternate thumbnails available.
+- **Live Determinate Sync Progress Bars:** Added real-time `LinearProgressIndicator` progress banners (`SyncProgressBanner`) across Media Servers Settings and Bookmark Gallery showing sync stages and `X / N` thumbnail transfers.
+- **Browse Independent JAVID Sets & Single-URL LWW Parity:** Added **Browse JAVID sets** (`JavidCatalogDialog`) in both the Bookmark Gallery toolbar and Sync Settings to search every synced `JAVID` set, open its single `sourceUrl`, selectively pull a single `JAVID` set from PC (`/api/sync/bundle?code=...`), or attach unformatted downloaded videos directly, while protecting `sourceUrl` updates with Last-Write-Wins timestamps.
+- **Release tag:** `v3.4.0`.
+
 ## 3.3.3 — Wi-Fi/USB Sync Discovery, JVID Auto-Match, JSON Import & Thumbnail Chooser
 
 - **Wi-Fi Auto-Discovery & USB Cable Sync:** Cleared the stale `192.168.1.100` Hub default and added 1-tap `Find PC (Wi-Fi)` (`/api/sync/ping` LAN scan) plus `Use USB cable (ADB reverse)` (`127.0.0.1:8000` with ADB guidance) in `Media Servers -> AV Manager & Stash Bookmark Sync`.
