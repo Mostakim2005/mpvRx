@@ -31,10 +31,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.BookmarkSyncPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
+import app.gyrolet.mpvrx.ui.bookmarks.JavidCatalogDialog
+import app.gyrolet.mpvrx.ui.bookmarks.SyncProgressBanner
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import kotlinx.coroutines.launch
@@ -53,81 +56,90 @@ internal fun BookmarkSyncServerRow(
   val hubUrl by prefs.hubUrl.collectAsState()
   val lastIso by prefs.lastSyncIso.collectAsState()
   val lastSummary by prefs.lastSyncSummary.collectAsState()
+  val syncProgress by syncRepo.syncProgress.collectAsStateWithLifecycle()
   var syncing by remember { mutableStateOf(false) }
 
-  Row(
-    modifier =
-      modifier
-        .fillMaxWidth()
-        .clickable(onClick = onOpenConfig)
-        .padding(horizontal = 20.dp, vertical = 14.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(16.dp),
-  ) {
-    Icon(
-      imageVector = Icons.RoundedFilled.Bookmarks,
-      contentDescription = null,
-      tint = MaterialTheme.colorScheme.primary,
-      modifier = Modifier.size(32.dp),
-    )
-
-    Column(
-      modifier = Modifier.weight(1f),
-      verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-      Text(
-        text = stringResource(R.string.bookmark_sync_pref_section),
-        style = MaterialTheme.typography.bodyLarge,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-        text =
-          if (lastIso.isNotBlank() && lastSummary.isNotBlank()) {
-            stringResource(R.string.bookmark_sync_last_format, "$lastSummary • $hubUrl")
-          } else {
-            stringResource(R.string.bookmark_sync_pref_summary)
-          },
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-      )
-    }
-
-    OutlinedButton(
-      enabled = !syncing,
-      onClick = {
-        syncing = true
-        scope.launch {
-          val result = syncRepo.syncWithPcHub()
-          syncing = false
-          result
-            .onSuccess { res ->
-              val msg =
-                context.getString(
-                  R.string.bookmark_gallery_sync_done,
-                  res.inserted,
-                  res.updated,
-                  res.thumbnailsDownloaded,
-                )
-              Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }.onFailure { err ->
-              val msg =
-                context.getString(
-                  R.string.bookmark_gallery_sync_failed,
-                  err.message ?: "Error",
-                )
-              Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }
-        }
-      },
+  Column(modifier = modifier.fillMaxWidth()) {
+    Row(
+      modifier =
+        Modifier
+          .fillMaxWidth()
+          .clickable(onClick = onOpenConfig)
+          .padding(horizontal = 20.dp, vertical = 14.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       Icon(
-        imageVector = Icons.RoundedFilled.Refresh,
-        contentDescription = stringResource(R.string.bookmark_sync_now_button),
-        modifier = Modifier.size(18.dp),
+        imageVector = Icons.RoundedFilled.Bookmarks,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(32.dp),
+      )
+
+      Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+      ) {
+        Text(
+          text = stringResource(R.string.bookmark_sync_pref_section),
+          style = MaterialTheme.typography.bodyLarge,
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          text =
+            if (lastIso.isNotBlank() && lastSummary.isNotBlank()) {
+              stringResource(R.string.bookmark_sync_last_format, "$lastSummary • $hubUrl")
+            } else {
+              stringResource(R.string.bookmark_sync_pref_summary)
+            },
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+
+      OutlinedButton(
+        enabled = !syncing && !syncProgress.active,
+        onClick = {
+          syncing = true
+          scope.launch {
+            val result = syncRepo.syncWithPcHub()
+            syncing = false
+            result
+              .onSuccess { res ->
+                val msg =
+                  context.getString(
+                    R.string.bookmark_gallery_sync_done,
+                    res.inserted,
+                    res.updated,
+                    res.thumbnailsDownloaded,
+                  )
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+              }.onFailure { err ->
+                val msg =
+                  context.getString(
+                    R.string.bookmark_gallery_sync_failed,
+                    err.message ?: "Error",
+                  )
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+              }
+          }
+        },
+      ) {
+        Icon(
+          imageVector = Icons.RoundedFilled.Refresh,
+          contentDescription = stringResource(R.string.bookmark_sync_now_button),
+          modifier = Modifier.size(18.dp),
+        )
+      }
+    }
+    if (syncProgress.active) {
+      SyncProgressBanner(
+        progress = syncProgress,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
       )
     }
   }
@@ -150,6 +162,14 @@ internal fun BookmarkSyncConfigDialog(
   var statusText by remember { mutableStateOf<String?>(null) }
   var isError by remember { mutableStateOf(false) }
   var busy by remember { mutableStateOf(false) }
+  var showJavidCatalog by remember { mutableStateOf(false) }
+  val syncProgress by syncRepo.syncProgress.collectAsStateWithLifecycle()
+
+  JavidCatalogDialog(
+    isOpen = showJavidCatalog,
+    syncRepository = syncRepo,
+    onDismiss = { showJavidCatalog = false },
+  )
 
   AlertDialog(
     onDismissRequest = { if (!busy) onDismiss() },
@@ -326,6 +346,23 @@ internal fun BookmarkSyncConfigDialog(
           ) {
             Text(stringResource(R.string.bookmark_sync_now_button), maxLines = 1)
           }
+        }
+        SyncProgressBanner(progress = syncProgress)
+        OutlinedButton(
+          enabled = !busy,
+          modifier = Modifier.fillMaxWidth(),
+          onClick = { showJavidCatalog = true },
+        ) {
+          Icon(
+            imageVector = Icons.RoundedFilled.VideoLibrary,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+          )
+          Text(
+            text = "  ${stringResource(R.string.bookmark_javid_catalog_button)}",
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
         }
         statusText?.let { msg ->
           Text(

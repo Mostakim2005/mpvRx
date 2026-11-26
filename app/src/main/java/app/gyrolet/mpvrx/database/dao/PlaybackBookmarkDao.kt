@@ -66,6 +66,16 @@ interface PlaybackBookmarkDao {
   @Query("SELECT * FROM bookmark_groups")
   suspend fun getAllGroups(): List<BookmarkGroupEntity>
 
+  @Query("SELECT * FROM bookmark_groups ORDER BY updatedAt DESC")
+  fun observeAllGroups(): Flow<List<BookmarkGroupEntity>>
+
+  @Query("UPDATE bookmark_groups SET sourceUrl = :sourceUrl, updatedAt = :updatedAt WHERE groupKey = :groupKey")
+  suspend fun updateGroupSourceUrl(
+    groupKey: String,
+    sourceUrl: String?,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
   @Query("DELETE FROM bookmark_media_links WHERE mediaId = :mediaId")
   suspend fun deleteMediaLink(mediaId: String)
 

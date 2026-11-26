@@ -339,4 +339,36 @@ class UnifiedBookmarkSyncTest {
       )
     assertTrue(wAvg[0].targetPositionMs in 100_000L..108_000L)
   }
+
+  @Test
+  fun syncProgressStateAndJavidCatalogEntryHoldSingleUrlAndCounts() {
+    val progress =
+      app.gyrolet.mpvrx.repository.bookmark.SyncProgressState(
+        active = true,
+        stageLabel = "Downloading thumbnails…",
+        detail = "4 / 10",
+        current = 4,
+        total = 10,
+        fraction = 0.72f,
+      )
+    assertTrue(progress.active)
+    assertEquals(4, progress.current)
+    assertEquals(10, progress.total)
+
+    val entry =
+      app.gyrolet.mpvrx.repository.bookmark.JavidCatalogEntry(
+        groupKey = "MIMK-232",
+        javidCode = "MIMK-232",
+        sourceLabel = "mimk-232.mp4",
+        sourceUrl = "https://missav.ws/en/mimk-232-uncensored-leak",
+        bookmarkCount = 6,
+        playableUri = null,
+        mediaTitle = null,
+        tags = listOf("kiss", "cowgirl"),
+        updatedAt = 1_700_000_000_000L,
+      )
+    assertEquals("MIMK-232", entry.javidCode)
+    assertEquals("https://missav.ws/en/mimk-232-uncensored-leak", entry.sourceUrl)
+    assertNull(entry.playableUri)
+  }
 }

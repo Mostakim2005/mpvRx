@@ -179,6 +179,8 @@ fun BookmarkGalleryContent(
   }
   var onlyUnlinked by rememberSaveable { mutableStateOf(false) }
   var isSyncing by remember { mutableStateOf(false) }
+  var showJavidCatalog by remember { mutableStateOf(false) }
+  var selectedCatalogGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
   var pendingLinkGroupKey by remember { mutableStateOf<String?>(null) }
   var pendingLinkPresetCode by remember { mutableStateOf<String?>(null) }
   var pendingLinkSourceUrl by remember { mutableStateOf<String?>(null) }
@@ -186,6 +188,9 @@ fun BookmarkGalleryContent(
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
+
+  val syncProgress by syncRepository.syncProgress.collectAsStateWithLifecycle()
+  val catalogEntries by syncRepository.observeJavidCatalog().collectAsStateWithLifecycle(initialValue = emptyList())
 
   LaunchedEffect(secureOnly) {
     if (!secureOnly) {
@@ -243,13 +248,23 @@ fun BookmarkGalleryContent(
   val hasUnlinkedItems = remember(items, secureOnly) { !secureOnly && items.any { it.playableUri.isNullOrBlank() } }
 
   val filtered =
-    remember(items, selectedTags, onlyCurrentVideo, onlyUnlinked, currentMediaId, secureOnly) {
+    remember(
+      items,
+      selectedTags,
+      onlyCurrentVideo,
+      onlyUnlinked,
+      selectedCatalogGroupKey,
+      currentMediaId,
+      secureOnly,
+    ) {
       items
         .filterByTags(selectedTags.toSet())
         .filter { item ->
+          val matchesCatalog =
+            selectedCatalogGroupKey == null || item.row.mediaId == selectedCatalogGroupKey
           val matchesVideo = !onlyCurrentVideo || currentMediaId == null || item.row.mediaId == currentMediaId
           val matchesUnlinked = !onlyUnlinked || (!secureOnly && item.playableUri.isNullOrBlank())
-          matchesVideo && matchesUnlinked
+          matchesCatalog && matchesVideo && matchesUnlinked
         }
     }
   val suggestions =
@@ -344,6 +359,11 @@ fun BookmarkGalleryContent(
           Spacer(Modifier.weight(1f))
           if (!secureOnly) {
             SmallIconAction(
+              icon = Icons.RoundedFilled.VideoLibrary,
+              contentDescription = stringResource(R.string.bookmark_javid_catalog_button),
+              onClick = { showJavidCatalog = true },
+            )
+            SmallIconAction(
               icon = Icons.RoundedFilled.AutoFixHigh,
               contentDescription = stringResource(R.string.bookmark_gallery_auto_match),
               onClick = {
@@ -417,6 +437,72 @@ fun BookmarkGalleryContent(
                 stringResource(R.string.bookmark_gallery_columns_auto)
               },
           )
+        }
+
+        if (!secureOnly && syncProgress.active) {
+          SyncProgressBanner(
+            progress = syncProgress,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+          )
+        }
+
+        val activeScopeGroupKey = selectedCatalogGroupKey ?: if (onlyCurrentVideo) currentMediaId else null
+        val activeScopeGroup =
+          if (!secureOnly && activeScopeGroupKey != null) {
+            catalogEntries.firstOrNull { it.groupKey == activeScopeGroupKey }
+          } else {
+            null
+          }
+        if (selectedCatalogGroupKey != null || activeScopeGroup?.sourceUrl != null) {
+          Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Text(
+                text =
+                  stringResource(
+                    R.string.bookmark_javid_clear_group_filter,
+                    activeScopeGroup?.javidCode ?: selectedCatalogGroupKey.orEmpty(),
+                  ),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+              )
+              val validGroupUrl =
+                activeScopeGroup?.sourceUrl?.takeIf {
+                  it.startsWith("http://", ignoreCase = true) ||
+                    it.startsWith("https://", ignoreCase = true)
+                }
+              if (validGroupUrl != null) {
+                TextButton(
+                  onClick = {
+                    runCatching {
+                      context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(validGroupUrl)))
+                    }
+                  },
+                ) {
+                  Icon(Icons.RoundedFilled.Link, contentDescription = null, modifier = Modifier.size(15.dp))
+                  Spacer(Modifier.width(4.dp))
+                  Text(stringResource(R.string.bookmark_gallery_open_url))
+                }
+              }
+              if (selectedCatalogGroupKey != null) {
+                SmallIconAction(
+                  icon = Icons.RoundedFilled.Close,
+                  contentDescription = null,
+                  onClick = { selectedCatalogGroupKey = null },
+                )
+              }
+            }
+          }
         }
 
         AppTextField(
@@ -580,6 +666,19 @@ fun BookmarkGalleryContent(
             Toast.makeText(context, err.message ?: "Merge failed", Toast.LENGTH_SHORT).show()
           }
         }
+      },
+    )
+  }
+
+  if (!secureOnly) {
+    JavidCatalogDialog(
+      isOpen = showJavidCatalog,
+      syncRepository = syncRepository,
+      onDismiss = { showJavidCatalog = false },
+      onSelectGroupForGallery = { entry ->
+        selectedCatalogGroupKey = entry.groupKey
+        onlyCurrentVideo = false
+        onlyUnlinked = false
       },
     )
   }

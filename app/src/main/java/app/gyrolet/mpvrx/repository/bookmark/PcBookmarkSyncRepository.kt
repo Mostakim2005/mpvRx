@@ -27,9 +27,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.net.URLEncoder
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -217,6 +224,27 @@ data class LinkedOrphanResult(
   val bookmarkCount: Int,
 )
 
+data class SyncProgressState(
+  val active: Boolean = false,
+  val stageLabel: String = "",
+  val detail: String = "",
+  val current: Int = 0,
+  val total: Int = 0,
+  val fraction: Float = 0f,
+)
+
+data class JavidCatalogEntry(
+  val groupKey: String,
+  val javidCode: String,
+  val sourceLabel: String,
+  val sourceUrl: String?,
+  val bookmarkCount: Int,
+  val playableUri: String?,
+  val mediaTitle: String?,
+  val tags: List<String>,
+  val updatedAt: Long,
+)
+
 /**
  * Coordinates two-way LAN bookmark sync with AV Manager (`vault.db`) <-> Stash (`localhost:9999`)
  * and orphan BookmarkGroup linking in [MpvRxDatabase].
@@ -235,6 +263,72 @@ class PcBookmarkSyncRepository(
   private val bookmarkDao get() = database.playbackBookmarkDao()
   private val tagDao get() = database.bookmarkTagDao()
   private val tombstoneDao get() = database.bookmarkSyncTombstoneDao()
+  private val _syncProgress = MutableStateFlow(SyncProgressState())
+  val syncProgress: StateFlow<SyncProgressState> = _syncProgress.asStateFlow()
+
+  private fun emitProgress(
+    active: Boolean,
+    stageLabel: String = "",
+    detail: String = "",
+    current: Int = 0,
+    total: Int = 0,
+    fraction: Float = 0f,
+  ) {
+    _syncProgress.value =
+      SyncProgressState(
+        active = active,
+        stageLabel = stageLabel,
+        detail = detail,
+        current = current,
+        total = total,
+        fraction = fraction.coerceIn(0f, 1f),
+      )
+  }
+
+  /** Observes all independent JAVID / bookmark groups stored in Room with link & tag metadata. */
+  fun observeJavidCatalog(): Flow<List<JavidCatalogEntry>> =
+    combine(
+      bookmarkDao.observeAllGroups(),
+      bookmarkDao.observeGallery(),
+      tagDao.observeMediaRefs(),
+      tagDao.observeAllPairs(),
+    ) { groups, galleryRows, refs, tagPairs ->
+      val refsByMedia = refs.associateBy { it.mediaId }
+      val rowsByGroup = galleryRows.groupBy { it.mediaId }
+      val tagsByBookmark = tagPairs.groupBy({ it.bookmarkId }, { it.name })
+
+      groups
+        .mapNotNull { grp ->
+          val gRows = rowsByGroup[grp.groupKey].orEmpty()
+          if (gRows.isEmpty()) return@mapNotNull null
+          val ref = refsByMedia[grp.groupKey]
+          val extractedJavid =
+            grp.presetCode?.takeIf { it.isNotBlank() }
+              ?: BookmarkMediaMatcher.extractJvidCode(grp.sourceLabel)
+              ?: BookmarkMediaMatcher.extractJvidCode(grp.groupKey)
+              ?: grp.groupKey
+          val tagList =
+            gRows
+              .flatMap { r -> tagsByBookmark[r.id].orEmpty() }
+              .distinct()
+              .sorted()
+              .take(8)
+          JavidCatalogEntry(
+            groupKey = grp.groupKey,
+            javidCode = extractedJavid,
+            sourceLabel = grp.sourceLabel.ifBlank { ref?.title.orEmpty() },
+            sourceUrl = grp.sourceUrl?.trim()?.takeIf { it.isNotEmpty() },
+            bookmarkCount = gRows.size,
+            playableUri = ref?.playableUri,
+            mediaTitle = ref?.title,
+            tags = tagList,
+            updatedAt = grp.updatedAt,
+          )
+        }.sortedWith(
+          compareByDescending<JavidCatalogEntry> { it.updatedAt }
+            .thenBy { it.javidCode },
+        )
+    }.distinctUntilChanged()
   private val syncClient: OkHttpClient by lazy {
     httpClient
       .newBuilder()
@@ -357,308 +451,424 @@ class PcBookmarkSyncRepository(
   ): Result<PcSyncResult> =
     withContext(Dispatchers.IO) {
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
-      runCatching {
-        require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
-        VaultCrypto.ensureInitialized(context)
-        consolidateDuplicateJvidGroupsInDb()
+      try {
+        runCatching {
+          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+          VaultCrypto.ensureInitialized(context)
+          emitProgress(true, "Consolidating JAVID groups…", "", 0, 1, 0.05f)
+          consolidateDuplicateJvidGroupsInDb()
 
-        val localGroups = bookmarkDao.getAllGroups()
-        val rawBookmarks = bookmarkDao.getPublicBookmarks()
-        val allTags = tagDao.getAllTagsOnce().groupBy { it.bookmarkId }
+          val localGroups = bookmarkDao.getAllGroups()
+          val rawBookmarks = bookmarkDao.getPublicBookmarks()
+          val allTags = tagDao.getAllTagsOnce().groupBy { it.bookmarkId }
 
-        val localBookmarks =
-          rawBookmarks.map { bm ->
-            if (!bm.syncUuid.isNullOrBlank()) {
-              bm
-            } else {
-              val generatedUuid = UUID.randomUUID().toString()
-              bookmarkDao.updateBookmarkSyncMetadata(
-                id = bm.id,
-                endPositionMs = bm.endPositionMs,
-                primaryTag = bm.primaryTag ?: allTags[bm.id]?.firstOrNull()?.name,
-                syncUuid = generatedUuid,
+          val localBookmarks =
+            rawBookmarks.map { bm ->
+              if (!bm.syncUuid.isNullOrBlank()) {
+                bm
+              } else {
+                val generatedUuid = UUID.randomUUID().toString()
+                bookmarkDao.updateBookmarkSyncMetadata(
+                  id = bm.id,
+                  endPositionMs = bm.endPositionMs,
+                  primaryTag = bm.primaryTag ?: allTags[bm.id]?.firstOrNull()?.name,
+                  syncUuid = generatedUuid,
+                  originApp = bm.originApp.ifBlank { "mpvrx" },
+                  updatedAt = bm.updatedAt.takeIf { it > 0L } ?: bm.createdAt,
+                )
+                bm.copy(syncUuid = generatedUuid)
+              }
+            }
+
+          val groupDtos =
+            localGroups.map { g ->
+              SyncGroupDto(
+                groupKey = g.groupKey,
+                code = g.presetCode.orEmpty(),
+                oshash = g.oshash.orEmpty(),
+                fingerprint = g.fingerprint.orEmpty(),
+                stemKey = g.stemKey.orEmpty(),
+                durationSec = g.durationSec,
+                width = g.width,
+                height = g.height,
+                fileSizeBytes = g.fileSizeBytes,
+                sourceLabel = g.sourceLabel,
+                sourceUrl = g.sourceUrl.orEmpty(),
+                updatedAt = formatIsoUtc(g.updatedAt),
+              )
+            }
+
+          val bookmarkDtos =
+            localBookmarks.map { bm ->
+              val tagsList = allTags[bm.id].orEmpty().map { it.displayName.ifBlank { it.name } }.distinct()
+              val pTag = bm.primaryTag?.takeIf { it.isNotBlank() } ?: tagsList.firstOrNull().orEmpty()
+              SyncBookmarkDto(
+                syncUuid = bm.syncUuid!!,
+                groupKey = bm.mediaId,
+                code = localGroups.firstOrNull { it.groupKey == bm.mediaId }?.presetCode.orEmpty(),
+                timestampSec = bm.positionMs / 1000.0,
+                endSec = bm.endPositionMs?.let { it / 1000.0 },
+                title = bm.title,
+                primaryTag = pTag,
+                tags = tagsList,
                 originApp = bm.originApp.ifBlank { "mpvrx" },
-                updatedAt = bm.updatedAt.takeIf { it > 0L } ?: bm.createdAt,
+                createdAt = formatIsoUtc(bm.createdAt),
+                updatedAt = formatIsoUtc(bm.updatedAt.takeIf { it > 0L } ?: bm.createdAt),
+                hasThumbnail = !bm.thumbnailPath.isNullOrBlank(),
               )
-              bm.copy(syncUuid = generatedUuid)
             }
-          }
 
-        val groupDtos =
-          localGroups.map { g ->
-            SyncGroupDto(
-              groupKey = g.groupKey,
-              code = g.presetCode.orEmpty(),
-              oshash = g.oshash.orEmpty(),
-              fingerprint = g.fingerprint.orEmpty(),
-              stemKey = g.stemKey.orEmpty(),
-              durationSec = g.durationSec,
-              width = g.width,
-              height = g.height,
-              fileSizeBytes = g.fileSizeBytes,
-              sourceLabel = g.sourceLabel,
-              sourceUrl = g.sourceUrl.orEmpty(),
-              updatedAt = formatIsoUtc(g.updatedAt),
-            )
-          }
-
-        val bookmarkDtos =
-          localBookmarks.map { bm ->
-            val tagsList = allTags[bm.id].orEmpty().map { it.displayName.ifBlank { it.name } }.distinct()
-            val pTag = bm.primaryTag?.takeIf { it.isNotBlank() } ?: tagsList.firstOrNull().orEmpty()
-            SyncBookmarkDto(
-              syncUuid = bm.syncUuid!!,
-              groupKey = bm.mediaId,
-              code = localGroups.firstOrNull { it.groupKey == bm.mediaId }?.presetCode.orEmpty(),
-              timestampSec = bm.positionMs / 1000.0,
-              endSec = bm.endPositionMs?.let { it / 1000.0 },
-              title = bm.title,
-              primaryTag = pTag,
-              tags = tagsList,
-              originApp = bm.originApp.ifBlank { "mpvrx" },
-              createdAt = formatIsoUtc(bm.createdAt),
-              updatedAt = formatIsoUtc(bm.updatedAt.takeIf { it > 0L } ?: bm.createdAt),
-              hasThumbnail = !bm.thumbnailPath.isNullOrBlank(),
-            )
-          }
-
-        val tombDtos =
-          tombstoneDao.getAll().map { t ->
-            SyncTombstoneDto(
-              syncUuid = t.syncUuid,
-              groupKey = t.groupKey.orEmpty(),
-              deletedAt = formatIsoUtc(t.deletedAt),
-            )
-          }
-
-        val mergePayload = json.encodeToString(SyncMergeRequest(groupDtos, bookmarkDtos, tombDtos))
-        val mergeReq =
-          buildRequestBuilder("$baseUrl/api/sync/merge?sync_stash=true", token)
-            .post(mergePayload.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val mergeBody =
-          syncClient.newCall(mergeReq).execute().use { resp ->
-            if (resp.code == 401 || resp.code == 403) {
-              error("Invalid Sync Token (HTTP ${resp.code})")
+          val tombDtos =
+            tombstoneDao.getAll().map { t ->
+              SyncTombstoneDto(
+                syncUuid = t.syncUuid,
+                groupKey = t.groupKey.orEmpty(),
+                deletedAt = formatIsoUtc(t.deletedAt),
+              )
             }
-            if (!resp.isSuccessful) error("Sync HTTP ${resp.code}")
-            resp.body.string()
-          }
-        val mergeResp = json.decodeFromString<SyncMergeResponse>(mergeBody)
-        val bundle = mergeResp.bundle
 
-        var insertedCount = 0
-        var updatedCount = 0
-        var downloadedThumbs = 0
-        var uploadedThumbs = 0
+          emitProgress(true, "Syncing with AV Manager & Stash…", baseUrl, 0, 1, 0.20f)
+          val mergePayload = json.encodeToString(SyncMergeRequest(groupDtos, bookmarkDtos, tombDtos))
+          val mergeReq =
+            buildRequestBuilder("$baseUrl/api/sync/merge?sync_stash=true", token)
+              .post(mergePayload.toRequestBody(JSON_MEDIA_TYPE))
+              .build()
 
-        // 1. Apply remote tombstones locally
-        val tombstoneSet = HashSet<String>()
-        bundle.tombstones.forEach { tomb ->
-          val uuid = tomb.syncUuid.trim()
-          if (uuid.isEmpty()) return@forEach
-          tombstoneSet.add(uuid)
-          val existing = bookmarkDao.findBookmarkBySyncUuid(uuid)
-          if (existing != null) {
-            val tombMs = parseIsoMillis(tomb.deletedAt)
-            if (tombMs <= 0L || tombMs >= existing.updatedAt) {
-              bookmarkDao.delete(existing.id)
-              val thumbPath = existing.thumbnailPath
-              if (!thumbPath.isNullOrBlank() && bookmarkDao.countByThumbnailPath(thumbPath) == 0) {
-                BookmarkThumbnailStore.deleteThumbnail(context, thumbPath, isSecure = false)
+          val mergeBody =
+            syncClient.newCall(mergeReq).execute().use { resp ->
+              if (resp.code == 401 || resp.code == 403) {
+                error("Invalid Sync Token (HTTP ${resp.code})")
               }
+              if (!resp.isSuccessful) error("Sync HTTP ${resp.code}")
+              resp.body.string()
             }
-          }
+          val mergeResp = json.decodeFromString<SyncMergeResponse>(mergeBody)
+          val pushedCount = mergeResp.stats.bookmarksInserted + mergeResp.stats.bookmarksUpdated
+          val res =
+            reconcileRemoteBundle(
+              baseUrl = baseUrl,
+              token = token,
+              bundle = mergeResp.bundle,
+              pushedCount = pushedCount,
+            )
+          val nowIso = formatIsoUtc(System.currentTimeMillis())
+          prefs.lastSyncIso.set(nowIso)
+          prefs.lastSyncSummary.set("+${res.inserted} / ~${res.updated} • ↑$pushedCount")
+          res
+        }.recoverCatching { err ->
+          throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
         }
-
-        // 2. Reconcile groups (match existing phone media groups by groupKey / oshash / code / fingerprint)
-        val groupKeyMap = HashMap<String, String>()
-        val refreshedGroups = bookmarkDao.getAllGroups()
-        bundle.groups.forEach { rg ->
-          val rgJvid =
-            BookmarkMediaMatcher.extractJvidCode(rg.code)
-              ?: BookmarkMediaMatcher.extractJvidCode(rg.sourceLabel)
-              ?: BookmarkMediaMatcher.extractJvidCode(rg.groupKey)
-          val matched =
-            refreshedGroups.firstOrNull { it.groupKey == rg.groupKey }
-              ?: rg.oshash.takeIf { it.isNotBlank() }?.let { oh ->
-                refreshedGroups.firstOrNull { !it.oshash.isNullOrBlank() && it.oshash.equals(oh, ignoreCase = true) }
-              }
-              ?: rgJvid?.let { code ->
-                refreshedGroups.firstOrNull { cand ->
-                  val cCode =
-                    BookmarkMediaMatcher.extractJvidCode(cand.presetCode)
-                      ?: BookmarkMediaMatcher.extractJvidCode(cand.sourceLabel)
-                      ?: BookmarkMediaMatcher.extractJvidCode(cand.groupKey)
-                  cCode != null && cCode.equals(code, ignoreCase = true)
-                }
-              }
-              ?: rg.fingerprint.takeIf { it.isNotBlank() }?.let { fp ->
-                refreshedGroups.firstOrNull { it.fingerprint == fp }
-              }
-
-          val targetGroupKey = matched?.groupKey ?: rg.groupKey
-          groupKeyMap[rg.groupKey] = targetGroupKey
-
-          val mergedGroup =
-            BookmarkGroupEntity(
-              groupKey = targetGroupKey,
-              presetCode =
-                matched?.presetCode?.takeIf { it.isNotBlank() }
-                  ?: rgJvid
-                  ?: rg.code.takeIf { it.isNotBlank() },
-              oshash = matched?.oshash?.takeIf { it.isNotBlank() } ?: rg.oshash.takeIf { it.isNotBlank() },
-              fingerprint =
-                matched?.fingerprint?.takeIf { it.isNotBlank() } ?: rg.fingerprint.takeIf { it.isNotBlank() },
-              stemKey = matched?.stemKey?.takeIf { it.isNotBlank() } ?: rg.stemKey.takeIf { it.isNotBlank() },
-              durationSec = matched?.durationSec?.takeIf { it > 0 } ?: rg.durationSec,
-              width = matched?.width?.takeIf { it > 0 } ?: rg.width,
-              height = matched?.height?.takeIf { it > 0 } ?: rg.height,
-              fileSizeBytes = matched?.fileSizeBytes?.takeIf { it > 0L } ?: rg.fileSizeBytes,
-              sourceLabel = matched?.sourceLabel?.takeIf { it.isNotBlank() } ?: rg.sourceLabel,
-              sourceUrl = matched?.sourceUrl?.takeIf { it.isNotBlank() } ?: rg.sourceUrl.takeIf { it.isNotBlank() },
-              updatedAt = maxOf(matched?.updatedAt ?: 0L, parseIsoMillis(rg.updatedAt)),
-            )
-          bookmarkDao.upsertGroup(mergedGroup)
-        }
-
-        // 3. Reconcile bookmarks + tags + thumbnails
-        val currentPublic = bookmarkDao.getPublicBookmarks().toMutableList()
-        val thumbDir = BookmarkThumbnailStore.privateDirectory(context, isSecure = false)
-
-        bundle.bookmarks.forEach { rb ->
-          val uuid = rb.syncUuid.trim()
-          if (uuid.isEmpty() || uuid in tombstoneSet) return@forEach
-
-          val targetGroupKey = groupKeyMap[rb.groupKey] ?: rb.groupKey
-          val posMs = (rb.timestampSec * 1000.0).roundToLong().coerceAtLeast(0L)
-          val endMs = rb.endSec?.let { (it * 1000.0).roundToLong().coerceAtLeast(posMs) }
-          val cleanTags = rb.tags.map { BookmarkTagRules.normalize(it) }.filter { it.isNotBlank() }.distinct()
-          val primaryTag =
-            rb.primaryTag.trim().lowercase().takeIf { it.isNotEmpty() } ?: cleanTags.firstOrNull()
-          val mergedTags =
-            buildList {
-              if (!primaryTag.isNullOrBlank()) add(primaryTag)
-              cleanTags.forEach { t -> if (t !in this) add(t) }
-            }
-          val remoteUpdMs =
-            parseIsoMillis(rb.updatedAt).takeIf { it > 0L }
-              ?: parseIsoMillis(rb.createdAt).takeIf { it > 0L }
-              ?: System.currentTimeMillis()
-          val remoteCreatedMs = parseIsoMillis(rb.createdAt).takeIf { it > 0L } ?: remoteUpdMs
-
-          val existing =
-            currentPublic.firstOrNull { it.syncUuid == uuid }
-              ?: currentPublic.firstOrNull {
-                it.mediaId == targetGroupKey && abs(it.positionMs - posMs) <= 1000L
-              }
-
-          val targetBookmarkId: Long
-          var localThumbPath = existing?.thumbnailPath
-          val localPreSyncUpd = existing?.updatedAt?.takeIf { it > 0L } ?: existing?.createdAt ?: 0L
-
-          if (existing == null) {
-            val insertedEntity =
-              PlaybackBookmarkEntity(
-                mediaId = targetGroupKey,
-                positionMs = posMs,
-                title = rb.title.trim().ifBlank { "Bookmark" },
-                createdAt = remoteCreatedMs,
-                bookTrackId = null,
-                thumbnailPath = null,
-                endPositionMs = endMs,
-                primaryTag = primaryTag,
-                syncUuid = uuid,
-                originApp = rb.originApp.ifBlank { "av_manager" },
-                updatedAt = remoteUpdMs,
-              )
-            targetBookmarkId = bookmarkDao.insertSyncBookmark(insertedEntity)
-            currentPublic.add(insertedEntity.copy(id = targetBookmarkId))
-            if (mergedTags.isNotEmpty()) {
-              applyBookmarkTags(targetBookmarkId, mergedTags)
-            }
-            insertedCount++
-          } else {
-            targetBookmarkId = existing.id
-            if (remoteUpdMs > localPreSyncUpd) {
-              bookmarkDao.updatePositionAndTitle(
-                id = existing.id,
-                positionMs = posMs,
-                title = rb.title.trim().ifBlank { existing.title },
-                updatedAt = remoteUpdMs,
-              )
-              bookmarkDao.updateBookmarkSyncMetadata(
-                id = existing.id,
-                endPositionMs = endMs,
-                primaryTag = primaryTag,
-                syncUuid = uuid,
-                originApp = existing.originApp,
-                updatedAt = remoteUpdMs,
-              )
-              applyBookmarkTags(existing.id, mergedTags)
-              updatedCount++
-            } else if (existing.syncUuid.isNullOrBlank()) {
-              bookmarkDao.updateBookmarkSyncMetadata(
-                id = existing.id,
-                endPositionMs = existing.endPositionMs ?: endMs,
-                primaryTag = existing.primaryTag ?: primaryTag,
-                syncUuid = uuid,
-                originApp = existing.originApp,
-                updatedAt = localPreSyncUpd,
-              )
-            }
-          }
-
-          val shouldUploadLocalThumb =
-            !localThumbPath.isNullOrBlank() &&
-              (!rb.hasThumbnail || (existing != null && localPreSyncUpd > remoteUpdMs))
-          val shouldDownloadRemoteThumb =
-            rb.hasThumbnail &&
-              (localThumbPath.isNullOrBlank() || (existing != null && remoteUpdMs > localPreSyncUpd))
-
-          if (shouldUploadLocalThumb && !localThumbPath.isNullOrBlank()) {
-            if (uploadDecryptedThumbnail(baseUrl, token, uuid, localThumbPath)) {
-              uploadedThumbs++
-            }
-          } else if (shouldDownloadRemoteThumb) {
-            val prevThumb = localThumbPath
-            val downloaded = downloadAndEncryptThumbnail(baseUrl, token, uuid, thumbDir)
-            if (downloaded != null) {
-              val stamp = if (remoteUpdMs > 0L) remoteUpdMs else System.currentTimeMillis()
-              bookmarkDao.updateThumbnail(targetBookmarkId, downloaded, updatedAt = stamp)
-              if (!prevThumb.isNullOrBlank() &&
-                prevThumb != downloaded &&
-                bookmarkDao.countByThumbnailPath(prevThumb) == 0
-              ) {
-                BookmarkThumbnailStore.deleteThumbnail(context, prevThumb, isSecure = false)
-              }
-              localThumbPath = downloaded
-              downloadedThumbs++
-            }
-          }
-        }
-
-        consolidateDuplicateJvidGroupsInDb()
-        val matchedCount = runCatching { autoMatchOrphanGroupsWithLocalLibrary() }.getOrDefault(0)
-        val nowIso = formatIsoUtc(System.currentTimeMillis())
-        prefs.lastSyncIso.set(nowIso)
-        val pushedCount = mergeResp.stats.bookmarksInserted + mergeResp.stats.bookmarksUpdated
-        prefs.lastSyncSummary.set("+$insertedCount / ~$updatedCount • ↑$pushedCount")
-
-        PcSyncResult(
-          inserted = insertedCount,
-          updated = updatedCount,
-          pushed = pushedCount,
-          thumbnailsDownloaded = downloadedThumbs,
-          thumbnailsUploaded = uploadedThumbs,
-          stashReachable = bundle.stashReachable,
-          autoMatchedGroups = matchedCount,
-        )
-      }.recoverCatching { err ->
-        throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
+      } finally {
+        emitProgress(false)
       }
     }
+
+  /** Pulls and merges one specific independent JAVID set from AV Manager without syncing unrelated groups. */
+  suspend fun syncSingleJavidFromPcHub(
+    groupKeyOrCode: String,
+    hubUrl: String = prefs.hubUrl.get(),
+    token: String = prefs.syncToken.get(),
+    usbMode: Boolean = prefs.usbModeEnabled.get(),
+  ): Result<PcSyncResult> =
+    withContext(Dispatchers.IO) {
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
+      val cleanTarget = groupKeyOrCode.trim()
+      try {
+        runCatching {
+          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+          require(cleanTarget.isNotEmpty()) { "JAVID code or group key required" }
+          VaultCrypto.ensureInitialized(context)
+          emitProgress(true, "Fetching JAVID set $cleanTarget…", baseUrl, 0, 1, 0.18f)
+
+          val normCode = BookmarkMediaMatcher.extractJvidCode(cleanTarget).orEmpty()
+          val encCode = URLEncoder.encode(normCode, "UTF-8")
+          val encGroup = URLEncoder.encode(cleanTarget, "UTF-8")
+          val bundleReq =
+            buildRequestBuilder(
+              "$baseUrl/api/sync/bundle?code=$encCode&group_key=$encGroup",
+              token,
+            ).get().build()
+          val body =
+            syncClient.newCall(bundleReq).execute().use { resp ->
+              if (resp.code == 401 || resp.code == 403) {
+                error("Invalid Sync Token (HTTP ${resp.code})")
+              }
+              if (!resp.isSuccessful) error("Sync HTTP ${resp.code}")
+              resp.body.string()
+            }
+          val bundle = json.decodeFromString<SyncBundleResponse>(body)
+          reconcileRemoteBundle(baseUrl = baseUrl, token = token, bundle = bundle, pushedCount = 0)
+        }.recoverCatching { err ->
+          throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
+        }
+      } finally {
+        emitProgress(false)
+      }
+    }
+
+  private suspend fun reconcileRemoteBundle(
+    baseUrl: String,
+    token: String,
+    bundle: SyncBundleResponse,
+    pushedCount: Int,
+  ): PcSyncResult {
+    var insertedCount = 0
+    var updatedCount = 0
+    var downloadedThumbs = 0
+    var uploadedThumbs = 0
+
+    // 1. Apply remote tombstones locally
+    emitProgress(true, "Applying deletions…", "${bundle.tombstones.size} tombstone(s)", 0, 1, 0.30f)
+    val tombstoneSet = HashSet<String>()
+    bundle.tombstones.forEach { tomb ->
+      val uuid = tomb.syncUuid.trim()
+      if (uuid.isEmpty()) return@forEach
+      tombstoneSet.add(uuid)
+      val existing = bookmarkDao.findBookmarkBySyncUuid(uuid)
+      if (existing != null) {
+        val tombMs = parseIsoMillis(tomb.deletedAt)
+        if (tombMs <= 0L || tombMs >= existing.updatedAt) {
+          bookmarkDao.delete(existing.id)
+          val thumbPath = existing.thumbnailPath
+          if (!thumbPath.isNullOrBlank() && bookmarkDao.countByThumbnailPath(thumbPath) == 0) {
+            BookmarkThumbnailStore.deleteThumbnail(context, thumbPath, isSecure = false)
+          }
+        }
+      }
+    }
+
+    // 2. Reconcile groups (match by groupKey / oshash / JAVID / fingerprint, using LWW for sourceUrl & label)
+    emitProgress(true, "Reconciling JAVID groups…", "${bundle.groups.size} group(s)", 0, 1, 0.38f)
+    val groupKeyMap = HashMap<String, String>()
+    val refreshedGroups = bookmarkDao.getAllGroups()
+    bundle.groups.forEach { rg ->
+      val rgJvid =
+        BookmarkMediaMatcher.extractJvidCode(rg.code)
+          ?: BookmarkMediaMatcher.extractJvidCode(rg.sourceLabel)
+          ?: BookmarkMediaMatcher.extractJvidCode(rg.groupKey)
+      val matched =
+        refreshedGroups.firstOrNull { it.groupKey == rg.groupKey }
+          ?: rg.oshash.takeIf { it.isNotBlank() }?.let { oh ->
+            refreshedGroups.firstOrNull { !it.oshash.isNullOrBlank() && it.oshash.equals(oh, ignoreCase = true) }
+          }
+          ?: rgJvid?.let { code ->
+            refreshedGroups.firstOrNull { cand ->
+              val cCode =
+                BookmarkMediaMatcher.extractJvidCode(cand.presetCode)
+                  ?: BookmarkMediaMatcher.extractJvidCode(cand.sourceLabel)
+                  ?: BookmarkMediaMatcher.extractJvidCode(cand.groupKey)
+              cCode != null && cCode.equals(code, ignoreCase = true)
+            }
+          }
+          ?: rg.fingerprint.takeIf { it.isNotBlank() }?.let { fp ->
+            refreshedGroups.firstOrNull { it.fingerprint == fp }
+          }
+
+      val targetGroupKey = matched?.groupKey ?: rg.groupKey
+      groupKeyMap[rg.groupKey] = targetGroupKey
+
+      val remoteGrpUpd = parseIsoMillis(rg.updatedAt)
+      val localGrpUpd = matched?.updatedAt ?: 0L
+      val remoteSourceUrl = rg.sourceUrl.trim().takeIf { it.isNotEmpty() }
+      val localSourceUrl = matched?.sourceUrl?.trim()?.takeIf { it.isNotEmpty() }
+      val effectiveSourceUrl =
+        when {
+          matched == null || remoteGrpUpd > localGrpUpd -> remoteSourceUrl ?: localSourceUrl
+          else -> localSourceUrl ?: remoteSourceUrl
+        }
+      val effectiveSourceLabel =
+        if (matched != null && remoteGrpUpd > localGrpUpd && rg.sourceLabel.isNotBlank()) {
+          rg.sourceLabel
+        } else {
+          matched?.sourceLabel?.takeIf { it.isNotBlank() } ?: rg.sourceLabel
+        }
+
+      val mergedGroup =
+        BookmarkGroupEntity(
+          groupKey = targetGroupKey,
+          presetCode =
+            matched?.presetCode?.takeIf { it.isNotBlank() }
+              ?: rgJvid
+              ?: rg.code.takeIf { it.isNotBlank() },
+          oshash = matched?.oshash?.takeIf { it.isNotBlank() } ?: rg.oshash.takeIf { it.isNotBlank() },
+          fingerprint =
+            matched?.fingerprint?.takeIf { it.isNotBlank() } ?: rg.fingerprint.takeIf { it.isNotBlank() },
+          stemKey = matched?.stemKey?.takeIf { it.isNotBlank() } ?: rg.stemKey.takeIf { it.isNotBlank() },
+          durationSec = matched?.durationSec?.takeIf { it > 0 } ?: rg.durationSec,
+          width = matched?.width?.takeIf { it > 0 } ?: rg.width,
+          height = matched?.height?.takeIf { it > 0 } ?: rg.height,
+          fileSizeBytes = matched?.fileSizeBytes?.takeIf { it > 0L } ?: rg.fileSizeBytes,
+          sourceLabel = effectiveSourceLabel,
+          sourceUrl = effectiveSourceUrl,
+          updatedAt = maxOf(localGrpUpd, remoteGrpUpd),
+        )
+      bookmarkDao.upsertGroup(mergedGroup)
+    }
+
+    // 3. Reconcile bookmarks + tags, queueing thumbnail transfers for progress reporting
+    val totalRemoteBm = bundle.bookmarks.size
+    emitProgress(true, "Merging bookmarks & tags…", "0 / $totalRemoteBm", 0, totalRemoteBm, 0.45f)
+    val currentPublic = bookmarkDao.getPublicBookmarks().toMutableList()
+    val thumbDir = BookmarkThumbnailStore.privateDirectory(context, isSecure = false)
+    val thumbJobs = ArrayList<Triple<Boolean, Long, Triple<String, String?, Long>>>()
+
+    bundle.bookmarks.forEachIndexed { idx, rb ->
+      if (totalRemoteBm > 0 && (idx == totalRemoteBm - 1 || idx % 10 == 0)) {
+        val frac = 0.45f + (0.13f * (idx + 1).toFloat() / totalRemoteBm.toFloat())
+        emitProgress(
+          true,
+          "Merging bookmarks & tags…",
+          "${idx + 1} / $totalRemoteBm",
+          idx + 1,
+          totalRemoteBm,
+          frac,
+        )
+      }
+      val uuid = rb.syncUuid.trim()
+      if (uuid.isEmpty() || uuid in tombstoneSet) return@forEachIndexed
+
+      val targetGroupKey = groupKeyMap[rb.groupKey] ?: rb.groupKey
+      val posMs = (rb.timestampSec * 1000.0).roundToLong().coerceAtLeast(0L)
+      val endMs = rb.endSec?.let { (it * 1000.0).roundToLong().coerceAtLeast(posMs) }
+      val cleanTags = rb.tags.map { BookmarkTagRules.normalize(it) }.filter { it.isNotBlank() }.distinct()
+      val primaryTag =
+        rb.primaryTag.trim().lowercase().takeIf { it.isNotEmpty() } ?: cleanTags.firstOrNull()
+      val mergedTags =
+        buildList {
+          if (!primaryTag.isNullOrBlank()) add(primaryTag)
+          cleanTags.forEach { t -> if (t !in this) add(t) }
+        }
+      val remoteUpdMs =
+        parseIsoMillis(rb.updatedAt).takeIf { it > 0L }
+          ?: parseIsoMillis(rb.createdAt).takeIf { it > 0L }
+          ?: System.currentTimeMillis()
+      val remoteCreatedMs = parseIsoMillis(rb.createdAt).takeIf { it > 0L } ?: remoteUpdMs
+
+      val existing =
+        currentPublic.firstOrNull { it.syncUuid == uuid }
+          ?: currentPublic.firstOrNull {
+            it.mediaId == targetGroupKey && abs(it.positionMs - posMs) <= 1000L
+          }
+
+      val targetBookmarkId: Long
+      val localThumbPath = existing?.thumbnailPath
+      val localPreSyncUpd = existing?.updatedAt?.takeIf { it > 0L } ?: existing?.createdAt ?: 0L
+
+      if (existing == null) {
+        val insertedEntity =
+          PlaybackBookmarkEntity(
+            mediaId = targetGroupKey,
+            positionMs = posMs,
+            title = rb.title.trim().ifBlank { "Bookmark" },
+            createdAt = remoteCreatedMs,
+            bookTrackId = null,
+            thumbnailPath = null,
+            endPositionMs = endMs,
+            primaryTag = primaryTag,
+            syncUuid = uuid,
+            originApp = rb.originApp.ifBlank { "av_manager" },
+            updatedAt = remoteUpdMs,
+          )
+        targetBookmarkId = bookmarkDao.insertSyncBookmark(insertedEntity)
+        currentPublic.add(insertedEntity.copy(id = targetBookmarkId))
+        if (mergedTags.isNotEmpty()) {
+          applyBookmarkTags(targetBookmarkId, mergedTags)
+        }
+        insertedCount++
+      } else {
+        targetBookmarkId = existing.id
+        if (remoteUpdMs > localPreSyncUpd) {
+          bookmarkDao.updatePositionAndTitle(
+            id = existing.id,
+            positionMs = posMs,
+            title = rb.title.trim().ifBlank { existing.title },
+            updatedAt = remoteUpdMs,
+          )
+          bookmarkDao.updateBookmarkSyncMetadata(
+            id = existing.id,
+            endPositionMs = endMs,
+            primaryTag = primaryTag,
+            syncUuid = uuid,
+            originApp = existing.originApp,
+            updatedAt = remoteUpdMs,
+          )
+          applyBookmarkTags(existing.id, mergedTags)
+          updatedCount++
+        } else if (existing.syncUuid.isNullOrBlank()) {
+          bookmarkDao.updateBookmarkSyncMetadata(
+            id = existing.id,
+            endPositionMs = existing.endPositionMs ?: endMs,
+            primaryTag = existing.primaryTag ?: primaryTag,
+            syncUuid = uuid,
+            originApp = existing.originApp,
+            updatedAt = localPreSyncUpd,
+          )
+        }
+      }
+
+      val shouldUploadLocalThumb =
+        !localThumbPath.isNullOrBlank() &&
+          (!rb.hasThumbnail || (existing != null && localPreSyncUpd > remoteUpdMs))
+      val shouldDownloadRemoteThumb =
+        rb.hasThumbnail &&
+          (localThumbPath.isNullOrBlank() || (existing != null && remoteUpdMs > localPreSyncUpd))
+
+      if (shouldUploadLocalThumb && !localThumbPath.isNullOrBlank()) {
+        thumbJobs.add(Triple(true, targetBookmarkId, Triple(uuid, localThumbPath, remoteUpdMs)))
+      } else if (shouldDownloadRemoteThumb) {
+        thumbJobs.add(Triple(false, targetBookmarkId, Triple(uuid, localThumbPath, remoteUpdMs)))
+      }
+    }
+
+    val totalThumbs = thumbJobs.size
+    if (totalThumbs > 0) {
+      thumbJobs.forEachIndexed { idx, (isUpload, bmId, meta) ->
+        val (uuid, prevThumb, remoteUpdMs) = meta
+        val frac = 0.58f + (0.36f * (idx + 1).toFloat() / totalThumbs.toFloat())
+        emitProgress(
+          true,
+          if (isUpload) "Uploading thumbnails…" else "Downloading thumbnails…",
+          "${idx + 1} / $totalThumbs",
+          idx + 1,
+          totalThumbs,
+          frac,
+        )
+        if (isUpload && !prevThumb.isNullOrBlank()) {
+          if (uploadDecryptedThumbnail(baseUrl, token, uuid, prevThumb)) {
+            uploadedThumbs++
+          }
+        } else if (!isUpload) {
+          val downloaded = downloadAndEncryptThumbnail(baseUrl, token, uuid, thumbDir)
+          if (downloaded != null) {
+            val stamp = if (remoteUpdMs > 0L) remoteUpdMs else System.currentTimeMillis()
+            bookmarkDao.updateThumbnail(bmId, downloaded, updatedAt = stamp)
+            if (!prevThumb.isNullOrBlank() &&
+              prevThumb != downloaded &&
+              bookmarkDao.countByThumbnailPath(prevThumb) == 0
+            ) {
+              BookmarkThumbnailStore.deleteThumbnail(context, prevThumb, isSecure = false)
+            }
+            downloadedThumbs++
+          }
+        }
+      }
+    }
+
+    emitProgress(true, "Matching local video files…", "", 0, 1, 0.96f)
+    consolidateDuplicateJvidGroupsInDb()
+    val matchedCount = runCatching { autoMatchOrphanGroupsWithLocalLibrary() }.getOrDefault(0)
+    emitProgress(true, "Sync complete", "", 1, 1, 1f)
+
+    return PcSyncResult(
+      inserted = insertedCount,
+      updated = updatedCount,
+      pushed = pushedCount,
+      thumbnailsDownloaded = downloadedThumbs,
+      thumbnailsUploaded = uploadedThumbs,
+      stashReachable = bundle.stashReachable,
+      autoMatchedGroups = matchedCount,
+    )
+  }
 
   private val lastAutoMatchAtMs = java.util.concurrent.atomic.AtomicLong(0L)
 

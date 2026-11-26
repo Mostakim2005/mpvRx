@@ -365,10 +365,11 @@ flowchart LR
 
 ---
 
-### [TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict] | Aliases: updatedat missing on rename, pull timestamp overwrite, secure replaceTags updatedAt
-> **1-Line Summary:** Room `rename` / `updateThumbnail` queries originally omitted `updatedAt` (preventing phone edits from winning LWW merge against `AV Manager`), while calling an unconditional `System.currentTimeMillis()` default during remote pulls would falsely overwrite pulled timestamps; bump `updatedAt` in DAOs on local edits, always pass `remoteUpdMs` explicitly during `syncWithPcHub`, and keep pure-JVM helpers (`BookmarkMediaMatcher`, `BookmarkPresetArchive`) free of `android.net.Uri` / `android.util.Base64`.
+### [TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict] | Aliases: updatedat missing on rename, pull timestamp overwrite, secure replaceTags updatedAt, sourceurl lww
+> **1-Line Summary:** Room `rename` / `updateThumbnail` queries originally omitted `updatedAt` (preventing phone edits from winning LWW merge against `AV Manager`), `reconcileRemoteBundle` previously let old non-empty `matched.sourceUrl` shadow newer server `sourceUrl`, and calling `System.currentTimeMillis()` unconditionally during pulls would falsely overwrite timestamps; bump `updatedAt` in DAOs on local edits, resolve `sourceUrl` via `remoteGrpUpd > localGrpUpd` LWW, always pass `remoteUpdMs` explicitly during pulls, and keep pure-JVM helpers (`BookmarkMediaMatcher`, `BookmarkPresetArchive`) free of `android.net.Uri` / `android.util.Base64`.
 * **Protected Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `rename`, `updateThumbnail`, `touchBookmarkUpdatedAt`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `rename`, `updateThumbnail`, `touchBookmarkUpdatedAt`, `updateGroupSourceUrl`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `reconcileRemoteBundle`
   * `app/src/main/java/app/gyrolet/mpvrx/database/dao/SecureVaultDaos.kt` :: `rename`, `updateThumbnail`, `touchUpdatedAt`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `parseJsonImport`

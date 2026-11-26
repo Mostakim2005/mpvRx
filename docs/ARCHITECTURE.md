@@ -333,12 +333,12 @@ flowchart LR
 
 ---
 
-### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, javid extraction, usb adb sync, thumbnail chooser
-> **1-Line Summary:** Bridges `MpvRxDatabase` v37 (`oshash`, canonical JAVID `presetCode`, `sourceUrl`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi discovery (`/api/sync/ping`), USB ADB mode, bi-directional LWW REST sync (`X-Sync-Token`), universal `.zip`/`.json` import, Echo-2 automatic local JAVID matching (Gallery open, Activity resume, `MediaLibraryEvents.changes`), and multi-source thumbnail switching (`BookmarkThumbnailPickerDialog`) while isolating `SecureVaultDatabase` v2.
+### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, javid extraction, usb adb sync, thumbnail chooser, javid catalog, sync progress
+> **1-Line Summary:** Bridges `MpvRxDatabase` v37 (`oshash`, canonical JAVID `presetCode`, single LWW `sourceUrl` per JAVID, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi/USB discovery, smart LWW delta + single-JAVID selective sync (`syncWithPcHub` / `syncSingleJavidFromPcHub` sharing `reconcileRemoteBundle`), live determinant `SyncProgressBanner`, `JavidCatalogDialog` browser + local video attacher, Echo-2 automatic local JAVID matching, and multi-source thumbnail switching while isolating `SecureVaultDatabase` v2.
 * **How It Works (Plain English):**
   * Canonical JAVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsIfNeeded` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later (triggered cleanly on Gallery open, `MainActivity`/`PlayerActivity` resume, and `MediaLibraryEvents.changes` when unlinked groups exist).
-  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge` including `sourceUrl`) and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`, `/api/bookmarks/{uuid}/thumbnails*`) exclusively with public `MpvRxDatabase` (`R-11` isolation), respecting `updatedAt` timestamps bumped on Room `rename`, `updateThumbnail`, and tag edits.
-  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / Echo-2 / 1-tap `Auto-match videos`, while `BookmarkGalleryScreen` exposes **Link / JAVID** (`ManageBookmarkGroupLinkDialog`) on every public card so any bookmark group can be manually linked, re-linked, or assigned a JAVID / source URL even for unformatted filenames.
+  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge` or scoped `GET /api/sync/bundle?code=...`) with timestamp-guarded `sourceUrl` LWW and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`), emitting real `SyncProgressState` (`0%..100%`, stage label, `X / N` thumbnail counts) over `StateFlow` into Gallery & Settings progress bars (`SyncProgressBanner`).
+  * `JavidCatalogDialog` (opened from Gallery top bar OR Sync Settings) lets users browse every independent `JAVID` set in Room, search by code/title/tag, open its single `sourceUrl`, pull updates for just that `JAVID`, filter gallery cards, or attach any downloaded video file whose filename omits the `JAVID`.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart LR
@@ -350,17 +350,17 @@ flowchart LR
     PublicDB[("MpvRxDatabase v37\noshash, JAVID, sourceUrl, tombstones")]:::publicDb
     SecureDB[("SecureVaultDatabase v2\nMVX1 Encrypted (Isolated R-11)")]:::secureDb
     PresetV2["Preset .zip v2 & JSON\nPreset / Vault / Stash JSON"]:::syncNode
-    SyncRepo["PcBookmarkSyncRepository\nLAN Ping + USB ADB + X-Sync-Token"]:::syncNode
+    SyncRepo["PcBookmarkSyncRepository\nLAN Ping + LWW + Progress StateFlow"]:::syncNode
     AvHub[("AV Manager vault.db\n<-> Stash localhost:9999")]:::pcHub
-    OrphanUI["BookmarkGallery & Picker UI\nAuto-Match + Thumbnail Chooser"]:::publicDb
+    OrphanUI["BookmarkGallery & JavidCatalog\nAttach Video + 1-URL + Progress Bar"]:::publicDb
 
     PublicDB <--> SyncRepo <-->|LWW Merge + Thumbs| AvHub
     PublicDB <--> PresetV2
     SecureDB <-.->|"Local ZIP/JSON Only\n(Never LAN Synced)"| PresetV2
-    OrphanUI -->|JVID Link + Thumb Select| PublicDB
+    OrphanUI -->|JAVID Link + Catalog + Single Pull| PublicDB
 ```
 
-> **Legend box:** Emerald = Public DB, Auto-Match & Thumbnail Picker | Rose = Isolated Secure Vault | Indigo = Sync Repository & Universal Preset Reader | Amber = PC Hub (`AV Manager` + `Stash`)
+> **Legend box:** Emerald = Public DB, Auto-Match & JAVID Catalog | Rose = Isolated Secure Vault | Indigo = Sync Repository & Universal Preset Reader | Amber = PC Hub (`AV Manager` + `Stash`)
 
 * **Links:** `[FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
 * **Code Anchors (Grep Targets):**
@@ -368,10 +368,12 @@ flowchart LR
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGroupConsolidator.kt` :: `extractCanonicalJavid`, `planDuplicateJvidConsolidation`, `planRollingWindowTimestampMerges`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `consolidateDuplicateJvidGroupsInDb`, `mergeOverlappingBookmarksForGroup`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `reassignBookmarks`, `reassignLinks`, `updatePositionAndTitle`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `syncSingleJavidFromPcHub`, `reconcileRemoteBundle`, `observeJavidCatalog`, `consolidateDuplicateJvidGroupsInDb`, `mergeOverlappingBookmarksForGroup`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `observeAllGroups`, `updateGroupSourceUrl`, `reassignBookmarks`, `reassignLinks`, `updatePositionAndTitle`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`, `ManageBookmarkGroupLinkDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/JavidCatalogDialog.kt` :: `SyncProgressBanner`, `JavidCatalogDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` :: `BookmarkSyncServerRow`, `BookmarkSyncConfigDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `MIGRATION_36_37`, `SECURE_MIGRATION_1_2`
 
 ---
