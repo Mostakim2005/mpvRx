@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -143,6 +146,7 @@ internal fun BookmarkSyncConfigDialog(
 
   var urlInput by remember(isOpen) { mutableStateOf(prefs.hubUrl.get()) }
   var tokenInput by remember(isOpen) { mutableStateOf(prefs.syncToken.get()) }
+  var usbMode by remember(isOpen) { mutableStateOf(prefs.usbModeEnabled.get()) }
   var statusText by remember { mutableStateOf<String?>(null) }
   var isError by remember { mutableStateOf(false) }
   var busy by remember { mutableStateOf(false) }
@@ -151,7 +155,10 @@ internal fun BookmarkSyncConfigDialog(
     onDismissRequest = { if (!busy) onDismiss() },
     title = { Text(stringResource(R.string.bookmark_sync_pref_section)) },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
         Text(
           text = stringResource(R.string.bookmark_sync_pref_summary),
           style = MaterialTheme.typography.bodySmall,
@@ -165,7 +172,80 @@ internal fun BookmarkSyncConfigDialog(
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
         )
-        if (urlInput.contains("127.0.0.1") || urlInput.contains("localhost", ignoreCase = true)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          OutlinedButton(
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+              busy = true
+              isError = false
+              statusText = "Scanning Wi-Fi / USB for AV Manager..."
+              scope.launch {
+                syncRepo
+                  .discoverPcHubOnLan(includeUsbLoopback = true)
+                  .onSuccess { foundUrl ->
+                    urlInput = foundUrl
+                    val isUsb = PcBookmarkSyncRepository.isLoopbackUrl(foundUrl)
+                    usbMode = isUsb
+                    prefs.hubUrl.set(foundUrl)
+                    prefs.usbModeEnabled.set(isUsb)
+                    isError = false
+                    statusText = context.getString(R.string.bookmark_sync_found_pc, foundUrl)
+                  }.onFailure {
+                    isError = true
+                    statusText = context.getString(R.string.bookmark_sync_not_found)
+                  }
+                busy = false
+              }
+            },
+          ) {
+            Text(stringResource(R.string.bookmark_sync_find_pc), maxLines = 1)
+          }
+        }
+        Row(
+          modifier =
+            Modifier
+              .fillMaxWidth()
+              .clickable(enabled = !busy) {
+                val next = !usbMode
+                usbMode = next
+                if (next) {
+                  urlInput = "http://127.0.0.1:8000"
+                } else if (PcBookmarkSyncRepository.isLoopbackUrl(urlInput)) {
+                  urlInput = ""
+                }
+              },
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          Checkbox(
+            checked = usbMode,
+            enabled = !busy,
+            onCheckedChange = { checked ->
+              usbMode = checked
+              if (checked) {
+                urlInput = "http://127.0.0.1:8000"
+              } else if (PcBookmarkSyncRepository.isLoopbackUrl(urlInput)) {
+                urlInput = ""
+              }
+            },
+          )
+          Text(
+            text = stringResource(R.string.bookmark_sync_usb_mode),
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+        if (usbMode) {
+          Text(
+            text = stringResource(R.string.bookmark_sync_usb_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else if (urlInput.contains("127.0.0.1") || urlInput.contains("localhost", ignoreCase = true)) {
           Text(
             text = stringResource(R.string.bookmark_sync_loopback_warning),
             style = MaterialTheme.typography.labelSmall,
@@ -191,10 +271,11 @@ internal fun BookmarkSyncConfigDialog(
               val cleanUrl = BookmarkSyncPreferences.normalizeHubUrl(urlInput)
               prefs.hubUrl.set(cleanUrl)
               prefs.syncToken.set(tokenInput.trim())
+              prefs.usbModeEnabled.set(usbMode)
               busy = true
               scope.launch {
                 syncRepo
-                  .testConnection(cleanUrl, tokenInput.trim())
+                  .testConnection(cleanUrl, tokenInput.trim(), usbMode = usbMode)
                   .onSuccess { msg ->
                     isError = false
                     statusText = msg
@@ -215,19 +296,26 @@ internal fun BookmarkSyncConfigDialog(
               val cleanUrl = BookmarkSyncPreferences.normalizeHubUrl(urlInput)
               prefs.hubUrl.set(cleanUrl)
               prefs.syncToken.set(tokenInput.trim())
+              prefs.usbModeEnabled.set(usbMode)
               busy = true
               scope.launch {
                 syncRepo
-                  .syncWithPcHub(cleanUrl, tokenInput.trim())
+                  .syncWithPcHub(cleanUrl, tokenInput.trim(), usbMode = usbMode)
                   .onSuccess { res ->
                     isError = false
-                    statusText =
+                    val baseSummary =
                       context.getString(
                         R.string.bookmark_gallery_sync_done,
                         res.inserted,
                         res.updated,
                         res.thumbnailsDownloaded,
                       )
+                    statusText =
+                      if (res.autoMatchedGroups > 0) {
+                        "$baseSummary • ${res.autoMatchedGroups} matched"
+                      } else {
+                        baseSummary
+                      }
                   }.onFailure { err ->
                     isError = true
                     statusText = err.message ?: "Sync failed"
@@ -254,6 +342,7 @@ internal fun BookmarkSyncConfigDialog(
         onClick = {
           prefs.hubUrl.set(BookmarkSyncPreferences.normalizeHubUrl(urlInput))
           prefs.syncToken.set(tokenInput.trim())
+          prefs.usbModeEnabled.set(usbMode)
           onDismiss()
         },
       ) {

@@ -121,6 +121,7 @@ val domainModule =
         prefs = get(),
         httpClient = get(),
         json = get(),
+        mediaFileRepository = getOrNull(),
       )
     }
   }

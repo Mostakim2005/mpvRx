@@ -69,6 +69,7 @@ object PlaybackBookmarkOps {
     stemKey: String?,
     durationSec: Int,
     oshash: String? = null,
+    sourceLabel: String? = null,
   ): String =
     withContext(Dispatchers.IO) {
       dao.findLinkedGroupKey(rawMediaId)?.let { return@withContext it }
@@ -85,6 +86,27 @@ object PlaybackBookmarkOps {
         dao.findGroupByFingerprint(fp)?.let { matched ->
           dao.upsertMediaLink(BookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey))
           return@withContext matched.groupKey
+        }
+      }
+
+      val jvidCode =
+        BookmarkMediaMatcher.extractJvidCode(sourceLabel)
+          ?: BookmarkMediaMatcher.extractJvidCode(rawMediaId)
+      if (!jvidCode.isNullOrBlank()) {
+        val exact = dao.findGroupByPresetCode(jvidCode)
+        val fuzzy =
+          exact
+            ?: dao.getAllGroups()
+              .filter { g ->
+                val gCode =
+                  g.presetCode?.let { BookmarkMediaMatcher.extractJvidCode(it) ?: it.uppercase(java.util.Locale.ROOT) }
+                    ?: BookmarkMediaMatcher.extractJvidCode(g.sourceLabel)
+                    ?: BookmarkMediaMatcher.extractJvidCode(g.groupKey)
+                gCode != null && gCode.equals(jvidCode, ignoreCase = true)
+              }.maxByOrNull { it.updatedAt }
+        if (fuzzy != null) {
+          dao.upsertMediaLink(BookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = fuzzy.groupKey))
+          return@withContext fuzzy.groupKey
         }
       }
 
@@ -108,15 +130,22 @@ object PlaybackBookmarkOps {
     val now = System.currentTimeMillis()
     if (metadata == null) {
       if (existing == null) {
-        dao.upsertGroup(BookmarkGroupEntity(groupKey = groupKey, updatedAt = now))
+        val codeOnly = BookmarkMediaMatcher.extractJvidCode(groupKey)
+        dao.upsertGroup(BookmarkGroupEntity(groupKey = groupKey, presetCode = codeOnly, updatedAt = now))
       }
       return@withContext
     }
 
+    val inferredCode =
+      existing?.presetCode?.takeIf { it.isNotBlank() }
+        ?: BookmarkMediaMatcher.extractJvidCode(metadata.sourceLabel)
+        ?: BookmarkMediaMatcher.extractJvidCode(metadata.rawMediaId)
+        ?: BookmarkMediaMatcher.extractJvidCode(groupKey)
+
     val updated =
       BookmarkGroupEntity(
         groupKey = groupKey,
-        presetCode = existing?.presetCode,
+        presetCode = inferredCode,
         oshash = metadata.oshash ?: existing?.oshash,
         fingerprint = metadata.fingerprint ?: existing?.fingerprint,
         stemKey = metadata.stemKey ?: existing?.stemKey,

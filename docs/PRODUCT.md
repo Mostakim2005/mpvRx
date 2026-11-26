@@ -421,17 +421,21 @@
   * `app/src/main/java/app/gyrolet/mpvrx/utils/text/TextNormalizer.kt` -> `normalizeForSearch`
   * `app/src/test/java/app/gyrolet/mpvrx/utils/text/TextNormalizerTest.kt` -> `stripsDiacriticsZeroWidthAndExtraWhitespace`
 
-### [FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker] | Aliases: bookmark lan sync, av manager sync, stash bookmark sync, preset zip v2, orphan point to video, oshash
-> **1-Line Summary:** Adds OpenSubtitles 64-bit `oshash` matching, Preset `.zip` v2 tag/duration/thumbnail round-trips, public-only LAN sync with `AV Manager`/`Stash`, and 1-tap orphan "Point to video" linking in Bookmark Gallery.
-* **User Intention (Non-Negotiable):** Users can synchronize timestamps, multi-tags (`primaryTag` = first tag), durations (`endPositionMs`), and JPEG thumbnails across **mpvRx**, **AV Manager**, and **Stash**, even when videos are missing or reside on another device, and link unlinked orphan bookmark groups to a local video later in one tap. Secure Folder bookmarks remain strictly isolated from public DB and LAN sync (`R-11`).
+### [FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker] | Aliases: bookmark lan sync, av manager sync, stash bookmark sync, preset zip v2, orphan point to video, oshash, jvid sync, usb sync, choose thumbnail
+> **1-Line Summary:** Adds `oshash` + canonical JVID (`MIMK-232`, `FC2-PPV-1234567`) matching, standalone `.json`/`.zip` preset import, Wi-Fi auto-discovery (`/api/sync/ping`) & USB ADB-reverse mode, true 2-way metadata/thumbnail sync, automatic local video linking, and an in-app **Choose thumbnail** picker across `mpvRx`, `AV Manager`, and `Stash`.
+* **User Intention (Non-Negotiable):** Users can synchronize timestamps, multi-tags (`primaryTag` = first tag), durations (`endPositionMs`), and multi-source JPEG thumbnails across **mpvRx**, **AV Manager**, and **Stash** by canonical JVID regardless of extra filename noise, auto-connect over Wi-Fi LAN or USB cable without hitting stale hardcoded IP timeouts, import `.zip` or standalone `.json` exports (`Preset v2`, `AV Vault`, `Stash scene_markers`), auto-link or manually point unlinked orphan groups to local videos, and manually pick or capture alternate bookmark thumbnails. Secure Folder bookmarks remain strictly isolated from public DB and LAN sync (`R-11`).
+* **Links:** `[SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
+* **Verified By:** `app/src/test/java/app/gyrolet/mpvrx/domain/bookmark/UnifiedBookmarkSyncTest.kt :: oshashMatchesKnownVectorAndRejectsTinyInputs`, `UnifiedBookmarkSyncTest.kt :: bookmarkPresetArchiveRoundTripsV2MetadataAndReadsLegacyV1`, `UnifiedBookmarkSyncTest.kt :: jvidExtractionHandlesExtraCharactersAndFc2`, `UnifiedBookmarkSyncTest.kt :: presetArchiveReadsStandalonePresetAndStashMarkersJson`, `UnifiedBookmarkSyncTest.kt :: syncDiagnosticsRespectUsbModeLoopback`
 * **Visual / UI Behavior:**
-  * **Media Servers Settings (`BookmarkSyncPreferencesSection`):** Adds `AV Manager & Stash Bookmark Sync` card + dialog for Hub URL (including live `127.0.0.1`/`localhost` phone-loopback warning), `X-Sync-Token` (excluded from XML backups), Connection Test, and 1-tap `Sync bookmarks now` with explicit timeout/auth diagnostics.
-  * **Bookmark Gallery (`BookmarkGalleryScreen`):** Adds TopBar Refresh Sync trigger, `Unlinked only` filter pill (`!secureOnly`), and clickable `Point to video` badge on unlinked orphan cards launching `ActivityResultContracts.OpenDocument`.
+  * **Media Servers Settings (`BookmarkSyncPreferencesSection`):** Clears stale `192.168.1.100` default, adds **Find PC (Wi-Fi)** auto-scanner (`/api/sync/ping`), **Use USB cable (ADB reverse)** checkbox (`http://127.0.0.1:8000` with ADB guidance instead of a false phone-loopback warning), `X-Sync-Token` field, Test Connection, and Sync Now.
+  * **Bookmark Gallery & Player Menus (`BookmarkGalleryScreen`, `BookmarkListContent`, `PlayerSheets`):** Adds **Auto-match videos** button scanning Android `MediaFileRepository` videos by JVID/stem automatically after sync or on demand, plus **Choose thumbnail** in `BookmarkActionMenuDialog` (`BookmarkThumbnailPickerDialog`) offering Capture Current Frame, Pick Image from Device, and remote `AV Manager` / `Stash` / `mpvRx` candidate switching.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` -> `computeOshash`, `computeFromBytes`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` -> `writeArchive`, `readArchive`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` -> `BookmarkGalleryContent`, `BookmarkGalleryCard`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` -> `BookmarkSyncServerRow`, `BookmarkSyncConfigDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`, `computeFromBytes`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `writeArchive`, `readArchive`, `parseJsonImport`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` :: `BookmarkSyncServerRow`, `BookmarkSyncConfigDialog`
 
 

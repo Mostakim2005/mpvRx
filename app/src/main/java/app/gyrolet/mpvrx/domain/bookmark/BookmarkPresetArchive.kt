@@ -18,10 +18,20 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.PushbackInputStream
+import java.util.Base64
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -159,11 +169,24 @@ object BookmarkPresetArchive {
     thumbnailOutputDir: File,
   ): ImportedBookmarkPreset {
     ensurePrivateThumbnailDir(thumbnailOutputDir)
+    val pb = PushbackInputStream(input, 64)
+    val head = ByteArray(64)
+    val headLen = pb.read(head).coerceAtLeast(0)
+    if (headLen > 0) {
+      pb.unread(head, 0, headLen)
+    }
+    val headPreview = head.copyOf(headLen).toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+    if (headPreview.startsWith("{") || headPreview.startsWith("[")) {
+      val jsonBytes = readBoundedBytes(pb, 16 * 1024 * 1024)
+      val rawText = jsonBytes.toString(Charsets.UTF_8).trimStart('\uFEFF').trim()
+      return parseJsonImport(rawText, targetGroupKey, thumbnailOutputDir)
+    }
+
     var manifestJson: String? = null
     val pendingThumbBytes = LinkedHashMap<String, ByteArray>()
     var entryCount = 0
 
-    ZipInputStream(input).use { zip ->
+    ZipInputStream(pb).use { zip ->
       while (true) {
         val entry = zip.nextEntry ?: break
         entryCount++
@@ -191,7 +214,11 @@ object BookmarkPresetArchive {
     }
 
     val rawManifest = manifestJson ?: throw IllegalArgumentException("Missing $MANIFEST_ENTRY in bookmark preset")
-    val manifest = json.decodeFromString<BookmarkPresetManifest>(rawManifest)
+    val decoded = json.decodeFromString<BookmarkPresetManifest>(rawManifest)
+    val canonicalCode =
+      decoded.presetCode?.let { BookmarkMediaMatcher.extractJvidCode(it) ?: it }
+        ?: BookmarkMediaMatcher.extractJvidCode(decoded.sourceLabel)
+    val manifest = decoded.copy(presetCode = canonicalCode)
     if (manifest.bookmarks.size > MAX_BOOKMARKS) {
       throw IllegalArgumentException("Preset archive exceeds maximum of $MAX_BOOKMARKS bookmarks")
     }
@@ -204,20 +231,8 @@ object BookmarkPresetArchive {
           entry.thumbnailEntry?.let { entryName ->
             pendingThumbBytes[entryName]?.let { bytes ->
               materializedPaths.getOrPut(entryName) {
-                val payload =
-                  runCatching {
-                    app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(bytes)
-                  }.getOrNull() ?: bytes
-                val ext =
-                  if (app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedBytes(payload)) {
-                    "dat"
-                  } else {
-                    entryName.substringAfterLast('.', "jpg").lowercase()
-                      .takeIf { it == "jpg" || it == "jpeg" || it == "png" || it == "webp" } ?: "jpg"
-                  }
-                val destFile = File(thumbnailOutputDir, "bm_import_${UUID.randomUUID()}.$ext")
-                destFile.writeBytes(payload)
-                destFile.absolutePath
+                val extHint = entryName.substringAfterLast('.', "jpg")
+                saveImportedThumbnailBytes(bytes, extHint, thumbnailOutputDir)
               }
             }
           }
@@ -248,6 +263,197 @@ object BookmarkPresetArchive {
       bookmarks = importedBookmarks,
       importedTagsByIndex = importedTags,
     )
+  }
+
+  private fun parseJsonImport(
+    rawText: String,
+    targetGroupKey: String,
+    thumbnailOutputDir: File,
+  ): ImportedBookmarkPreset {
+    val root = json.parseToJsonElement(rawText)
+    if (root is JsonObject && root.containsKey("schemaVersion")) {
+      val decoded = json.decodeFromString<BookmarkPresetManifest>(rawText)
+      val canonicalCode =
+        decoded.presetCode?.let { BookmarkMediaMatcher.extractJvidCode(it) ?: it }
+          ?: BookmarkMediaMatcher.extractJvidCode(decoded.sourceLabel)
+      val manifest = decoded.copy(presetCode = canonicalCode)
+      if (manifest.bookmarks.size > MAX_BOOKMARKS) {
+        throw IllegalArgumentException("Preset JSON exceeds maximum of $MAX_BOOKMARKS bookmarks")
+      }
+      val importedTags = ArrayList<List<String>>(manifest.bookmarks.size)
+      val importedBookmarks =
+        manifest.bookmarks.map { entry ->
+          val cleanTags =
+            (entry.tags.ifEmpty { listOfNotNull(entry.primaryTag) })
+              .map { raw -> BookmarkTagRules.normalize(raw) }
+              .filter { it.isNotBlank() }
+              .distinct()
+          importedTags.add(cleanTags)
+          val created = entry.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+          PlaybackBookmarkEntity(
+            mediaId = targetGroupKey,
+            positionMs = entry.positionMs.coerceAtLeast(0L),
+            title = entry.title.trim().ifBlank { "Bookmark" },
+            createdAt = created,
+            bookTrackId = null,
+            thumbnailPath = null,
+            endPositionMs = entry.endPositionMs,
+            primaryTag = entry.primaryTag?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: cleanTags.firstOrNull(),
+            syncUuid = entry.syncUuid?.trim()?.takeIf { it.isNotEmpty() },
+            originApp = "preset_json",
+            updatedAt = entry.updatedAt.takeIf { it > 0L } ?: created,
+          )
+        }
+      return ImportedBookmarkPreset(
+        manifest = manifest,
+        bookmarks = importedBookmarks,
+        importedTagsByIndex = importedTags,
+      )
+    }
+
+    val rawArray: JsonArray =
+      when {
+        root is JsonArray -> root
+        root is JsonObject && root["bookmarks"] is JsonArray -> root["bookmarks"]!!.jsonArray
+        root is JsonObject && root["scene_markers"] is JsonArray -> root["scene_markers"]!!.jsonArray
+        root is JsonObject && root["data"] is JsonObject -> {
+          val findMarkers = root["data"]!!.jsonObject["findSceneMarkers"] as? JsonObject
+          findMarkers?.get("scene_markers") as? JsonArray ?: JsonArray(emptyList())
+        }
+        else -> JsonArray(emptyList())
+      }
+    if (rawArray.isEmpty()) {
+      throw IllegalArgumentException("No bookmarks or markers found in JSON file")
+    }
+    if (rawArray.size > MAX_BOOKMARKS) {
+      throw IllegalArgumentException("JSON exceeds maximum of $MAX_BOOKMARKS bookmarks")
+    }
+
+    var detectedCode: String? =
+      if (root is JsonObject) {
+        val rawCode = (root["presetCode"] ?: root["code"])?.jsonPrimitive?.content
+        BookmarkMediaMatcher.extractJvidCode(rawCode)
+      } else {
+        null
+      }
+
+    val importedTags = ArrayList<List<String>>(rawArray.size)
+    val importedEntries = ArrayList<BookmarkPresetEntry>(rawArray.size)
+    val importedBookmarks =
+      rawArray.mapNotNull { elem ->
+        val obj = elem as? JsonObject ?: return@mapNotNull null
+        val posMs =
+          obj["positionMs"]?.jsonPrimitive?.longOrNull
+            ?: ((obj["timestamp_sec"] ?: obj["seconds"])?.jsonPrimitive?.doubleOrNull?.times(1000.0))?.toLong()
+            ?: return@mapNotNull null
+        val endMs =
+          obj["endPositionMs"]?.jsonPrimitive?.longOrNull
+            ?: ((obj["end_sec"] ?: obj["end_seconds"])?.jsonPrimitive?.doubleOrNull?.times(1000.0))?.toLong()
+        val itemCode =
+          (obj["code"] ?: (obj["scene"] as? JsonObject)?.get("code") ?: (obj["scene"] as? JsonObject)?.get("title"))
+            ?.jsonPrimitive?.content
+        if (detectedCode == null && !itemCode.isNullOrBlank()) {
+          detectedCode = BookmarkMediaMatcher.extractJvidCode(itemCode)
+        }
+        val tagNames = LinkedHashSet<String>()
+        val primTagObj = obj["primary_tag"] as? JsonObject
+        val rawPrimary =
+          (primTagObj?.get("name") ?: obj["primaryTag"] ?: obj["primary_tag"])?.jsonPrimitive?.content
+        if (!rawPrimary.isNullOrBlank()) {
+          BookmarkTagRules.normalize(rawPrimary).takeIf { it.isNotBlank() }?.let { tagNames.add(it) }
+        }
+        val tagsArr = (obj["tags_list"] ?: obj["tags"]) as? JsonArray
+        tagsArr?.forEach { tEl ->
+          val tStr =
+            when (tEl) {
+              is JsonObject -> tEl["name"]?.jsonPrimitive?.content
+              else -> runCatching { tEl.jsonPrimitive.content }.getOrNull()
+            }
+          if (!tStr.isNullOrBlank()) {
+            BookmarkTagRules.normalize(tStr).takeIf { it.isNotBlank() }?.let { tagNames.add(it) }
+          }
+        }
+        val cleanTags = tagNames.toList()
+        importedTags.add(cleanTags)
+
+        val thumbRaw = obj["thumbnail_base64"]?.jsonPrimitive?.content.orEmpty().trim()
+        val thumbPath =
+          if (thumbRaw.isNotEmpty()) {
+            val b64 = thumbRaw.substringAfter("base64,", thumbRaw)
+            val bytes = runCatching { Base64.getMimeDecoder().decode(b64) }.getOrNull()
+            if (bytes != null && bytes.isNotEmpty()) {
+              saveImportedThumbnailBytes(bytes, "jpg", thumbnailOutputDir)
+            } else {
+              null
+            }
+          } else {
+            null
+          }
+        val title = obj["title"]?.jsonPrimitive?.content?.trim()?.ifBlank { "Bookmark" } ?: "Bookmark"
+        val syncUuid = obj["sync_uuid"]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotEmpty() }
+        val now = System.currentTimeMillis()
+        importedEntries.add(
+          BookmarkPresetEntry(
+            syncUuid = syncUuid,
+            positionMs = posMs.coerceAtLeast(0L),
+            endPositionMs = endMs,
+            title = title,
+            primaryTag = cleanTags.firstOrNull(),
+            tags = cleanTags,
+            createdAt = now,
+            updatedAt = now,
+          ),
+        )
+        PlaybackBookmarkEntity(
+          mediaId = targetGroupKey,
+          positionMs = posMs.coerceAtLeast(0L),
+          title = title,
+          createdAt = now,
+          bookTrackId = null,
+          thumbnailPath = thumbPath,
+          endPositionMs = endMs,
+          primaryTag = cleanTags.firstOrNull(),
+          syncUuid = syncUuid,
+          originApp = "json_import",
+          updatedAt = now,
+        )
+      }
+
+    if (importedBookmarks.isEmpty()) {
+      throw IllegalArgumentException("No valid bookmarks found in JSON file")
+    }
+    val manifest =
+      BookmarkPresetManifest(
+        schemaVersion = 2,
+        presetCode = detectedCode,
+        bookmarks = importedEntries,
+      )
+    return ImportedBookmarkPreset(
+      manifest = manifest,
+      bookmarks = importedBookmarks,
+      importedTagsByIndex = importedTags,
+    )
+  }
+
+  private fun saveImportedThumbnailBytes(
+    bytes: ByteArray,
+    extHint: String,
+    thumbnailOutputDir: File,
+  ): String {
+    val payload =
+      runCatching {
+        app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(bytes)
+      }.getOrNull() ?: bytes
+    val ext =
+      if (app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedBytes(payload)) {
+        "dat"
+      } else {
+        extHint.lowercase()
+          .takeIf { it == "jpg" || it == "jpeg" || it == "png" || it == "webp" } ?: "jpg"
+      }
+    val destFile = File(thumbnailOutputDir, "bm_import_${UUID.randomUUID()}.$ext")
+    destFile.writeBytes(payload)
+    return destFile.absolutePath
   }
 
   suspend fun exportToUri(

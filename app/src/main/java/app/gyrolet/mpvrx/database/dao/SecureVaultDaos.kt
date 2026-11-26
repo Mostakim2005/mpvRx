@@ -89,11 +89,14 @@ interface SecureBookmarkDao {
   @Insert
   suspend fun addAll(bookmarks: List<SecureBookmarkEntity>): List<Long>
 
-  @Query("UPDATE secure_bookmarks SET title = :title WHERE id = :id")
-  suspend fun rename(id: Long, title: String)
+  @Query("UPDATE secure_bookmarks SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun rename(id: Long, title: String, updatedAt: Long = System.currentTimeMillis())
 
-  @Query("UPDATE secure_bookmarks SET thumbnailPath = :thumbnailPath WHERE id = :id")
-  suspend fun updateThumbnail(id: Long, thumbnailPath: String?): Int
+  @Query("UPDATE secure_bookmarks SET thumbnailPath = :thumbnailPath, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun updateThumbnail(id: Long, thumbnailPath: String?, updatedAt: Long = System.currentTimeMillis()): Int
+
+  @Query("UPDATE secure_bookmarks SET updatedAt = :updatedAt WHERE id = :id")
+  suspend fun touchUpdatedAt(id: Long, updatedAt: Long = System.currentTimeMillis())
 
   @Query("DELETE FROM secure_bookmarks WHERE id = :id")
   suspend fun delete(id: Long)

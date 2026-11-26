@@ -352,8 +352,19 @@ flowchart LR
 ---
 
 ### [TRAP: Android-Loopback-Hub-URL-And-Short-Sync-Timeouts] | Aliases: 127.0.0.1 on phone, syncClient readTimeout 90s, friendlyNetworkError
-> **1-Line Summary:** Default `SharedHttpClient` (`30s` read timeout) can time out during cold Cryptomator/Stash syncs and `127.0.0.1` refers to the Android device itself; `PcBookmarkSyncRepository` uses a `90s` read / `120s` call `syncClient` with explicit loopback/timeout/401 diagnostics (`java.net.URI` for pure-JVM testability) and an inline settings warning.
+> **1-Line Summary:** Default `SharedHttpClient` (`30s` read timeout) can time out during cold Cryptomator/Stash syncs and `127.0.0.1` refers to the Android device itself unless USB `adb reverse` is active; `PcBookmarkSyncRepository` uses a `90s` read / `120s` call `syncClient`, cleared the hardcoded `192.168.1.100` default, adds `/api/sync/ping` Wi-Fi auto-discovery + `usbModeEnabled` toggle, and uses `java.net.URI` + `java.util.Base64` inside pure-JVM-tested helpers.
 * **Protected Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncClient`, `friendlyNetworkError`, `isLoopbackUrl`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` -> `BookmarkSyncConfigDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `syncClient`, `discoverPcHubOnLan`, `friendlyNetworkError`, `isLoopbackUrl`
+  * `app/src/main/java/app/gyrolet/mpvrx/preferences/BookmarkSyncPreferences.kt` :: `hubUrl`, `usbModeEnabled`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` :: `BookmarkSyncConfigDialog`
+
+---
+
+### [TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict] | Aliases: updatedat missing on rename, pull timestamp overwrite, secure replaceTags updatedAt
+> **1-Line Summary:** Room `rename` / `updateThumbnail` queries originally omitted `updatedAt` (preventing phone edits from winning LWW merge against `AV Manager`), while calling an unconditional `System.currentTimeMillis()` default during remote pulls would falsely overwrite pulled timestamps; bump `updatedAt` in DAOs on local edits, always pass `remoteUpdMs` explicitly during `syncWithPcHub`, and keep pure-JVM helpers (`BookmarkMediaMatcher`, `BookmarkPresetArchive`) free of `android.net.Uri` / `android.util.Base64`.
+* **Protected Code Anchors (Grep Targets):**
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `rename`, `updateThumbnail`, `touchBookmarkUpdatedAt`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/SecureVaultDaos.kt` :: `rename`, `updateThumbnail`, `touchUpdatedAt`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `parseJsonImport`
 

@@ -44,11 +44,11 @@ interface PlaybackBookmarkDao {
   @Insert
   suspend fun addAll(bookmarks: List<PlaybackBookmarkEntity>): List<Long>
 
-  @Query("UPDATE playback_bookmarks SET title = :title WHERE id = :id")
-  suspend fun rename(id: Long, title: String)
+  @Query("UPDATE playback_bookmarks SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun rename(id: Long, title: String, updatedAt: Long = System.currentTimeMillis())
 
-  @Query("UPDATE playback_bookmarks SET thumbnailPath = :thumbnailPath WHERE id = :id")
-  suspend fun updateThumbnail(id: Long, thumbnailPath: String?): Int
+  @Query("UPDATE playback_bookmarks SET thumbnailPath = :thumbnailPath, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun updateThumbnail(id: Long, thumbnailPath: String?, updatedAt: Long = System.currentTimeMillis()): Int
 
   @Query("DELETE FROM playback_bookmarks WHERE id = :id")
   suspend fun delete(id: Long)

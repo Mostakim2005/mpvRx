@@ -324,12 +324,12 @@ flowchart LR
 
 ---
 
-### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video
-> **1-Line Summary:** Bridges `MpvRxDatabase` v36 (`oshash`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via LAN REST (`X-Sync-Token`), Preset `.zip` v2 archives, and SAF `OpenDocument` orphan linking while isolating `SecureVaultDatabase` v2.
+### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, jvid extraction, usb adb sync, thumbnail chooser
+> **1-Line Summary:** Bridges `MpvRxDatabase` v36 (`oshash`, canonical JVID `presetCode`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi discovery (`/api/sync/ping`), USB ADB mode, bi-directional LWW REST sync (`X-Sync-Token`), universal `.zip`/`.json` import, automatic local JVID matching (`MediaFileRepository`), and multi-source thumbnail switching (`BookmarkThumbnailPickerDialog`) while isolating `SecureVaultDatabase` v2.
 * **How It Works (Plain English):**
-  * Computing identical 64-bit OpenSubtitles `oshash` over `File` and SAF `content://` descriptors lets phone bookmarks auto-link to PC/Stash scenes regardless of filename differences.
-  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge`) and binary JPEG thumbnails (`/api/sync/thumbnail/{uuid}`) exclusively with public `MpvRxDatabase` (`R-11` isolation).
-  * Unlinked remote groups land in `bookmark_groups` and appear under `Unlinked only` in `BookmarkGalleryScreen` so one tap of `Point to video` binds a local URI + `oshash` + `BookmarkMediaRefEntity`.
+  * Canonical JVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsWithLocalLibrary` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later.
+  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge`) and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`, `/api/bookmarks/{uuid}/thumbnails*`) exclusively with public `MpvRxDatabase` (`R-11` isolation), respecting `updatedAt` timestamps bumped on Room `rename`, `updateThumbnail`, and tag edits.
+  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / 1-tap `Auto-match videos`, or remain under `Unlinked only` in `BookmarkGalleryScreen` for manual `Point to video` binding.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart LR
@@ -338,25 +338,29 @@ flowchart LR
     classDef syncNode fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#ffffff
     classDef pcHub fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fffbeb
 
-    PublicDB[("MpvRxDatabase v36\noshash, syncUuid, tombstones")]:::publicDb
+    PublicDB[("MpvRxDatabase v36\noshash, JVID, syncUuid, tombstones")]:::publicDb
     SecureDB[("SecureVaultDatabase v2\nMVX1 Encrypted (Isolated R-11)")]:::secureDb
-    PresetV2["Preset .zip v2 Archive\ntags, primaryTag, oshash, thumbs"]:::syncNode
-    SyncRepo["PcBookmarkSyncRepository\nOkHttp + X-Sync-Token"]:::syncNode
+    PresetV2["Preset .zip v2 & JSON\nPreset / Vault / Stash JSON"]:::syncNode
+    SyncRepo["PcBookmarkSyncRepository\nLAN Ping + USB ADB + X-Sync-Token"]:::syncNode
     AvHub[("AV Manager vault.db\n<-> Stash localhost:9999")]:::pcHub
-    OrphanUI["BookmarkGalleryScreen\nPoint to Video (OpenDocument)"]:::publicDb
+    OrphanUI["BookmarkGallery & Picker UI\nAuto-Match + Thumbnail Chooser"]:::publicDb
 
-    PublicDB <--> SyncRepo <-->|LWW Merge + JPEG| AvHub
+    PublicDB <--> SyncRepo <-->|LWW Merge + Thumbs| AvHub
     PublicDB <--> PresetV2
-    SecureDB <-.->|"Local ZIP Only\n(Never LAN Synced)"| PresetV2
-    OrphanUI -->|Updates oshash + MediaRef| PublicDB
+    SecureDB <-.->|"Local ZIP/JSON Only\n(Never LAN Synced)"| PresetV2
+    OrphanUI -->|JVID Link + Thumb Select| PublicDB
 ```
 
-> **Legend box:** Emerald = Public DB & Orphan Linker UI | Rose = Isolated Secure Vault | Indigo = Sync Repository & Preset v2 `.zip` | Amber = PC Hub (`AV Manager` + `Stash`)
+> **Legend box:** Emerald = Public DB, Auto-Match & Thumbnail Picker | Rose = Isolated Secure Vault | Indigo = Sync Repository & Universal Preset Reader | Amber = PC Hub (`AV Manager` + `Stash`)
 
+* **Links:** `[FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` -> `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` -> `MIGRATION_35_36`, `SECURE_MIGRATION_1_2`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `SECURE_MIGRATION_1_2`
 
 ---
 

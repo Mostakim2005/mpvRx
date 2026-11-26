@@ -1,3 +1,12 @@
+## 3.3.3 — Wi-Fi/USB Sync Discovery, JVID Auto-Match, JSON Import & Thumbnail Chooser
+
+- **Wi-Fi Auto-Discovery & USB Cable Sync:** Cleared the stale `192.168.1.100` Hub default and added 1-tap `Find PC (Wi-Fi)` (`/api/sync/ping` LAN scan) plus `Use USB cable (ADB reverse)` (`127.0.0.1:8000` with ADB guidance) in `Media Servers -> AV Manager & Stash Bookmark Sync`.
+- **Unified Canonical JVID Matching & Auto-Linker:** Extracted canonical JVID release codes (`MIMK-232`, `FC2-PPV-1234567`) even from noisy filenames (`mimk232c`, `[4K] _MIMK-232_`), automatically matching existing bookmarks on playback and adding 1-tap `Auto-match videos` (plus automatic post-sync matching) in Bookmark Gallery.
+- **True 2-Way Edits & Thumbnail Sync:** Fixed `rename`, `updateThumbnail`, and Secure Vault tag updates to bump `updatedAt` timestamps so phone changes sync reliably to PC and Stash, and synchronized updated thumbnails in both directions.
+- **Universal JSON & ZIP Preset Importer:** Upgraded preset file import (`BookmarkPresetArchive`) to read standalone `.json` exports (Preset v1/v2 `preset.json`, AV Manager Vault backups, and Stash `scene_markers` JSON) alongside `.bookmarks.zip`.
+- **Bookmark Thumbnail Chooser:** Added `Choose thumbnail` to bookmark menus with Capture Current Frame, Pick Image from Device, and remote `AV Manager` / `Stash` / `mpvRx` candidate switching.
+- **Release tag:** `v3.3.3`.
+
 ## 3.3.2 — AV Manager Sync Timeouts, Loopback Guard & Connection Diagnostics
 
 - **Dedicated Sync HTTP Timeouts:** Added a dedicated `OkHttpClient` configuration (`15s` connect, `90s` read, `60s` write, `120s` call) in `PcBookmarkSyncRepository` across connection checks, `/api/sync/merge`, and thumbnail transfers so warm/cold Cryptomator and Stash syncs finish reliably.

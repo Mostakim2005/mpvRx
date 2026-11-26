@@ -238,6 +238,7 @@ class SecureBookmarkStore(
     stemKey: String?,
     durationSec: Int,
     oshash: String? = null,
+    sourceLabel: String? = null,
   ): String =
     withContext(Dispatchers.IO) {
       bookmarkDao.findLinkedGroupKey(rawMediaId)?.let { return@withContext it }
@@ -264,13 +265,35 @@ class SecureBookmarkStore(
           }
       }
 
+      val jvidCode =
+        BookmarkMediaMatcher.extractJvidCode(sourceLabel)
+          ?: BookmarkMediaMatcher.extractJvidCode(rawMediaId)
+      if (!jvidCode.isNullOrBlank()) {
+        groups
+          .filter { g ->
+            val gCode =
+              g.presetCode?.let { BookmarkMediaMatcher.extractJvidCode(it) ?: it.uppercase(java.util.Locale.ROOT) }
+                ?: BookmarkMediaMatcher.extractJvidCode(g.sourceLabel)
+                ?: BookmarkMediaMatcher.extractJvidCode(g.groupKey)
+            gCode != null && gCode.equals(jvidCode, ignoreCase = true)
+          }.maxByOrNull { it.updatedAt }
+          ?.let { matched ->
+            bookmarkDao.upsertMediaLink(
+              SecureBookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey),
+            )
+            return@withContext matched.groupKey
+          }
+      }
+
       if (!stemKey.isNullOrBlank() && durationSec > 0) {
         groups
           .filter { g ->
             g.stemKey == stemKey && (g.durationSec <= 0 || abs(g.durationSec - durationSec) <= 3)
           }.maxByOrNull { it.updatedAt }
           ?.let { matched ->
-            bookmarkDao.upsertMediaLink(SecureBookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey))
+            bookmarkDao.upsertMediaLink(
+              SecureBookmarkMediaLinkEntity(mediaId = rawMediaId, groupKey = matched.groupKey),
+            )
             return@withContext matched.groupKey
           }
       }
@@ -287,15 +310,23 @@ class SecureBookmarkStore(
     val now = System.currentTimeMillis()
     if (metadata == null) {
       if (existing == null) {
-        bookmarkDao.upsertGroup(BookmarkGroupEntity(groupKey = groupKey, updatedAt = now).toSecure())
+        val codeOnly = BookmarkMediaMatcher.extractJvidCode(groupKey)
+        val newGroup = BookmarkGroupEntity(groupKey = groupKey, presetCode = codeOnly, updatedAt = now)
+        bookmarkDao.upsertGroup(newGroup.toSecure())
       }
       return@withContext
     }
 
+    val inferredCode =
+      existing?.presetCode?.takeIf { it.isNotBlank() }
+        ?: BookmarkMediaMatcher.extractJvidCode(metadata.sourceLabel)
+        ?: BookmarkMediaMatcher.extractJvidCode(metadata.rawMediaId)
+        ?: BookmarkMediaMatcher.extractJvidCode(groupKey)
+
     val updated =
       BookmarkGroupEntity(
         groupKey = groupKey,
-        presetCode = existing?.presetCode,
+        presetCode = inferredCode,
         oshash = metadata.oshash ?: existing?.oshash,
         fingerprint = metadata.fingerprint ?: existing?.fingerprint,
         stemKey = metadata.stemKey ?: existing?.stemKey,
@@ -539,6 +570,7 @@ class SecureBookmarkStore(
         )
       }
     }
+    bookmarkDao.touchUpdatedAt(bookmarkId, now)
   }
 
   fun observeMemory(): Flow<List<BookmarkTagMemoryEntity>> =

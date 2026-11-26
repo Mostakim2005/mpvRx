@@ -19,8 +19,14 @@ import app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore
 import app.gyrolet.mpvrx.domain.bookmark.OshashCalculator
 import app.gyrolet.mpvrx.domain.secure.VaultCrypto
 import app.gyrolet.mpvrx.preferences.BookmarkSyncPreferences
+import app.gyrolet.mpvrx.repository.MediaFileRepository
 import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -32,6 +38,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.net.ConnectException
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
@@ -142,6 +150,39 @@ data class SyncThumbnailUploadRequest(
   @SerialName("thumbnail_base64") val thumbnailBase64: String,
 )
 
+@Serializable
+data class SyncPingResponse(
+  val app: String = "",
+  val version: String = "",
+  @SerialName("lan_ip") val lanIp: String = "",
+  val port: Int = 8000,
+)
+
+@Serializable
+data class ThumbnailCandidateDto(
+  val source: String = "",
+  val label: String = "",
+  @SerialName("data_uri") val dataUri: String = "",
+  @SerialName("is_active") val isActive: Boolean = false,
+)
+
+@Serializable
+data class ThumbnailCandidatesResponse(
+  @SerialName("bookmark_id") val bookmarkId: Long = 0,
+  @SerialName("sync_uuid") val syncUuid: String = "",
+  val code: String = "",
+  @SerialName("group_key") val groupKey: String = "",
+  val title: String = "",
+  @SerialName("active_thumbnail") val activeThumbnail: String = "",
+  val candidates: List<ThumbnailCandidateDto> = emptyList(),
+)
+
+@Serializable
+data class ThumbnailSelectRequest(
+  val source: String,
+  @SerialName("thumbnail_base64") val thumbnailBase64: String = "",
+)
+
 data class PcSyncResult(
   val inserted: Int,
   val updated: Int,
@@ -149,6 +190,7 @@ data class PcSyncResult(
   val thumbnailsDownloaded: Int,
   val thumbnailsUploaded: Int,
   val stashReachable: Boolean,
+  val autoMatchedGroups: Int = 0,
 )
 
 data class LinkedOrphanResult(
@@ -170,6 +212,7 @@ class PcBookmarkSyncRepository(
   private val prefs: BookmarkSyncPreferences,
   private val httpClient: OkHttpClient,
   private val json: Json,
+  private val mediaFileRepository: MediaFileRepository? = null,
 ) {
   private val bookmarkDao get() = database.playbackBookmarkDao()
   private val tagDao get() = database.bookmarkTagDao()
@@ -187,11 +230,12 @@ class PcBookmarkSyncRepository(
   suspend fun testConnection(
     hubUrl: String = prefs.hubUrl.get(),
     token: String = prefs.syncToken.get(),
+    usbMode: Boolean = prefs.usbModeEnabled.get(),
   ): Result<String> =
     withContext(Dispatchers.IO) {
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       runCatching {
-        require(baseUrl.isNotEmpty()) { "Enter AV Manager URL" }
+        require(baseUrl.isNotEmpty()) { "Enter AV Manager URL or tap Find PC (Wi-Fi)" }
         val req = buildRequestBuilder("$baseUrl/api/sync/status", token).get().build()
         val body =
           syncClient.newCall(req).execute().use { resp ->
@@ -207,13 +251,91 @@ class PcBookmarkSyncRepository(
           if (status.stash.reachable) "Stash OK (${status.stash.markerCount} markers)" else "Stash offline"
         "$vaultMsg • $stashMsg"
       }.recoverCatching { err ->
-        throw friendlyNetworkError(baseUrl, err)
+        throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
+      }
+    }
+
+  suspend fun discoverPcHubOnLan(includeUsbLoopback: Boolean = true): Result<String> =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        val probeClient =
+          httpClient
+            .newBuilder()
+            .connectTimeout(900, TimeUnit.MILLISECONDS)
+            .readTimeout(1500, TimeUnit.MILLISECONDS)
+            .callTimeout(2200, TimeUnit.MILLISECONDS)
+            .build()
+
+        val candidates = LinkedHashSet<String>()
+        if (includeUsbLoopback) {
+          candidates.add("http://127.0.0.1:8000")
+        }
+        BookmarkSyncPreferences.normalizeHubUrl(prefs.hubUrl.get()).takeIf { it.isNotEmpty() }?.let {
+          candidates.add(it)
+        }
+
+        val prefixes = LinkedHashSet<String>()
+        runCatching {
+          val ifaces = NetworkInterface.getNetworkInterfaces()
+          while (ifaces != null && ifaces.hasMoreElements()) {
+            val nif = ifaces.nextElement()
+            if (!nif.isUp || nif.isLoopback) continue
+            val addrs = nif.inetAddresses
+            while (addrs.hasMoreElements()) {
+              val addr = addrs.nextElement()
+              if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                val host = addr.hostAddress.orEmpty()
+                val parts = host.split('.')
+                if (parts.size == 4 && parts[0] != "127") {
+                  prefixes.add("${parts[0]}.${parts[1]}.${parts[2]}")
+                }
+              }
+            }
+          }
+        }
+        val priorityOctets = listOf(100, 101, 102, 2, 10, 50, 150, 200, 1)
+        for (prefix in prefixes) {
+          priorityOctets.forEach { oct -> candidates.add("http://$prefix.$oct:8000") }
+          for (oct in 2..254) {
+            if (oct !in priorityOctets) {
+              candidates.add("http://$prefix.$oct:8000")
+            }
+          }
+        }
+
+        val gate = Semaphore(24)
+        var discoveredUrl: String? = null
+        coroutineScope {
+          val jobs =
+            candidates.map { base ->
+              async {
+                if (discoveredUrl != null) return@async null
+                gate.withPermit {
+                  if (discoveredUrl != null) return@withPermit null
+                  runCatching {
+                    val req = Request.Builder().url("$base/api/sync/ping").get().build()
+                    probeClient.newCall(req).execute().use { resp ->
+                      if (!resp.isSuccessful) return@use null
+                      val body = resp.body.string()
+                      val ping = json.decodeFromString<SyncPingResponse>(body)
+                      if (ping.app == "av-manager") base else null
+                    }
+                  }.getOrNull()?.also { found ->
+                    discoveredUrl = found
+                  }
+                }
+              }
+            }
+          jobs.awaitAll()
+        }
+        discoveredUrl ?: error("No AV Manager server found on Wi-Fi or USB")
       }
     }
 
   suspend fun syncWithPcHub(
     hubUrl: String = prefs.hubUrl.get(),
     token: String = prefs.syncToken.get(),
+    usbMode: Boolean = prefs.usbModeEnabled.get(),
   ): Result<PcSyncResult> =
     withContext(Dispatchers.IO) {
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
@@ -334,14 +456,22 @@ class PcBookmarkSyncRepository(
         val groupKeyMap = HashMap<String, String>()
         val refreshedGroups = bookmarkDao.getAllGroups()
         bundle.groups.forEach { rg ->
+          val rgJvid =
+            BookmarkMediaMatcher.extractJvidCode(rg.code)
+              ?: BookmarkMediaMatcher.extractJvidCode(rg.sourceLabel)
+              ?: BookmarkMediaMatcher.extractJvidCode(rg.groupKey)
           val matched =
             refreshedGroups.firstOrNull { it.groupKey == rg.groupKey }
               ?: rg.oshash.takeIf { it.isNotBlank() }?.let { oh ->
                 refreshedGroups.firstOrNull { !it.oshash.isNullOrBlank() && it.oshash.equals(oh, ignoreCase = true) }
               }
-              ?: rg.code.takeIf { it.isNotBlank() }?.let { code ->
-                refreshedGroups.firstOrNull {
-                  !it.presetCode.isNullOrBlank() && it.presetCode.equals(code, ignoreCase = true)
+              ?: rgJvid?.let { code ->
+                refreshedGroups.firstOrNull { cand ->
+                  val cCode =
+                    BookmarkMediaMatcher.extractJvidCode(cand.presetCode)
+                      ?: BookmarkMediaMatcher.extractJvidCode(cand.sourceLabel)
+                      ?: BookmarkMediaMatcher.extractJvidCode(cand.groupKey)
+                  cCode != null && cCode.equals(code, ignoreCase = true)
                 }
               }
               ?: rg.fingerprint.takeIf { it.isNotBlank() }?.let { fp ->
@@ -354,7 +484,10 @@ class PcBookmarkSyncRepository(
           val mergedGroup =
             BookmarkGroupEntity(
               groupKey = targetGroupKey,
-              presetCode = matched?.presetCode?.takeIf { it.isNotBlank() } ?: rg.code.takeIf { it.isNotBlank() },
+              presetCode =
+                matched?.presetCode?.takeIf { it.isNotBlank() }
+                  ?: rgJvid
+                  ?: rg.code.takeIf { it.isNotBlank() },
               oshash = matched?.oshash?.takeIf { it.isNotBlank() } ?: rg.oshash.takeIf { it.isNotBlank() },
               fingerprint =
                 matched?.fingerprint?.takeIf { it.isNotBlank() } ?: rg.fingerprint.takeIf { it.isNotBlank() },
@@ -402,6 +535,7 @@ class PcBookmarkSyncRepository(
 
           val targetBookmarkId: Long
           var localThumbPath = existing?.thumbnailPath
+          val localPreSyncUpd = existing?.updatedAt?.takeIf { it > 0L } ?: existing?.createdAt ?: 0L
 
           if (existing == null) {
             val insertedEntity =
@@ -426,9 +560,8 @@ class PcBookmarkSyncRepository(
             insertedCount++
           } else {
             targetBookmarkId = existing.id
-            val localUpd = existing.updatedAt.takeIf { it > 0L } ?: existing.createdAt
-            if (remoteUpdMs > localUpd) {
-              bookmarkDao.rename(existing.id, rb.title.trim().ifBlank { existing.title })
+            if (remoteUpdMs > localPreSyncUpd) {
+              bookmarkDao.rename(existing.id, rb.title.trim().ifBlank { existing.title }, updatedAt = remoteUpdMs)
               bookmarkDao.updateBookmarkSyncMetadata(
                 id = existing.id,
                 endPositionMs = endMs,
@@ -446,25 +579,41 @@ class PcBookmarkSyncRepository(
                 primaryTag = existing.primaryTag ?: primaryTag,
                 syncUuid = uuid,
                 originApp = existing.originApp,
-                updatedAt = localUpd,
+                updatedAt = localPreSyncUpd,
               )
             }
           }
 
-          if (rb.hasThumbnail && localThumbPath.isNullOrBlank()) {
-            val downloaded = downloadAndEncryptThumbnail(baseUrl, token, uuid, thumbDir)
-            if (downloaded != null) {
-              bookmarkDao.updateThumbnail(targetBookmarkId, downloaded)
-              localThumbPath = downloaded
-              downloadedThumbs++
-            }
-          } else if (!rb.hasThumbnail && !localThumbPath.isNullOrBlank()) {
+          val shouldUploadLocalThumb =
+            !localThumbPath.isNullOrBlank() &&
+              (!rb.hasThumbnail || (existing != null && localPreSyncUpd > remoteUpdMs))
+          val shouldDownloadRemoteThumb =
+            rb.hasThumbnail &&
+              (localThumbPath.isNullOrBlank() || (existing != null && remoteUpdMs > localPreSyncUpd))
+
+          if (shouldUploadLocalThumb && !localThumbPath.isNullOrBlank()) {
             if (uploadDecryptedThumbnail(baseUrl, token, uuid, localThumbPath)) {
               uploadedThumbs++
+            }
+          } else if (shouldDownloadRemoteThumb) {
+            val prevThumb = localThumbPath
+            val downloaded = downloadAndEncryptThumbnail(baseUrl, token, uuid, thumbDir)
+            if (downloaded != null) {
+              val stamp = if (remoteUpdMs > 0L) remoteUpdMs else System.currentTimeMillis()
+              bookmarkDao.updateThumbnail(targetBookmarkId, downloaded, updatedAt = stamp)
+              if (!prevThumb.isNullOrBlank() &&
+                prevThumb != downloaded &&
+                bookmarkDao.countByThumbnailPath(prevThumb) == 0
+              ) {
+                BookmarkThumbnailStore.deleteThumbnail(context, prevThumb, isSecure = false)
+              }
+              localThumbPath = downloaded
+              downloadedThumbs++
             }
           }
         }
 
+        val matchedCount = runCatching { autoMatchOrphanGroupsWithLocalLibrary() }.getOrDefault(0)
         val nowIso = formatIsoUtc(System.currentTimeMillis())
         prefs.lastSyncIso.set(nowIso)
         val pushedCount = mergeResp.stats.bookmarksInserted + mergeResp.stats.bookmarksUpdated
@@ -477,10 +626,183 @@ class PcBookmarkSyncRepository(
           thumbnailsDownloaded = downloadedThumbs,
           thumbnailsUploaded = uploadedThumbs,
           stashReachable = bundle.stashReachable,
+          autoMatchedGroups = matchedCount,
         )
       }.recoverCatching { err ->
-        throw friendlyNetworkError(baseUrl, err)
+        throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
       }
+    }
+
+  suspend fun autoMatchOrphanGroupsWithLocalLibrary(): Int =
+    withContext(Dispatchers.IO) {
+      val repo = mediaFileRepository ?: return@withContext 0
+      val groups = bookmarkDao.getAllGroups()
+      val unlinked =
+        groups.filter { g ->
+          bookmarkDao.mediaRef(g.groupKey) == null && bookmarkDao.countInGroup(g.groupKey) > 0
+        }
+      if (unlinked.isEmpty()) return@withContext 0
+
+      val folders = runCatching { repo.getAllVideoFolders(context, includeAudioOverride = false) }.getOrNull()
+        ?: return@withContext 0
+      if (folders.isEmpty()) return@withContext 0
+      val bucketIds = folders.map { it.bucketId }.toSet()
+      val videos =
+        runCatching {
+          repo.getVideosForBuckets(context, bucketIds, includeAudioOverride = false)
+        }.getOrNull().orEmpty()
+      if (videos.isEmpty()) return@withContext 0
+
+      val byJvid = HashMap<String, app.gyrolet.mpvrx.domain.media.model.Video>()
+      val byStem = HashMap<String, MutableList<app.gyrolet.mpvrx.domain.media.model.Video>>()
+      videos.forEach { vid ->
+        val rawName = vid.displayName.ifBlank { File(vid.path).name }
+        val jvid = BookmarkMediaMatcher.extractJvidCode(rawName)
+        if (!jvid.isNullOrBlank()) {
+          byJvid.putIfAbsent(jvid.uppercase(java.util.Locale.ROOT), vid)
+        }
+        val stem = BookmarkMediaMatcher.normalizedStem(rawName)
+        if (!stem.isNullOrBlank()) {
+          byStem.getOrPut(stem) { ArrayList() }.add(vid)
+        }
+      }
+
+      val now = System.currentTimeMillis()
+      var matchedCount = 0
+      unlinked.forEach { grp ->
+        val gJvid =
+          BookmarkMediaMatcher.extractJvidCode(grp.presetCode)
+            ?: BookmarkMediaMatcher.extractJvidCode(grp.sourceLabel)
+            ?: BookmarkMediaMatcher.extractJvidCode(grp.groupKey)
+        val cand =
+          gJvid?.let { byJvid[it.uppercase(java.util.Locale.ROOT)] }
+            ?: grp.stemKey?.let { sk ->
+              byStem[sk]?.firstOrNull { v ->
+                val vDur = (v.duration / 1000L).toInt()
+                grp.durationSec <= 0 || vDur <= 0 || abs(grp.durationSec - vDur) <= 3
+              }
+            }
+        if (cand != null) {
+          val uriStr = cand.uri.toString()
+          val mediaIds =
+            buildSet {
+              add(PlaybackIdentity.forUri(uriStr))
+              if (cand.path.isNotBlank()) add(PlaybackIdentity.normalizeLocalPath(cand.path))
+              add(uriStr)
+            }
+          mediaIds.forEach { cid ->
+            bookmarkDao.upsertMediaLink(
+              BookmarkMediaLinkEntity(mediaId = cid, groupKey = grp.groupKey, updatedAt = now),
+            )
+            bookmarkDao.upsertSyncMediaRef(
+              BookmarkMediaRefEntity(
+                mediaId = cid,
+                playableUri = uriStr,
+                title = cand.displayName.ifBlank { cand.title },
+                updatedAt = now,
+              ),
+            )
+          }
+          bookmarkDao.upsertSyncMediaRef(
+            BookmarkMediaRefEntity(
+              mediaId = grp.groupKey,
+              playableUri = uriStr,
+              title = cand.displayName.ifBlank { cand.title },
+              updatedAt = now,
+            ),
+          )
+          bookmarkDao.upsertGroup(
+            grp.copy(
+              presetCode = grp.presetCode?.takeIf { it.isNotBlank() } ?: gJvid,
+              sourceLabel = grp.sourceLabel.ifBlank { cand.displayName.ifBlank { File(cand.path).name } },
+              updatedAt = now,
+            ),
+          )
+          matchedCount++
+        }
+      }
+      matchedCount
+    }
+
+  suspend fun fetchThumbnailCandidates(
+    syncUuid: String,
+    hubUrl: String = prefs.hubUrl.get(),
+    token: String = prefs.syncToken.get(),
+  ): Result<ThumbnailCandidatesResponse> =
+    withContext(Dispatchers.IO) {
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
+      runCatching {
+        require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+        val req =
+          buildRequestBuilder("$baseUrl/api/bookmarks/$syncUuid/thumbnails", token).get().build()
+        val body =
+          syncClient.newCall(req).execute().use { resp ->
+            if (resp.code == 401 || resp.code == 403) error("Invalid Sync Token")
+            if (!resp.isSuccessful) error("HTTP ${resp.code}")
+            resp.body.string()
+          }
+        json.decodeFromString<ThumbnailCandidatesResponse>(body)
+      }
+    }
+
+  suspend fun selectRemoteThumbnailCandidate(
+    bookmark: PlaybackBookmarkEntity,
+    source: String,
+    hubUrl: String = prefs.hubUrl.get(),
+    token: String = prefs.syncToken.get(),
+  ): Boolean =
+    withContext(Dispatchers.IO) {
+      val uuid = bookmark.syncUuid?.trim()?.takeIf { it.isNotEmpty() } ?: return@withContext false
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
+      if (baseUrl.isEmpty()) return@withContext false
+      runCatching {
+        val payload = json.encodeToString(ThumbnailSelectRequest(source = source))
+        val req =
+          buildRequestBuilder("$baseUrl/api/bookmarks/$uuid/thumbnails/select", token)
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        val respBody =
+          syncClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code}")
+            resp.body.string()
+          }
+        val parsed = json.decodeFromString<ThumbnailCandidatesResponse>(respBody)
+        val activeData = parsed.activeThumbnail.trim()
+        val rawBytes =
+          if (activeData.isNotEmpty()) {
+            val b64 = activeData.substringAfter("base64,", activeData)
+            Base64.decode(b64, Base64.DEFAULT)
+          } else {
+            val imgReq = buildRequestBuilder("$baseUrl/api/sync/thumbnail/$uuid", token).get().build()
+            syncClient.newCall(imgReq).execute().use { r ->
+              if (r.isSuccessful) r.body.bytes() else ByteArray(0)
+            }
+          }
+        if (rawBytes.isEmpty()) return@runCatching false
+        val newPath = BookmarkThumbnailStore.saveImageBytes(context, rawBytes, isSecure = false)
+          ?: return@runCatching false
+        val now = System.currentTimeMillis()
+        bookmarkDao.updateThumbnail(bookmark.id, newPath, updatedAt = now)
+        val oldPath = bookmark.thumbnailPath
+        if (!oldPath.isNullOrBlank() && oldPath != newPath && bookmarkDao.countByThumbnailPath(oldPath) == 0) {
+          BookmarkThumbnailStore.deleteThumbnail(context, oldPath, isSecure = false)
+        }
+        true
+      }.getOrDefault(false)
+    }
+
+  suspend fun uploadBookmarkThumbnailById(
+    bookmarkId: Long,
+    hubUrl: String = prefs.hubUrl.get(),
+    token: String = prefs.syncToken.get(),
+  ): Boolean =
+    withContext(Dispatchers.IO) {
+      val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
+      if (baseUrl.isEmpty()) return@withContext false
+      val bm = bookmarkDao.getPublicBookmarks().firstOrNull { it.id == bookmarkId } ?: return@withContext false
+      val uuid = bm.syncUuid?.trim()?.takeIf { it.isNotEmpty() } ?: return@withContext false
+      val localPath = bm.thumbnailPath?.takeIf { it.isNotBlank() } ?: return@withContext false
+      uploadDecryptedThumbnail(baseUrl, token, uuid, localPath)
     }
 
   suspend fun linkOrphanGroupToUri(
@@ -504,6 +826,8 @@ class PcBookmarkSyncRepository(
 
         val updatedGroup =
           (existingGroup ?: BookmarkGroupEntity(groupKey = resolvedKey)).copy(
+            presetCode = existingGroup?.presetCode?.takeIf { it.isNotBlank() }
+              ?: BookmarkMediaMatcher.extractJvidCode(displayName),
             oshash = oshash ?: existingGroup?.oshash,
             stemKey = stemKey ?: existingGroup?.stemKey,
             fileSizeBytes = fileSize.takeIf { it > 0L } ?: existingGroup?.fileSizeBytes ?: 0L,
@@ -690,6 +1014,7 @@ class PcBookmarkSyncRepository(
     internal fun friendlyNetworkError(
       baseUrl: String,
       err: Throwable,
+      usbMode: Boolean = false,
     ): IllegalStateException {
       val detail =
         when (err) {
@@ -698,10 +1023,13 @@ class PcBookmarkSyncRepository(
           is ConnectException,
           is UnknownHostException,
           ->
-            if (isLoopbackUrl(baseUrl)) {
-              "127.0.0.1 / localhost points to this phone, not your PC. Use AV Manager LAN IP"
-            } else {
-              "Could not reach $baseUrl — ensure AV Manager is running on PC & on same LAN"
+            when {
+              usbMode && isLoopbackUrl(baseUrl) ->
+                "USB ADB reverse not active on $baseUrl — run enable-usb-sync.bat on PC with USB Debugging enabled"
+              isLoopbackUrl(baseUrl) ->
+                "127.0.0.1 / localhost points to this phone, not your PC. Use AV Manager LAN IP"
+              else ->
+                "Could not reach $baseUrl — ensure AV Manager is running on PC & on same LAN"
             }
           else -> {
             val raw = err.message?.trim().orEmpty()

@@ -115,7 +115,47 @@ object BookmarkMediaMatcher {
     return abs(groupDurationSec - candidateDurationSec) <= 2
   }
 
-  fun normalizePresetCode(raw: String): String = raw.trim().replace(Regex("""\s+"""), " ")
+  private val JVID_FC2_PATTERN = Regex(
+    """(?<![A-Za-z0-9])(FC2)[-_ ]?(?:PPV[-_ ]?)?(\d{5,8})(?![A-Za-z0-9])""",
+    RegexOption.IGNORE_CASE,
+  )
+  private val JVID_SEPARATED_PATTERN = Regex(
+    """(?<![A-Za-z0-9])([A-Za-z]{2,8})[-_\s]+(\d{2,6})(?![A-Za-z0-9])""",
+  )
+  private val JVID_COMPACT_PATTERN = Regex(
+    """(?<![A-Za-z0-9])([A-Za-z]{2,8})(\d{3,6})(?:uc|ch|[CcUu])?(?![A-Za-z0-9])""",
+    RegexOption.IGNORE_CASE,
+  )
+  private val JVID_ALNUM_SEP_PATTERN = Regex(
+    """(?<![A-Za-z0-9])([A-Za-z0-9]{2,8})[-_](\d{2,6})(?![A-Za-z0-9])""",
+  )
+  private val IGNORED_JVID_PREFIXES = setOf(
+    "MP4", "MKV", "WEBM", "AVI", "MOV", "M4V", "FLV", "WMV",
+    "X264", "X265", "H264", "H265", "AVC", "HEVC", "VP9", "AV1",
+    "1080", "720", "480", "360", "2160", "PART", "DISC", "DISK",
+    "FILE", "CLIP", "SCENE", "TEMP", "COPY", "VER",
+  )
+
+  fun extractJvidCode(rawNameOrUri: String?): String? {
+    val raw = rawNameOrUri?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val leaf = extractFileName(raw).ifBlank { raw }
+    JVID_FC2_PATTERN.find(leaf)?.let { fc2 ->
+      return "FC2-PPV-${fc2.groupValues[2]}"
+    }
+    for (pat in listOf(JVID_SEPARATED_PATTERN, JVID_COMPACT_PATTERN, JVID_ALNUM_SEP_PATTERN)) {
+      for (m in pat.findAll(leaf)) {
+        val prefix = m.groupValues[1].uppercase(java.util.Locale.ROOT)
+        val num = m.groupValues[2]
+        if (prefix in IGNORED_JVID_PREFIXES) continue
+        if (prefix.all { it.isDigit() }) continue
+        return "$prefix-$num"
+      }
+    }
+    return null
+  }
+
+  fun normalizePresetCode(raw: String): String =
+    extractJvidCode(raw) ?: raw.trim().replace(Regex("""\s+"""), " ")
 
   fun displaySourceLabel(
     title: String?,

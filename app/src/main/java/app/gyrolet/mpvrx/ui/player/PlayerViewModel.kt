@@ -1296,6 +1296,7 @@ class PlayerViewModel(
                     stemKey = meta?.stemKey,
                     durationSec = meta?.durationSec ?: 0,
                     oshash = meta?.oshash,
+                    sourceLabel = meta?.sourceLabel ?: item?.originalUri,
                   )
                 if (meta != null && secureBookmarkStore.countInGroup(resolved) > 0) {
                   secureBookmarkStore.ensureGroupMetadata(groupKey = resolved, metadata = meta)
@@ -1321,6 +1322,7 @@ class PlayerViewModel(
                     stemKey = meta?.stemKey,
                     durationSec = meta?.durationSec ?: 0,
                     oshash = meta?.oshash,
+                    sourceLabel = meta?.sourceLabel ?: item?.originalUri,
                   )
                 if (meta != null && playbackBookmarkDao.countInGroup(resolved) > 0) {
                   app.gyrolet.mpvrx.domain.bookmark.PlaybackBookmarkOps.ensureGroupMetadata(
@@ -2656,6 +2658,71 @@ fun restartFromBeginning() {
         )
       }
     }
+  }
+
+  suspend fun replaceBookmarkThumbnailNow(
+    bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity,
+    isSecure: Boolean = isCurrentMediaSecure.value,
+  ): Boolean =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      if (isAudioOnly.value) return@withContext false
+      val newPath =
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.captureCurrentVideoFrame(
+          appContext,
+          isSecure = isSecure,
+        ) ?: return@withContext false
+      applyNewBookmarkThumbnailPath(bookmark, newPath, isSecure)
+    }
+
+  suspend fun replaceBookmarkThumbnailFromUri(
+    bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity,
+    uri: android.net.Uri,
+    isSecure: Boolean = isCurrentMediaSecure.value,
+  ): Boolean =
+    kotlinx.coroutines.withContext(Dispatchers.IO) {
+      val newPath =
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.saveImageFromUri(
+          appContext,
+          uri,
+          isSecure = isSecure,
+        ) ?: return@withContext false
+      applyNewBookmarkThumbnailPath(bookmark, newPath, isSecure)
+    }
+
+  private suspend fun applyNewBookmarkThumbnailPath(
+    bookmark: app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity,
+    newPath: String,
+    isSecure: Boolean,
+  ): Boolean {
+    val now = System.currentTimeMillis()
+    val updatedRows =
+      if (isSecure) {
+        secureBookmarkStore.updateThumbnail(bookmark.id, newPath, updatedAt = now)
+      } else {
+        playbackBookmarkDao.updateThumbnail(bookmark.id, newPath, updatedAt = now)
+      }
+    if (updatedRows == 0) {
+      app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(
+        appContext,
+        newPath,
+        isSecure = isSecure,
+      )
+      return false
+    }
+    val oldPath = bookmark.thumbnailPath
+    if (!oldPath.isNullOrBlank() && oldPath != newPath) {
+      val stillUsed =
+        if (isSecure) false
+        else playbackBookmarkDao.countByThumbnailPath(oldPath) > 0
+      if (!stillUsed) {
+        app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(
+          appContext,
+          oldPath,
+          isSecure = isSecure,
+        )
+      }
+    }
+    return true
   }
 
   fun quickAddBookmark(): Boolean {

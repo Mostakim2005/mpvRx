@@ -312,6 +312,28 @@ fun BookmarkGalleryContent(
           Spacer(Modifier.weight(1f))
           if (!secureOnly) {
             SmallIconAction(
+              icon = Icons.RoundedFilled.AutoFixHigh,
+              contentDescription = stringResource(R.string.bookmark_gallery_auto_match),
+              onClick = {
+                if (!isSyncing) {
+                  isSyncing = true
+                  coroutineScope.launch {
+                    val count = syncRepository.autoMatchOrphanGroupsWithLocalLibrary()
+                    Toast.makeText(
+                      context,
+                      if (count > 0) {
+                        context.getString(R.string.bookmark_gallery_auto_matched_toast, count)
+                      } else {
+                        context.getString(R.string.bookmark_gallery_auto_match_none)
+                      },
+                      Toast.LENGTH_LONG,
+                    ).show()
+                    isSyncing = false
+                  }
+                }
+              },
+            )
+            SmallIconAction(
               icon = Icons.RoundedFilled.Refresh,
               contentDescription = stringResource(R.string.bookmark_gallery_sync_pc),
               onClick = {
@@ -321,16 +343,20 @@ fun BookmarkGalleryContent(
                     syncRepository
                       .syncWithPcHub()
                       .onSuccess { res ->
-                        Toast.makeText(
-                          context,
+                        val baseMsg =
                           context.getString(
                             R.string.bookmark_gallery_sync_done,
                             res.inserted,
                             res.updated,
                             res.thumbnailsDownloaded,
-                          ),
-                          Toast.LENGTH_LONG,
-                        ).show()
+                          )
+                        val msg =
+                          if (res.autoMatchedGroups > 0) {
+                            "$baseMsg • ${res.autoMatchedGroups} matched"
+                          } else {
+                            baseMsg
+                          }
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                       }.onFailure { err ->
                         Toast.makeText(
                           context,

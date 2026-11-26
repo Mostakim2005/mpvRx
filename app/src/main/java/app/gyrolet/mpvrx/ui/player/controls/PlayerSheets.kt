@@ -1077,6 +1077,10 @@ private fun ChaptersSheetWithBookmarks(
     },
   )
 
+  var thumbPickerBookmark by remember {
+    mutableStateOf<app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity?>(null)
+  }
+
   menuBookmark?.let { target ->
     val targetPosSec = (viewModel.bookmarkPositionMs(target) / 1000L).toInt().coerceAtLeast(0)
     BookmarkActionMenuDialog(
@@ -1088,6 +1092,9 @@ private fun ChaptersSheetWithBookmarks(
         if (viewModel.preparePlaybackBookmark(editableTarget, returnSheet = Sheets.Chapters)) {
           onShowSheet(Sheets.BookmarkEditor)
         }
+      },
+      onChooseThumbnail = {
+        thumbPickerBookmark = target
       },
       onDelete = {
         scope.launch {
@@ -1101,6 +1108,14 @@ private fun ChaptersSheetWithBookmarks(
         }
       },
       onDismiss = { menuBookmark = null },
+    )
+  }
+  thumbPickerBookmark?.let { pickerTarget ->
+    app.gyrolet.mpvrx.ui.player.controls.components.BookmarkThumbnailPickerDialog(
+      bookmark = pickerTarget,
+      viewModel = viewModel,
+      isSecure = isSecureScope,
+      onDismiss = { thumbPickerBookmark = null },
     )
   }
   if (showPresetDialog) {

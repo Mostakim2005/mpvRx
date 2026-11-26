@@ -330,6 +330,36 @@ object BookmarkThumbnailStore {
     }.getOrDefault(false)
   }
 
+  suspend fun saveImageBytes(
+    context: Context,
+    bytes: ByteArray,
+    isSecure: Boolean = false,
+  ): String? =
+    withContext(Dispatchers.IO) {
+      if (bytes.isEmpty()) return@withContext null
+      VaultCrypto.ensureInitialized(context)
+      val decoded = decodeSampledBytes(bytes, THUMBNAIL_MAX_PX) ?: return@withContext null
+      try {
+        saveScaledEncryptedBitmap(context, decoded, isSecure)
+      } finally {
+        if (!decoded.isRecycled) decoded.recycle()
+      }
+    }
+
+  suspend fun saveImageFromUri(
+    context: Context,
+    uri: android.net.Uri,
+    isSecure: Boolean = false,
+  ): String? =
+    withContext(Dispatchers.IO) {
+      val bytes =
+        runCatching {
+          context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull() ?: return@withContext null
+      if (bytes.size > 12 * 1024 * 1024) return@withContext null
+      saveImageBytes(context, bytes, isSecure)
+    }
+
   private fun isInsideAnyAppThumbnailDir(
     context: Context,
     path: String,

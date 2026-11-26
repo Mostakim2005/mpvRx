@@ -141,5 +141,84 @@ class UnifiedBookmarkSyncTest {
         SocketTimeoutException("timeout"),
       )
     assertTrue(timeoutErr.message.orEmpty().contains("Timed out", ignoreCase = true))
+
+    val usbErr =
+      PcBookmarkSyncRepository.friendlyNetworkError(
+        "http://127.0.0.1:8000",
+        ConnectException("Connection refused"),
+        usbMode = true,
+      )
+    assertTrue(usbErr.message.orEmpty().contains("USB", ignoreCase = true))
+  }
+
+  @Test
+  fun jvidExtractionHandlesExtraCharactersAndFc2() {
+    assertEquals("MIMK-232", BookmarkMediaMatcher.extractJvidCode("[ThZu.Cc]_MIMK-232_Uncut_1080p.mp4"))
+    assertEquals("MIMK-232", BookmarkMediaMatcher.extractJvidCode("mimk232c.mp4"))
+    assertEquals("OKSN-191", BookmarkMediaMatcher.extractJvidCode("[4K] oksn191 - Title [HardSub].mkv"))
+    assertEquals("FC2-PPV-1234567", BookmarkMediaMatcher.extractJvidCode("FC2_PPV_1234567_raw.mp4"))
+    assertNull(BookmarkMediaMatcher.extractJvidCode("Inception.2010.1080p.x264.mp4"))
+  }
+
+  @Test
+  fun presetArchiveReadsStandalonePresetAndStashMarkersJson() {
+    val tempDir = Files.createTempDirectory("mpvrx_json_import").toFile()
+    try {
+      val presetJson =
+        """
+        {
+          "schemaVersion": 2,
+          "presetCode": "_json-900_",
+          "bookmarks": [
+            {
+              "positionMs": 45000,
+              "endPositionMs": 60000,
+              "title": "Peak",
+              "primaryTag": "cowgirl",
+              "tags": ["cowgirl", "pov"]
+            }
+          ]
+        }
+        """.trimIndent()
+      val presetRes =
+        BookmarkPresetArchive.readArchive(
+          input = ByteArrayInputStream(presetJson.toByteArray(Charsets.UTF_8)),
+          targetGroupKey = "JSON-900",
+          thumbnailOutputDir = tempDir,
+        )
+      assertEquals("JSON-900", presetRes.manifest.presetCode)
+      assertEquals(1, presetRes.bookmarks.size)
+      assertEquals(45_000L, presetRes.bookmarks[0].positionMs)
+      assertEquals(listOf("cowgirl", "pov"), presetRes.importedTagsByIndex[0])
+
+      val stashJson =
+        """
+        {
+          "scene_markers": [
+            {
+              "title": "Finish",
+              "seconds": 600.0,
+              "end_seconds": 630.0,
+              "primary_tag": { "name": "cumshot" },
+              "tags": [{ "name": "pov" }],
+              "scene": { "code": "_CONV-042_", "title": "CONV-042 Sample" }
+            }
+          ]
+        }
+        """.trimIndent()
+      val stashRes =
+        BookmarkPresetArchive.readArchive(
+          input = ByteArrayInputStream(stashJson.toByteArray(Charsets.UTF_8)),
+          targetGroupKey = "CONV-042",
+          thumbnailOutputDir = tempDir,
+        )
+      assertEquals("CONV-042", stashRes.manifest.presetCode)
+      assertEquals(1, stashRes.bookmarks.size)
+      assertEquals(600_000L, stashRes.bookmarks[0].positionMs)
+      assertEquals(630_000L, stashRes.bookmarks[0].endPositionMs)
+      assertEquals(listOf("cumshot", "pov"), stashRes.importedTagsByIndex[0])
+    } finally {
+      tempDir.deleteRecursively()
+    }
   }
 }
