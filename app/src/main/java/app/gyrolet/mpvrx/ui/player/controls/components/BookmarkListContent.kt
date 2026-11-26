@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -45,7 +46,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -95,7 +98,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.util.Locale
-import kotlin.math.abs
+import kotlin.math.roundToLong
 
 private fun formatBookmarkTimecode(positionSeconds: Int): String {
   val total = positionSeconds.coerceAtLeast(0)
@@ -676,18 +679,36 @@ private fun BookmarkGridCard(
         if (tagNames.isNotEmpty()) {
           BookmarkTagChipRow(tags = tagNames, maxChips = if (compactLabels) 2 else 3, dense = true)
         }
-        Text(
-          text = formatBookmarkTimecode(positionSeconds),
-          style =
-            MaterialTheme.typography.labelSmall.copy(
-              fontSize = if (compactLabels) 9.5.sp else 10.5.sp,
-              fontFeatureSettings = "tnum",
-              fontWeight = FontWeight.SemiBold,
-            ),
-          color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
-          maxLines = 1,
-          softWrap = false,
-        )
+        val timeText = formatBookmarkTimecode(positionSeconds)
+        val timeStyle =
+          MaterialTheme.typography.labelSmall.copy(
+            fontSize = if (compactLabels) 9.5.sp else 10.5.sp,
+            fontFeatureSettings = "tnum",
+            fontWeight = FontWeight.SemiBold,
+          )
+        if (selected) {
+          Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = MaterialTheme.colorScheme.primary,
+          ) {
+            Text(
+              text = timeText,
+              style = timeStyle,
+              color = MaterialTheme.colorScheme.onPrimary,
+              maxLines = 1,
+              softWrap = false,
+              modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+          }
+        } else {
+          Text(
+            text = timeText,
+            style = timeStyle,
+            color = Color.White,
+            maxLines = 1,
+            softWrap = false,
+          )
+        }
       }
     }
   }
@@ -745,7 +766,7 @@ internal fun BookmarkTagChipRow(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PanelToggleChip(
+internal fun PanelToggleChip(
   label: String,
   icon: AppIcon,
   contentDescription: String,
@@ -922,6 +943,50 @@ internal fun BookmarkSplitPanel(
     }
   }
 
+  val activeChapterIndex =
+    remember(sourceChapters, currentPositionSeconds) {
+      sourceChapters.indexOfLast { it.start <= currentPositionSeconds }
+    }
+  val displayChapters =
+    remember(sourceChapters, chapters) {
+      if (sourceChapters.isNotEmpty()) sourceChapters else emptyList()
+    }
+  val currentPositionMs = (currentPositionSeconds.coerceAtLeast(0f) * 1000f).roundToLong()
+  val syncTarget =
+    remember(displayedBookmarks, currentPositionMs, currentMediaId, isGlobalScope) {
+      resolveBookmarkSyncTarget(
+        bookmarks = displayedBookmarks,
+        positionMsOf = viewModel::bookmarkPositionMs,
+        currentPositionMs = currentPositionMs,
+        currentMediaId = currentMediaId,
+        isGlobalScope = isGlobalScope,
+      )
+    }
+  val portraitGridState = rememberLazyGridState()
+  val landscapeListState = rememberLazyListState()
+  val onSyncToVideo: () -> Unit = {
+    val targetIndex =
+      resolveBookmarkOrChapterScrollIndex(
+        syncTarget = syncTarget,
+        bookmarkCount = displayedBookmarks.size,
+        activeChapterIndex = activeChapterIndex,
+        chapterCount = displayChapters.size,
+        hasChaptersHeader = true,
+      )
+    if (targetIndex >= 0) {
+      haptics.tick()
+      scope.launch {
+        if (isPortrait) {
+          portraitGridState.animateScrollToItem(targetIndex)
+        } else {
+          landscapeListState.animateScrollToItem(targetIndex)
+        }
+      }
+    } else {
+      Toast.makeText(context, R.string.bookmark_sync_to_video_none, Toast.LENGTH_SHORT).show()
+    }
+  }
+
   Surface(
     modifier = modifier,
     color = MaterialTheme.colorScheme.surfaceContainer,
@@ -929,74 +994,103 @@ internal fun BookmarkSplitPanel(
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
       if (isPortrait) {
-        Row(
+        Column(
           modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
+          verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-          Text(
-            text = stringResource(R.string.bookmark_panel_title),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-          // Tag Filter icon button in portrait
-          PanelIconAction(
-            icon = Icons.RoundedFilled.FilterList,
-            contentDescription = stringResource(R.string.bookmark_gallery_filter_tags),
-            onClick = {
-              haptics.tick()
-              showTagFilterDialog = true
-            },
-          )
-          // Portrait columns selector: strictly 2 or 3
-          PanelToggleChip(
-            label = "$portraitColumns Cols",
-            icon = Icons.RoundedFilled.GridView,
-            contentDescription = stringResource(R.string.bookmark_gallery_columns),
-            onClick = {
-              haptics.tick()
-              portraitColumns = if (portraitColumns == 2) 3 else 2
-            },
-          )
-          // Same scope toggle as the landscape sidebar: this video ⇄ every library bookmark.
-          PanelToggleChip(
-            label = if (isGlobalScope) "Global" else "Video",
-            icon = if (isGlobalScope) Icons.RoundedFilled.Language else Icons.RoundedFilled.Movie,
-            contentDescription = "Toggle Bookmark Scope",
-            highlighted = isGlobalScope,
-            onClick = {
-              haptics.tick()
-              viewModel.toggleInPlayerBookmarkScope()
-            },
-          )
-          Spacer(Modifier.weight(1f))
-          // One tap switches from this video's bookmarks to every video's, without leaving playback.
-          PanelIconAction(
-            icon = Icons.RoundedFilled.Bookmarks,
-            contentDescription = stringResource(R.string.bookmark_gallery_open),
-            onClick = {
-              haptics.tick()
-              showGallery = true
-            },
-          )
-          PanelIconAction(
-            icon = Icons.RoundedFilled.Add,
-            contentDescription = stringResource(R.string.audiobook_add_bookmark),
-            onClick = onQuickAdd,
-            onLongClick = onLongPressAdd,
-          )
-          PanelIconAction(
-            icon = Icons.RoundedFilled.ZoomOutMap,
-            contentDescription = stringResource(R.string.bookmark_switch_to_overlay),
-            onClick = onSwitchToOverlay,
-          )
-          PanelIconAction(
-            icon = Icons.RoundedFilled.Close,
-            contentDescription = stringResource(R.string.bookmark_close_panel),
-            onClick = onClose,
-          )
+          // Tier 1: Title + Action Icons (kept compact so nothing squeezes on 360dp phones)
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = stringResource(R.string.bookmark_panel_title),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.FilterList,
+              contentDescription = stringResource(R.string.bookmark_gallery_filter_tags),
+              onClick = {
+                haptics.tick()
+                showTagFilterDialog = true
+              },
+            )
+            // One tap switches from this video's bookmarks to every video's, without leaving playback.
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Bookmarks,
+              contentDescription = stringResource(R.string.bookmark_gallery_open),
+              onClick = {
+                haptics.tick()
+                showGallery = true
+              },
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Add,
+              contentDescription = stringResource(R.string.audiobook_add_bookmark),
+              onClick = onQuickAdd,
+              onLongClick = onLongPressAdd,
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.ZoomOutMap,
+              contentDescription = stringResource(R.string.bookmark_switch_to_overlay),
+              onClick = onSwitchToOverlay,
+            )
+            PanelIconAction(
+              icon = Icons.RoundedFilled.Close,
+              contentDescription = stringResource(R.string.bookmark_close_panel),
+              onClick = onClose,
+            )
+          }
+          // Tier 2: Sync-to-video + Mode Chips
+          Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+          ) {
+            PanelToggleChip(
+              label = stringResource(R.string.bookmark_sync_to_video),
+              icon = Icons.RoundedFilled.AlignVerticalCenter,
+              contentDescription = stringResource(R.string.bookmark_sync_to_video),
+              onClick = onSyncToVideo,
+            )
+            // Portrait columns selector: strictly 2 or 3
+            PanelToggleChip(
+              label = "$portraitColumns Cols",
+              icon = Icons.RoundedFilled.GridView,
+              contentDescription = stringResource(R.string.bookmark_gallery_columns),
+              onClick = {
+                haptics.tick()
+                portraitColumns = if (portraitColumns == 2) 3 else 2
+              },
+            )
+            // Same scope toggle as the landscape sidebar: this video ⇄ every library bookmark.
+            PanelToggleChip(
+              label = if (isGlobalScope) "Global" else "Video",
+              icon = if (isGlobalScope) Icons.RoundedFilled.Language else Icons.RoundedFilled.Movie,
+              contentDescription = "Toggle Bookmark Scope",
+              highlighted = isGlobalScope,
+              onClick = {
+                haptics.tick()
+                viewModel.toggleInPlayerBookmarkScope()
+              },
+            )
+            if (!activeGroup?.presetCode.isNullOrBlank()) {
+              PanelToggleChip(
+                label = activeGroup?.presetCode?.take(8).orEmpty(),
+                icon = Icons.RoundedFilled.Fingerprint,
+                contentDescription = stringResource(R.string.bookmark_preset_button_cd),
+                highlighted = true,
+                onClick = {
+                  haptics.tick()
+                  showPresetDialog = true
+                },
+              )
+            }
+          }
         }
       } else {
         Column(
@@ -1049,12 +1143,18 @@ internal fun BookmarkSplitPanel(
               onClick = onClose,
             )
           }
-          // Tier 2: Compact Toggle Chips
+          // Tier 2: Compact Toggle Chips (scrollable so 20% width sidebars never clip)
           Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
           ) {
+            PanelToggleChip(
+              label = stringResource(R.string.bookmark_sync_to_video_short),
+              icon = Icons.RoundedFilled.AlignVerticalCenter,
+              contentDescription = stringResource(R.string.bookmark_sync_to_video),
+              onClick = onSyncToVideo,
+            )
             PanelToggleChip(
               label = if (isGlobalScope) "Global" else "Video",
               icon = if (isGlobalScope) Icons.RoundedFilled.Language else Icons.RoundedFilled.Movie,
@@ -1101,15 +1201,6 @@ internal fun BookmarkSplitPanel(
 
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-      val activeChapterIndex =
-        remember(sourceChapters, currentPositionSeconds) {
-          sourceChapters.indexOfLast { it.start <= currentPositionSeconds }
-        }
-      val displayChapters =
-        remember(sourceChapters, chapters) {
-          if (sourceChapters.isNotEmpty()) sourceChapters else emptyList()
-        }
-
       if (displayedBookmarks.isEmpty() && displayChapters.isEmpty()) {
         Box(
           modifier = Modifier.weight(1f).fillMaxWidth().padding(12.dp),
@@ -1125,7 +1216,6 @@ internal fun BookmarkSplitPanel(
       } else {
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
           val spacing = 6.dp
-          val currentSecInt = currentPositionSeconds.toInt()
 
           if (isPortrait) {
             // Height follows the column width so a card is always exactly 16:9.
@@ -1134,6 +1224,7 @@ internal fun BookmarkSplitPanel(
             val rowHeight = (slotWidth * 9f / 16f).coerceIn(48.dp, 184.dp)
             LazyVerticalGrid(
               columns = GridCells.Fixed(cols),
+              state = portraitGridState,
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),
               horizontalArrangement = Arrangement.spacedBy(spacing),
@@ -1144,9 +1235,7 @@ internal fun BookmarkSplitPanel(
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
-                val isSelected =
-                  (!isGlobalScope || bookmark.mediaId == currentMediaId) &&
-                    abs(posSec - currentSecInt) <= 2
+                val isSelected = bookmark.id == syncTarget.activeBookmarkId
                 BookmarkGridCard(
                   bookmark = bookmark,
                   positionSeconds = posSec,
@@ -1222,6 +1311,7 @@ internal fun BookmarkSplitPanel(
             // so wide sidebar widths (e.g. 30%-35%) show the full uncropped frame.
             val rowHeight = ((maxWidth - 12.dp) * 9f / 16f).coerceIn(48.dp, 220.dp)
             LazyColumn(
+              state = landscapeListState,
               modifier = Modifier.fillMaxSize(),
               contentPadding = PaddingValues(6.dp),
               verticalArrangement = Arrangement.spacedBy(spacing),
@@ -1231,9 +1321,7 @@ internal fun BookmarkSplitPanel(
                 key = { "bm_${it.id}" },
               ) { bookmark ->
                 val posSec = (viewModel.bookmarkPositionMs(bookmark) / 1000L).toInt().coerceAtLeast(0)
-                val isSelected =
-                  (!isGlobalScope || bookmark.mediaId == currentMediaId) &&
-                    abs(posSec - currentSecInt) <= 2
+                val isSelected = bookmark.id == syncTarget.activeBookmarkId
                 BookmarkGridCard(
                   bookmark = bookmark,
                   positionSeconds = posSec,

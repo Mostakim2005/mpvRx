@@ -55,6 +55,8 @@ import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.TrackNode
 import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkActionMenuDialog
 import app.gyrolet.mpvrx.ui.player.controls.components.MpvConfigOwnedSheet
+import app.gyrolet.mpvrx.ui.player.controls.components.resolveBookmarkOrChapterScrollIndex
+import app.gyrolet.mpvrx.ui.player.controls.components.resolveBookmarkSyncTarget
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.AmbientSheet
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.PostProcessingSheet
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.AspectRatioSheet
@@ -85,6 +87,7 @@ import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.koinInject
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState as composeCollectAsState
+import kotlin.math.roundToLong
 
 @Composable
 fun PlayerSheets(
@@ -968,15 +971,16 @@ private fun ChaptersSheetWithBookmarks(
   var showPresetDialog by remember { mutableStateOf(false) }
   var showGallery by remember { mutableStateOf(false) }
 
-  val nearestBookmarkId =
-    remember(shownBookmarks, currentPositionSec, isGlobalScope, bookmarkMediaId) {
-      shownBookmarks
-        .filter { bookmark -> !isGlobalScope || bookmark.mediaId == bookmarkMediaId }
-        .minByOrNull { bookmark ->
-          kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec)
-        }?.takeIf { bookmark ->
-          kotlin.math.abs(viewModel.bookmarkPositionMs(bookmark) / 1000f - currentPositionSec) <= 2f
-        }?.id
+  val currentPositionMs = (currentPositionSec.coerceAtLeast(0f) * 1000f).roundToLong()
+  val syncTarget =
+    remember(shownBookmarks, currentPositionMs, bookmarkMediaId, isGlobalScope) {
+      resolveBookmarkSyncTarget(
+        bookmarks = shownBookmarks,
+        positionMsOf = viewModel::bookmarkPositionMs,
+        currentPositionMs = currentPositionMs,
+        currentMediaId = bookmarkMediaId,
+        isGlobalScope = isGlobalScope,
+      )
     }
 
   val displayChapters =
@@ -987,13 +991,26 @@ private fun ChaptersSheetWithBookmarks(
     remember(displayChapters, chapter, currentPositionSec) {
       chapter?.takeIf { it in displayChapters } ?: displayChapters.lastOrNull { it.start <= currentPositionSec }
     }
+  val activeChapterIndex =
+    remember(displayChapters, displayChapter) {
+      if (displayChapter != null) displayChapters.indexOf(displayChapter) else -1
+    }
+  val syncScrollIndex =
+    resolveBookmarkOrChapterScrollIndex(
+      syncTarget = syncTarget,
+      bookmarkCount = shownBookmarks.size,
+      activeChapterIndex = activeChapterIndex,
+      chapterCount = displayChapters.size,
+      hasChaptersHeader = shownBookmarks.isNotEmpty(),
+    )
 
   ChaptersSheet(
     chapters = displayChapters,
     currentChapter = displayChapter,
     bookmarks = shownBookmarks,
     bookmarkPositionSec = { (viewModel.bookmarkPositionMs(it) / 1000L).toInt().coerceAtLeast(0) },
-    selectedBookmarkId = nearestBookmarkId,
+    selectedBookmarkId = syncTarget.activeBookmarkId,
+    syncScrollIndex = syncScrollIndex,
     isSecureBookmarks = isSecureScope,
     bookmarkTags = { bookmark ->
       if (isGlobalScope) globalTagsById[bookmark.id] ?: tagsByBookmark[bookmark.id].orEmpty()

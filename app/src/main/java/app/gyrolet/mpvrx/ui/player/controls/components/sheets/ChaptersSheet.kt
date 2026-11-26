@@ -68,8 +68,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
 import app.gyrolet.mpvrx.presentation.components.PlayerSheet
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
+import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkListRow
+import app.gyrolet.mpvrx.ui.player.controls.components.PanelToggleChip
 import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
@@ -93,6 +96,7 @@ fun ChaptersSheet(
   bookmarks: List<PlaybackBookmarkEntity> = emptyList(),
   bookmarkPositionSec: (PlaybackBookmarkEntity) -> Int = { (it.positionMs / 1000L).toInt().coerceAtLeast(0) },
   selectedBookmarkId: Long? = null,
+  syncScrollIndex: Int? = null,
   isSecureBookmarks: Boolean = false,
   onBookmarkClick: (PlaybackBookmarkEntity) -> Unit = {},
   onBookmarkLongClick: (PlaybackBookmarkEntity) -> Unit = {},
@@ -100,17 +104,29 @@ fun ChaptersSheet(
   itemActions: @Composable (Segment) -> Unit = {},
 ) {
   val listState = rememberLazyListState()
+  val scope = rememberCoroutineScope()
+  val context = LocalContext.current
+  val haptics = rememberAppHaptics()
 
-  LaunchedEffect(currentChapter, chapters, bookmarks.size, selectedBookmarkId) {
-    val bookmarkIndex = if (selectedBookmarkId != null) bookmarks.indexOfFirst { it.id == selectedBookmarkId } else -1
-    if (bookmarkIndex >= 0) {
-      listState.scrollToItem(bookmarkIndex)
-      return@LaunchedEffect
+  val chapterScrollIndex =
+    remember(chapters, currentChapter, bookmarks.size) {
+      val chapterOffset = bookmarks.size + if (bookmarks.isNotEmpty() && chapters.isNotEmpty()) 1 else 0
+      val index = if (currentChapter != null) chapters.indexOf(currentChapter) else -1
+      if (index >= 0) chapterOffset + index else -1
     }
-    val chapterOffset = bookmarks.size + if (bookmarks.isNotEmpty() && chapters.isNotEmpty()) 1 else 0
-    val index = if (currentChapter != null) chapters.indexOf(currentChapter) else -1
-    if (index >= 0) {
-      listState.scrollToItem(chapterOffset + index)
+  val resolvedSyncIndex =
+    syncScrollIndex?.takeIf { it >= 0 }
+      ?: selectedBookmarkId?.let { id -> bookmarks.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
+      ?: chapterScrollIndex
+
+  // Scroll once on sheet open so browsing up/down is never interrupted by playback progress ticks.
+  var didInitialScroll by remember { mutableStateOf(false) }
+  LaunchedEffect(bookmarks.size, chapters.size) {
+    if (!didInitialScroll && (bookmarks.isNotEmpty() || chapters.isNotEmpty())) {
+      if (resolvedSyncIndex >= 0) {
+        listState.scrollToItem(resolvedSyncIndex)
+      }
+      didInitialScroll = true
     }
   }
 
@@ -120,61 +136,84 @@ fun ChaptersSheet(
     title = stringResource(if (isAudiobook) R.string.audiobook_chapters else R.string.btn_label_bookmarks),
     actions = actions,
   ) {
-    LazyColumn(
-      modifier = modifier.fillMaxWidth(),
-      state = listState,
-      contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-      verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
-    ) {
-      if (bookmarks.isEmpty() && chapters.isEmpty()) {
-        item {
-          Text(
-            stringResource(R.string.playback_bookmarks_empty),
-            Modifier.padding(MaterialTheme.spacing.medium),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(modifier = modifier.fillMaxWidth()) {
+      if (bookmarks.isNotEmpty() || chapters.isNotEmpty()) {
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+          horizontalArrangement = Arrangement.End,
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          PanelToggleChip(
+            label = stringResource(R.string.bookmark_sync_to_video),
+            icon = Icons.RoundedFilled.AlignVerticalCenter,
+            contentDescription = stringResource(R.string.bookmark_sync_to_video),
+            onClick = {
+              if (resolvedSyncIndex >= 0) {
+                haptics.tick()
+                scope.launch { listState.animateScrollToItem(resolvedSyncIndex) }
+              } else {
+                Toast.makeText(context, R.string.bookmark_sync_to_video_none, Toast.LENGTH_SHORT).show()
+              }
+            },
           )
         }
       }
-      if (bookmarks.isNotEmpty()) {
-        items(
-          items = bookmarks,
-          key = { "sheet_bm_${it.id}" },
-        ) { bookmark ->
-          BookmarkListRow(
-            bookmark = bookmark,
-            positionSeconds = bookmarkPositionSec(bookmark),
-            selected = bookmark.id == selectedBookmarkId,
-            compact = false,
-            tagNames = bookmarkTags(bookmark),
-            isSecure = isSecureBookmarks,
-            onClick = { onBookmarkClick(bookmark) },
-            onLongClick = { onBookmarkLongClick(bookmark) },
+      LazyColumn(
+        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
+      ) {
+        if (bookmarks.isEmpty() && chapters.isEmpty()) {
+          item {
+            Text(
+              stringResource(R.string.playback_bookmarks_empty),
+              Modifier.padding(MaterialTheme.spacing.medium),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+        if (bookmarks.isNotEmpty()) {
+          items(
+            items = bookmarks,
+            key = { "sheet_bm_${it.id}" },
+          ) { bookmark ->
+            BookmarkListRow(
+              bookmark = bookmark,
+              positionSeconds = bookmarkPositionSec(bookmark),
+              selected = bookmark.id == selectedBookmarkId,
+              compact = false,
+              tagNames = bookmarkTags(bookmark),
+              isSecure = isSecureBookmarks,
+              onClick = { onBookmarkClick(bookmark) },
+              onLongClick = { onBookmarkLongClick(bookmark) },
+            )
+          }
+        }
+        if (chapters.isNotEmpty() && bookmarks.isNotEmpty()) {
+          item(key = "sheet_chapters_header") {
+            Text(
+              text = stringResource(R.string.bookmark_list_section_chapters),
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+          }
+        }
+        itemsIndexed(
+          chapters,
+          key = { index, chapter -> "${chapter.start}_${chapter.name}_$index" },
+        ) { index, chapter ->
+          ChapterTrack(
+            chapter = chapter,
+            index = index,
+            chapterCount = chapters.size,
+            selected = currentChapter == chapter,
+            onClick = { onClick(chapter) },
+            trailingContent = { itemActions(chapter) },
           )
         }
-      }
-      if (chapters.isNotEmpty() && bookmarks.isNotEmpty()) {
-        item(key = "sheet_chapters_header") {
-          Text(
-            text = stringResource(R.string.bookmark_list_section_chapters),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-          )
-        }
-      }
-      itemsIndexed(
-        chapters,
-        key = { index, chapter -> "${chapter.start}_${chapter.name}_$index" },
-      ) { index, chapter ->
-        ChapterTrack(
-          chapter = chapter,
-          index = index,
-          chapterCount = chapters.size,
-          selected = currentChapter == chapter,
-          onClick = { onClick(chapter) },
-          trailingContent = { itemActions(chapter) },
-        )
       }
     }
   }

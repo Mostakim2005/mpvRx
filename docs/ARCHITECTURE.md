@@ -85,7 +85,7 @@ flowchart TB
   * **Native Video Aspect Ratio:** In `PlayerControls.kt`, the video height is no longer hardcoded to 16:9 or a fixed percentage. It is calculated as `containerWidth / mediaAspectRatio`. A standard 16:9 video uses `width * 9 / 16`; an ultra-wide 21:9 video uses `width * 9 / 21`, immediately freeing extra vertical space.
   * **Dynamic Row Capacity:** The remaining height (`containerHeight - videoHeight - toolbarHeight`) is evaluated. Depending on the user's row preference (`1 Row`, `2 Rows`, `Auto-Fit`), the drawer displays 1, 2, or 3+ visible rows of cards without awkward clipping.
   * **Columns Selector:** Strictly restricted to 2 or 3 columns (`2 Cols` ⇄ `3 Cols`).
-  * **Tag Filter in Portrait:** The portrait drawer toolbar includes a `🏷️ Filter` button that triggers the tag selection dialog overlay directly in portrait mode.
+  * **Tag Filter & 2-Tier Portrait Toolbar:** Tier 1 holds title + `FilterList` (opens tag overlay), `Bookmarks`, `Add`, `ZoomOutMap`, `Close`; Tier 2 holds a horizontally scrollable chip strip (`Sync to video`, `2 Cols`/`3 Cols`, `Video`/`Global`, optional `JAVID`) so 360dp phones never clip.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart TD
@@ -98,8 +98,9 @@ flowchart TD
     E -->|Auto/3-Rows| H["3+ Rows Visible on wide videos / tall screens"]
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `BookmarkSplitPanel`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`, `BookmarkListContent`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` :: `BookmarkSplitPanel`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkSplitPanel`, `BookmarkGridCard`, `PanelToggleChip`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkPositionSync.kt` :: `resolveBookmarkSyncTarget`, `resolveBookmarkOrChapterScrollIndex`
 
 ---
 
@@ -108,8 +109,9 @@ flowchart TD
 * **How It Works (Plain English):**
   * **Width Menu:** Cycles across 20%, 25%, 30%, and 35%.
   * **Non-Overflow 2-Tier Toolbar:**
-    * *Tier 1 (Action Icons):* 4 compact icon buttons with tooltips (`🏷️ Filter`, `⊞ Add`, `↗ Gallery`, `✕ Close`).
-    * *Tier 2 (Toggle Chips):* Compact chips (`Scope: 🎬/🌐`, `25%`, `1 Col`). Uses short labels and compact paddings to prevent wrapping or overflowing at 20% width.
+    * *Tier 1 (Action Icons):* Compact icon buttons with tooltips (`FilterList`, `Bookmarks`, `Add`, `ZoomOutMap`, `Close`).
+    * *Tier 2 (Scrollable Toggle & Sync Chips):* Compact chips inside a horizontally scrollable row (`Sync`, `Global`/`Video`, `25%`, card count, optional `JAVID`) so narrow `20%` width never clips or wraps.
+  * **Chapter-Style Playhead Sync:** `resolveBookmarkSyncTarget` highlights the playing video's latest bookmark `<= currentPositionMs` without stealing scroll, and **Sync** / **Sync to video** animates Portrait, Landscape, or Overlay `ChaptersSheet` back to it.
   * **In-Player Scope Toggle:** Tapping `🎬 This Video ⇄ 🌐 All Bookmarks` triggers `PlayerViewModel.toggleInPlayerBookmarkScope()`. The state lives in `PlayerViewModel`, so the portrait drawer, Chapters sheet and full-window gallery all show the same slice instead of keeping private copies that reset when a panel leaves composition.
   * **Floating Tag Filter Popup:** Opens a centered translucent overlay over the video without stopping playback.
 * **Data Flow Diagram:**
@@ -134,7 +136,10 @@ sequenceDiagram
     end
 ```
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkListContent`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkSplitPanel`, `BookmarkGridCard`, `PanelToggleChip`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkPositionSync.kt` :: `resolveBookmarkSyncTarget`, `resolveBookmarkOrChapterScrollIndex`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/ChaptersSheet.kt` :: `ChaptersSheet`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` :: `ChaptersSheetWithBookmarks`
 
 ---
 
@@ -342,7 +347,7 @@ flowchart LR
     classDef syncNode fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#ffffff
     classDef pcHub fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fffbeb
 
-    PublicDB[("MpvRxDatabase v36\noshash, JVID, syncUuid, tombstones")]:::publicDb
+    PublicDB[("MpvRxDatabase v37\noshash, JAVID, sourceUrl, tombstones")]:::publicDb
     SecureDB[("SecureVaultDatabase v2\nMVX1 Encrypted (Isolated R-11)")]:::secureDb
     PresetV2["Preset .zip v2 & JSON\nPreset / Vault / Stash JSON"]:::syncNode
     SyncRepo["PcBookmarkSyncRepository\nLAN Ping + USB ADB + X-Sync-Token"]:::syncNode

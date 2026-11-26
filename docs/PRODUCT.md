@@ -32,8 +32,8 @@
   * **Row Capacity Switcher:** Switcher allows user to toggle visible card row density (`1 Row`, `2 Rows`, `3 Rows / Auto-Fit`).
   * **Portrait Tag Filter:** Dedicated `🏷️ Filter` button in the portrait drawer toolbar that opens the tag selection overlay directly in portrait mode.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `BookmarkSplitPanel`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`, `BookmarkListContent`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` :: `BookmarkSplitPanel`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkGridCard`, `BookmarkSplitPanel`
 
 ### [FEATURE: Landscape-Sidebar-With-Global-Scope-Toggle] | Aliases: landscape sidebar, 20-35 width, global scope toggle, in-player scope, compact toolbar
 > **1-Line Summary:** Landscape bookmark sidebar maintaining 20% to 35% width steps with a non-overflowing compact 2-tier toolbar, floating tag overlay, and an in-drawer toggle between this video's bookmarks and all library bookmarks.
@@ -46,7 +46,18 @@
   * **In-Player Scope Toggle:** Dedicated toggle button switching between `🎬 This Video` and `🌐 All Bookmarks`.
   * **Floating Tag Filter Popup:** Floating dialog overlay centered over the video in landscape to filter bookmarks by tags on the fly without halting playback.
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkListContent`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkSplitPanel`
+
+---
+
+### [FEATURE: Chapter-Style-Bookmark-Sync-To-Video] | Aliases: sync to video, latest bookmark, previous bookmark, chapter follow, scroll back to bookmark
+> **1-Line Summary:** Highlights the latest bookmark at or before current playback time (`<= currentPositionMs`) YouTube-chapter-style across Portrait, Landscape, and Overlay sheets, with a one-tap **Sync to video** button that scrolls back to it after browsing up or down.
+* **User Intention (Non-Negotiable):** While playing a video in Portrait drawer, Landscape sidebar, or Overlay (`ChaptersSheet`), users can freely browse up or down the bookmark/chapter list without auto-scroll fighting their swipe. Tapping **Sync to video** immediately scrolls smoothly to (and highlights) the latest/previous bookmark at or before the current playback position—ignoring other videos in Global scope—or falls back to the earliest bookmark / active chapter when before the first bookmark.
+* **Links:** `[SUBSYSTEM: Dynamic-Portrait-Video-And-Bookmark-Drawer]`, `[SUBSYSTEM: Landscape-Sidebar-With-Global-Scope-Toggle]`
+* **Verified By:** `app/src/test/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkPositionSyncTest.kt :: selectsLatestBookmarkAtOrBeforeCurrentPosition`, `BookmarkPositionSyncTest.kt :: beforeFirstBookmarkLeavesActiveNullButTargetsEarliestForScroll`, `BookmarkPositionSyncTest.kt :: handlesUnsortedAndGlobalScopeFilteringByCurrentMediaId`, `BookmarkPositionSyncTest.kt :: fallsBackToActiveChapterWhenCurrentMediaHasNoMatchingBookmarks`
+* **Visual / UI Behavior:**
+  * **Portrait & Landscape Split Panels (`BookmarkSplitPanel`):** Highlights the active bookmark (`<= currentPositionMs`) with a primary border and high-contrast primary timestamp badge; provides a horizontally scrollable Tier-2 chip strip with **Sync to video** (Portrait) / **Sync** (Landscape sidebar) so toolbars never overflow at `20%` width or on `360dp` phones.
+  * **Overlay (`ChaptersSheet`):** Scrolls once to the active bookmark/chapter on open, preserves free scrolling while browsing, and exposes a **Sync to video** pill button at the top of the sheet.
 
 ### [FEATURE: Zero-Leak-Secure-Sandbox-And-Dedicated-PIN] | Aliases: secure sandbox, private media filter, secret playback gate, secure folder pin
 > **1-Line Summary:** Complete quarantine of Secure Folder media using the Secure Folder's own PIN/password challenge rather than the device PIN, preventing double-prompt regressions.

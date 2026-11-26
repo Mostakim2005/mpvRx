@@ -2636,6 +2636,9 @@
   <string name="bookmark_close_panel">Close bookmarks</string>
   <string name="bookmark_panel_card_count_cd">Visible bookmark rows</string>
   <string name="bookmark_panel_size_cd">Bookmark panel size</string>
+  <string name="bookmark_sync_to_video">Sync to video</string>
+  <string name="bookmark_sync_to_video_short">Sync</string>
+  <string name="bookmark_sync_to_video_none">No bookmarks or chapters to sync to</string>
   <string name="bookmark_preset_button_cd">Presets and video code</string>
   <string name="bookmark_preset_dialog_title">Presets &amp; Video Code</string>
   <string name="bookmark_preset_code_label">Video code (optional)</string>
