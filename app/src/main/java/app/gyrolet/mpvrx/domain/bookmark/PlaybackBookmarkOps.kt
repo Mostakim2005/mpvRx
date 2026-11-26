@@ -142,6 +142,12 @@ object PlaybackBookmarkOps {
         ?: BookmarkMediaMatcher.extractJvidCode(metadata.rawMediaId)
         ?: BookmarkMediaMatcher.extractJvidCode(groupKey)
 
+    val resolvedUrl =
+      existing?.sourceUrl?.takeIf { it.isNotBlank() }
+        ?: metadata.rawMediaId.trim().takeIf {
+          it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        }
+
     val updated =
       BookmarkGroupEntity(
         groupKey = groupKey,
@@ -154,6 +160,7 @@ object PlaybackBookmarkOps {
         height = metadata.height.takeIf { it > 0 } ?: existing?.height ?: 0,
         fileSizeBytes = metadata.fileSizeBytes.takeIf { it > 0L } ?: existing?.fileSizeBytes ?: 0L,
         sourceLabel = metadata.sourceLabel.takeIf { it.isNotBlank() } ?: existing?.sourceLabel.orEmpty(),
+        sourceUrl = resolvedUrl,
         updatedAt = now,
       )
     dao.upsertGroup(updated)

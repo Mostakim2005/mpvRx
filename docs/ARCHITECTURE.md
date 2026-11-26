@@ -328,12 +328,12 @@ flowchart LR
 
 ---
 
-### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, jvid extraction, usb adb sync, thumbnail chooser
-> **1-Line Summary:** Bridges `MpvRxDatabase` v36 (`oshash`, canonical JVID `presetCode`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi discovery (`/api/sync/ping`), USB ADB mode, bi-directional LWW REST sync (`X-Sync-Token`), universal `.zip`/`.json` import, automatic local JVID matching (`MediaFileRepository`), and multi-source thumbnail switching (`BookmarkThumbnailPickerDialog`) while isolating `SecureVaultDatabase` v2.
+### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, javid extraction, usb adb sync, thumbnail chooser
+> **1-Line Summary:** Bridges `MpvRxDatabase` v37 (`oshash`, canonical JAVID `presetCode`, `sourceUrl`, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi discovery (`/api/sync/ping`), USB ADB mode, bi-directional LWW REST sync (`X-Sync-Token`), universal `.zip`/`.json` import, Echo-2 automatic local JAVID matching (Gallery open, Activity resume, `MediaLibraryEvents.changes`), and multi-source thumbnail switching (`BookmarkThumbnailPickerDialog`) while isolating `SecureVaultDatabase` v2.
 * **How It Works (Plain English):**
-  * Canonical JVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsWithLocalLibrary` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later.
-  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge`) and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`, `/api/bookmarks/{uuid}/thumbnails*`) exclusively with public `MpvRxDatabase` (`R-11` isolation), respecting `updatedAt` timestamps bumped on Room `rename`, `updateThumbnail`, and tag edits.
-  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / 1-tap `Auto-match videos`, while `BookmarkGalleryScreen` exposes **Link / JAVID** (`ManageBookmarkGroupLinkDialog`) on every public card so any bookmark group can be manually linked, re-linked, or assigned a JAVID even for unformatted filenames.
+  * Canonical JAVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsIfNeeded` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later (triggered cleanly on Gallery open, `MainActivity`/`PlayerActivity` resume, and `MediaLibraryEvents.changes` when unlinked groups exist).
+  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge` including `sourceUrl`) and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`, `/api/bookmarks/{uuid}/thumbnails*`) exclusively with public `MpvRxDatabase` (`R-11` isolation), respecting `updatedAt` timestamps bumped on Room `rename`, `updateThumbnail`, and tag edits.
+  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / Echo-2 / 1-tap `Auto-match videos`, while `BookmarkGalleryScreen` exposes **Link / JAVID** (`ManageBookmarkGroupLinkDialog`) on every public card so any bookmark group can be manually linked, re-linked, or assigned a JAVID / source URL even for unformatted filenames.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart LR
@@ -362,10 +362,10 @@ flowchart LR
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`, `ManageBookmarkGroupLinkDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `SECURE_MIGRATION_1_2`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `MIGRATION_36_37`, `SECURE_MIGRATION_1_2`
 
 ---
 

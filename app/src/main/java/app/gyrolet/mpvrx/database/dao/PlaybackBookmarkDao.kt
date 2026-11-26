@@ -254,6 +254,16 @@ interface PlaybackBookmarkDao {
     updatedAt: Long = System.currentTimeMillis(),
   )
 
+  @Query(
+    """
+    SELECT COUNT(*) FROM bookmark_groups g
+    LEFT JOIN bookmark_media_refs r ON r.mediaId = g.groupKey
+    WHERE r.mediaId IS NULL
+      AND EXISTS (SELECT 1 FROM playback_bookmarks b WHERE b.mediaId = g.groupKey AND b.bookTrackId IS NULL)
+    """,
+  )
+  suspend fun countUnlinkedGroupsWithBookmarks(): Int
+
   /** Every bookmark in the library, newest first, for the cross-video gallery. */
   @Query(
     """

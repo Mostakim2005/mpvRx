@@ -223,4 +223,18 @@ class UnifiedBookmarkSyncTest {
       tempDir.deleteRecursively()
     }
   }
+
+  @Test
+  fun syncGroupDtoPreservesSourceUrlField() {
+    val dto =
+      app.gyrolet.mpvrx.repository.bookmark.SyncGroupDto(
+        groupKey = "URL-999",
+        code = "URL-999",
+        sourceUrl = "https://portal.example.invalid/watch/url-999",
+      )
+    val encoded = Json.encodeToString(app.gyrolet.mpvrx.repository.bookmark.SyncGroupDto.serializer(), dto)
+    assertTrue(encoded.contains("\"source_url\":\"https://portal.example.invalid/watch/url-999\""))
+    val decoded = Json.decodeFromString(app.gyrolet.mpvrx.repository.bookmark.SyncGroupDto.serializer(), encoded)
+    assertEquals("https://portal.example.invalid/watch/url-999", decoded.sourceUrl)
+  }
 }

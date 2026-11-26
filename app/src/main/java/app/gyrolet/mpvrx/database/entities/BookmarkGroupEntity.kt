@@ -33,5 +33,6 @@ data class BookmarkGroupEntity(
   val height: Int = 0,
   val fileSizeBytes: Long = 0L,
   val sourceLabel: String = "",
+  val sourceUrl: String? = null,
   val updatedAt: Long = System.currentTimeMillis(),
 )

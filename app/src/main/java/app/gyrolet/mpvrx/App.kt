@@ -267,6 +267,14 @@ class App :
     // scan of the entire external-storage root from process startup: on large libraries that can
     // wake storage for minutes and duplicate work the platform already performs when media changes.
     // Explicit library refreshes and normal MediaStore notifications still invalidate app caches.
+    applicationScope.launch(Dispatchers.IO) {
+      app.gyrolet.mpvrx.utils.media.MediaLibraryEvents.changes.collectLatest {
+        runCatching {
+          getKoin().get<app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository>()
+            .autoMatchOrphanGroupsIfNeeded(force = true)
+        }
+      }
+    }
   }
 
   override fun onTrimMemory(level: Int) {
@@ -469,6 +477,12 @@ class App :
         activity.window.decorView.postOnAnimation {
           PlaybackPerformanceTrace.mark("PLAYER_FIRST_FRAME")
         }
+        applicationScope.launch(Dispatchers.IO) {
+          runCatching {
+            getKoin().get<app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository>()
+              .autoMatchOrphanGroupsIfNeeded(force = false)
+          }
+        }
       }
       is MainActivity -> {
         PlaybackPerformanceTrace.mark("MAIN_ACTIVITY_RESUMED")
@@ -477,6 +491,12 @@ class App :
         }
         // A crash the user never saw (background crash, native crash, ANR) is shown here once.
         CrashMonitor.presentPendingReport(activity)
+        applicationScope.launch(Dispatchers.IO) {
+          runCatching {
+            getKoin().get<app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository>()
+              .autoMatchOrphanGroupsIfNeeded(force = false)
+          }
+        }
       }
     }
   }

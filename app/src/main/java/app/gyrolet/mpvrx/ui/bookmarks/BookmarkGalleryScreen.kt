@@ -9,7 +9,9 @@
 
 package app.gyrolet.mpvrx.ui.bookmarks
 
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -179,21 +181,42 @@ fun BookmarkGalleryContent(
   var isSyncing by remember { mutableStateOf(false) }
   var pendingLinkGroupKey by remember { mutableStateOf<String?>(null) }
   var pendingLinkPresetCode by remember { mutableStateOf<String?>(null) }
+  var pendingLinkSourceUrl by remember { mutableStateOf<String?>(null) }
   var managingLinkItem by remember { mutableStateOf<BookmarkGalleryItem?>(null) }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
 
+  LaunchedEffect(secureOnly) {
+    if (!secureOnly) {
+      val matched = syncRepository.autoMatchOrphanGroupsIfNeeded(force = true)
+      if (matched > 0) {
+        Toast.makeText(
+          context,
+          context.getString(R.string.bookmark_gallery_auto_matched_toast, matched),
+          Toast.LENGTH_SHORT,
+        ).show()
+      }
+    }
+  }
+
   val linkVideoLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pickedUri ->
       val targetKey = pendingLinkGroupKey
       val overrideCode = pendingLinkPresetCode
+      val overrideUrl = pendingLinkSourceUrl
       pendingLinkGroupKey = null
       pendingLinkPresetCode = null
+      pendingLinkSourceUrl = null
       if (pickedUri != null && !targetKey.isNullOrBlank()) {
         coroutineScope.launch {
           syncRepository
-            .linkOrphanGroupToUri(targetKey, pickedUri, overridePresetCode = overrideCode)
+            .linkOrphanGroupToUri(
+              targetKey,
+              pickedUri,
+              overridePresetCode = overrideCode,
+              overrideSourceUrl = overrideUrl,
+            )
             .onSuccess { linked ->
               Toast.makeText(
                 context,
@@ -518,16 +541,22 @@ fun BookmarkGalleryContent(
       item = item,
       syncRepository = syncRepository,
       onDismiss = { managingLinkItem = null },
-      onPickFile = { codeText ->
+      onPickFile = { codeText, urlText ->
         managingLinkItem = null
         pendingLinkGroupKey = item.row.mediaId
         pendingLinkPresetCode = codeText
+        pendingLinkSourceUrl = urlText
         linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
       },
-      onSaveJavid = { codeText ->
+      onSaveJavid = { codeText, urlText ->
         managingLinkItem = null
         coroutineScope.launch {
-          val (savedCode, matched) = syncRepository.assignGroupPresetCodeAndAutoMatch(item.row.mediaId, codeText)
+          val (savedCode, matched) =
+            syncRepository.assignGroupPresetCodeAndAutoMatch(
+              item.row.mediaId,
+              codeText,
+              rawSourceUrl = urlText,
+            )
           val msg =
             when {
               matched > 0 -> context.getString(R.string.bookmark_gallery_auto_matched_toast, matched)
@@ -546,9 +575,10 @@ private fun ManageBookmarkGroupLinkDialog(
   item: BookmarkGalleryItem,
   syncRepository: PcBookmarkSyncRepository,
   onDismiss: () -> Unit,
-  onPickFile: (String) -> Unit,
-  onSaveJavid: (String) -> Unit,
+  onPickFile: (String, String) -> Unit,
+  onSaveJavid: (String, String) -> Unit,
 ) {
+  val context = LocalContext.current
   var javidText by remember(item.row.mediaId) {
     mutableStateOf(
       BookmarkMediaMatcher.extractJvidCode(item.mediaTitle)
@@ -556,6 +586,7 @@ private fun ManageBookmarkGroupLinkDialog(
         ?: "",
     )
   }
+  var sourceUrlText by remember(item.row.mediaId) { mutableStateOf("") }
   LaunchedEffect(item.row.mediaId) {
     val existing = syncRepository.getGroupForMedia(item.row.mediaId)
     val knownCode =
@@ -565,7 +596,16 @@ private fun ManageBookmarkGroupLinkDialog(
     if (!knownCode.isNullOrBlank()) {
       javidText = knownCode
     }
+    if (!existing?.sourceUrl.isNullOrBlank()) {
+      sourceUrlText = existing?.sourceUrl.orEmpty()
+    }
   }
+
+  val validHttpUrl =
+    remember(sourceUrlText) {
+      val t = sourceUrlText.trim()
+      t.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+    }
 
   AppAlertDialog(
     onDismissRequest = onDismiss,
@@ -592,18 +632,37 @@ private fun ManageBookmarkGroupLinkDialog(
           singleLine = true,
           label = { Text(stringResource(R.string.bookmark_gallery_javid_label)) },
         )
+        AppTextField(
+          value = sourceUrlText,
+          onValueChange = { sourceUrlText = it },
+          modifier = Modifier.fillMaxWidth(),
+          singleLine = true,
+          label = { Text(stringResource(R.string.bookmark_gallery_source_url_label)) },
+        )
+        if (validHttpUrl != null) {
+          FilledTonalButton(
+            onClick = {
+              runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(validHttpUrl)))
+              }
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(stringResource(R.string.bookmark_gallery_open_url))
+          }
+        }
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           FilledTonalButton(
-            onClick = { onPickFile(javidText) },
+            onClick = { onPickFile(javidText, sourceUrlText) },
             modifier = Modifier.weight(1f),
           ) {
             Text(stringResource(R.string.bookmark_gallery_pick_video_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
           FilledTonalButton(
-            onClick = { onSaveJavid(javidText) },
+            onClick = { onSaveJavid(javidText, sourceUrlText) },
             modifier = Modifier.weight(1f),
           ) {
             Text(stringResource(R.string.bookmark_gallery_save_javid_button), maxLines = 1, overflow = TextOverflow.Ellipsis)

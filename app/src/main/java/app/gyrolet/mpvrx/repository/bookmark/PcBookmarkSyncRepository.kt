@@ -64,6 +64,7 @@ data class SyncGroupDto(
   val height: Int = 0,
   @SerialName("file_size_bytes") val fileSizeBytes: Long = 0L,
   @SerialName("source_label") val sourceLabel: String = "",
+  @SerialName("source_url") val sourceUrl: String = "",
   @SerialName("stash_scene_id") val stashSceneId: String = "",
   @SerialName("updated_at") val updatedAt: String = "",
 )
@@ -378,6 +379,7 @@ class PcBookmarkSyncRepository(
               height = g.height,
               fileSizeBytes = g.fileSizeBytes,
               sourceLabel = g.sourceLabel,
+              sourceUrl = g.sourceUrl.orEmpty(),
               updatedAt = formatIsoUtc(g.updatedAt),
             )
           }
@@ -497,6 +499,7 @@ class PcBookmarkSyncRepository(
               height = matched?.height?.takeIf { it > 0 } ?: rg.height,
               fileSizeBytes = matched?.fileSizeBytes?.takeIf { it > 0L } ?: rg.fileSizeBytes,
               sourceLabel = matched?.sourceLabel?.takeIf { it.isNotBlank() } ?: rg.sourceLabel,
+              sourceUrl = matched?.sourceUrl?.takeIf { it.isNotBlank() } ?: rg.sourceUrl.takeIf { it.isNotBlank() },
               updatedAt = maxOf(matched?.updatedAt ?: 0L, parseIsoMillis(rg.updatedAt)),
             )
           bookmarkDao.upsertGroup(mergedGroup)
@@ -631,6 +634,23 @@ class PcBookmarkSyncRepository(
       }.recoverCatching { err ->
         throw friendlyNetworkError(baseUrl, err, usbMode = usbMode)
       }
+    }
+
+  private val lastAutoMatchAtMs = java.util.concurrent.atomic.AtomicLong(0L)
+
+  /** Throttled Echo-2 trigger: skips disk scan completely unless unlinked bookmark groups exist. */
+  suspend fun autoMatchOrphanGroupsIfNeeded(
+    force: Boolean = false,
+    minIntervalMs: Long = 20_000L,
+  ): Int =
+    withContext(Dispatchers.IO) {
+      val now = System.currentTimeMillis()
+      val prev = lastAutoMatchAtMs.get()
+      if (!force && (now - prev) < minIntervalMs) return@withContext 0
+      if (bookmarkDao.countUnlinkedGroupsWithBookmarks() <= 0) return@withContext 0
+      if (!force && !lastAutoMatchAtMs.compareAndSet(prev, now)) return@withContext 0
+      if (force) lastAutoMatchAtMs.set(now)
+      autoMatchOrphanGroupsWithLocalLibrary()
     }
 
   suspend fun autoMatchOrphanGroupsWithLocalLibrary(): Int =
@@ -814,6 +834,7 @@ class PcBookmarkSyncRepository(
   suspend fun assignGroupPresetCodeAndAutoMatch(
     groupKey: String,
     rawPresetCode: String,
+    rawSourceUrl: String? = null,
   ): Pair<String?, Int> =
     withContext(Dispatchers.IO) {
       val resolved = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
@@ -821,16 +842,27 @@ class PcBookmarkSyncRepository(
         rawPresetCode.trim()
           .takeIf { it.isNotEmpty() }
           ?.let { BookmarkMediaMatcher.normalizePresetCode(it).uppercase(java.util.Locale.ROOT) }
+      val cleanUrl =
+        rawSourceUrl?.trim()?.takeIf {
+          it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        }
       val now = System.currentTimeMillis()
       val existing = bookmarkDao.getGroup(resolved)
       if (existing != null) {
-        bookmarkDao.upsertGroup(existing.copy(presetCode = normalized, updatedAt = now))
-      } else if (normalized != null) {
+        bookmarkDao.upsertGroup(
+          existing.copy(
+            presetCode = normalized,
+            sourceUrl = if (rawSourceUrl != null) cleanUrl else existing.sourceUrl,
+            updatedAt = now,
+          ),
+        )
+      } else if (normalized != null || cleanUrl != null) {
         bookmarkDao.upsertGroup(
           BookmarkGroupEntity(
             groupKey = resolved,
             presetCode = normalized,
             sourceLabel = resolved,
+            sourceUrl = cleanUrl,
             updatedAt = now,
           ),
         )
@@ -843,6 +875,7 @@ class PcBookmarkSyncRepository(
     groupKey: String,
     uri: Uri,
     overridePresetCode: String? = null,
+    overrideSourceUrl: String? = null,
   ): Result<LinkedOrphanResult> =
     withContext(Dispatchers.IO) {
       runCatching {
@@ -872,6 +905,7 @@ class PcBookmarkSyncRepository(
             stemKey = stemKey ?: existingGroup?.stemKey,
             fileSizeBytes = fileSize.takeIf { it > 0L } ?: existingGroup?.fileSizeBytes ?: 0L,
             sourceLabel = displayName.ifBlank { existingGroup?.sourceLabel.orEmpty() },
+            sourceUrl = overrideSourceUrl?.trim()?.takeIf { it.isNotEmpty() } ?: existingGroup?.sourceUrl,
             updatedAt = now,
           )
         bookmarkDao.upsertGroup(updatedGroup)

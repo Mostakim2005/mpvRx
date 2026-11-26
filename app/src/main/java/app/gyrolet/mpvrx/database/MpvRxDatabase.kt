@@ -84,7 +84,7 @@ import app.gyrolet.mpvrx.domain.network.NetworkConnection
     app.gyrolet.mpvrx.database.entities.MusicCompanionEntity::class,
     app.gyrolet.mpvrx.database.entities.BookmarkSyncTombstoneEntity::class,
   ],
-  version = 36,
+  version = 37,
   exportSchema = true,
 )
 @TypeConverters(NetworkProtocolConverter::class, NetworkStreamEntryTypeConverter::class)

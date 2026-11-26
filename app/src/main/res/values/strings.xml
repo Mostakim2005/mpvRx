@@ -2678,6 +2678,8 @@
   <string name="bookmark_gallery_current_video">Linked video: %1$s</string>
   <string name="bookmark_gallery_unlinked_status">Not linked to a local video file yet</string>
   <string name="bookmark_gallery_javid_label">JAVID code (optional, e.g. ABC-123)</string>
+  <string name="bookmark_gallery_source_url_label">Source video URL link (optional)</string>
+  <string name="bookmark_gallery_open_url">Open URL</string>
   <string name="bookmark_gallery_pick_video_button">Choose video file…</string>
   <string name="bookmark_gallery_save_javid_button">Save JAVID</string>
   <string name="bookmark_gallery_javid_saved_toast">Saved JAVID %1$s</string>

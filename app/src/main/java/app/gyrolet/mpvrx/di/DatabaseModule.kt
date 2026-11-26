@@ -1112,6 +1112,13 @@ val MIGRATION_35_36 =
     }
   }
 
+val MIGRATION_36_37 =
+  object : Migration(36, 37) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL("ALTER TABLE `bookmark_groups` ADD COLUMN `sourceUrl` TEXT DEFAULT NULL")
+    }
+  }
+
 val SECURE_MIGRATION_1_2 =
   object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -1180,6 +1187,7 @@ val DatabaseModule =
           MIGRATION_33_34,
           MIGRATION_34_35,
           MIGRATION_35_36,
+          MIGRATION_36_37,
         ).build()
     }
 
