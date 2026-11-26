@@ -333,7 +333,7 @@ flowchart LR
 * **How It Works (Plain English):**
   * Canonical JVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsWithLocalLibrary` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later.
   * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge`) and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`, `/api/bookmarks/{uuid}/thumbnails*`) exclusively with public `MpvRxDatabase` (`R-11` isolation), respecting `updatedAt` timestamps bumped on Room `rename`, `updateThumbnail`, and tag edits.
-  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / 1-tap `Auto-match videos`, or remain under `Unlinked only` in `BookmarkGalleryScreen` for manual `Point to video` binding.
+  * Unlinked remote groups land in `bookmark_groups` and auto-match via `MediaFileRepository` after sync / 1-tap `Auto-match videos`, while `BookmarkGalleryScreen` exposes **Link / JAVID** (`ManageBookmarkGroupLinkDialog`) on every public card so any bookmark group can be manually linked, re-linked, or assigned a JAVID even for unformatted filenames.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart LR
@@ -362,7 +362,8 @@ flowchart LR
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`, `ManageBookmarkGroupLinkDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `SECURE_MIGRATION_1_2`
 

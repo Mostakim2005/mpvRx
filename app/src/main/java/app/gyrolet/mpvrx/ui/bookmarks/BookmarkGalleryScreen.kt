@@ -40,9 +40,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,9 +77,11 @@ import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryItem
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryScope
+import app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules
 import app.gyrolet.mpvrx.domain.bookmark.filterByTags
 import app.gyrolet.mpvrx.presentation.Screen
+import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
 import app.gyrolet.mpvrx.presentation.components.AppTextField
 import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -174,6 +178,8 @@ fun BookmarkGalleryContent(
   var onlyUnlinked by rememberSaveable { mutableStateOf(false) }
   var isSyncing by remember { mutableStateOf(false) }
   var pendingLinkGroupKey by remember { mutableStateOf<String?>(null) }
+  var pendingLinkPresetCode by remember { mutableStateOf<String?>(null) }
+  var managingLinkItem by remember { mutableStateOf<BookmarkGalleryItem?>(null) }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
@@ -181,11 +187,13 @@ fun BookmarkGalleryContent(
   val linkVideoLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pickedUri ->
       val targetKey = pendingLinkGroupKey
+      val overrideCode = pendingLinkPresetCode
       pendingLinkGroupKey = null
+      pendingLinkPresetCode = null
       if (pickedUri != null && !targetKey.isNullOrBlank()) {
         coroutineScope.launch {
           syncRepository
-            .linkOrphanGroupToUri(targetKey, pickedUri)
+            .linkOrphanGroupToUri(targetKey, pickedUri, overridePresetCode = overrideCode)
             .onSuccess { linked ->
               Toast.makeText(
                 context,
@@ -238,15 +246,16 @@ fun BookmarkGalleryContent(
         availableWidth = maxWidth,
         maxColumns = maxColumnCount,
       )
-    val launchPointToVideo: (BookmarkGalleryItem) -> Unit = { item ->
+    val launchPointToVideo: (BookmarkGalleryItem, String?) -> Unit = { item, codeOverride ->
       pendingLinkGroupKey = item.row.mediaId
+      pendingLinkPresetCode = codeOverride
       linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
     }
     val openItem: (BookmarkGalleryItem) -> Unit = { item ->
       val target = item.playableUri
       if (target.isNullOrBlank()) {
         if (!secureOnly) {
-          launchPointToVideo(item)
+          managingLinkItem = item
         } else {
           Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
         }
@@ -490,8 +499,8 @@ fun BookmarkGalleryContent(
             BookmarkGalleryCard(
               item = item,
               onOpen = { openItem(item) },
-              onLinkVideo = if (!secureOnly && item.playableUri.isNullOrBlank()) {
-                { launchPointToVideo(item) }
+              onLinkVideo = if (!secureOnly) {
+                { managingLinkItem = item }
               } else {
                 null
               },
@@ -503,6 +512,111 @@ fun BookmarkGalleryContent(
       }
     }
   }
+
+  managingLinkItem?.let { item ->
+    ManageBookmarkGroupLinkDialog(
+      item = item,
+      syncRepository = syncRepository,
+      onDismiss = { managingLinkItem = null },
+      onPickFile = { codeText ->
+        managingLinkItem = null
+        pendingLinkGroupKey = item.row.mediaId
+        pendingLinkPresetCode = codeText
+        linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
+      },
+      onSaveJavid = { codeText ->
+        managingLinkItem = null
+        coroutineScope.launch {
+          val (savedCode, matched) = syncRepository.assignGroupPresetCodeAndAutoMatch(item.row.mediaId, codeText)
+          val msg =
+            when {
+              matched > 0 -> context.getString(R.string.bookmark_gallery_auto_matched_toast, matched)
+              !savedCode.isNullOrBlank() -> context.getString(R.string.bookmark_gallery_javid_saved_toast, savedCode)
+              else -> context.getString(R.string.bookmark_gallery_auto_match_none)
+            }
+          Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+      },
+    )
+  }
+}
+
+@Composable
+private fun ManageBookmarkGroupLinkDialog(
+  item: BookmarkGalleryItem,
+  syncRepository: PcBookmarkSyncRepository,
+  onDismiss: () -> Unit,
+  onPickFile: (String) -> Unit,
+  onSaveJavid: (String) -> Unit,
+) {
+  var javidText by remember(item.row.mediaId) {
+    mutableStateOf(
+      BookmarkMediaMatcher.extractJvidCode(item.mediaTitle)
+        ?: BookmarkMediaMatcher.extractJvidCode(item.row.mediaId)
+        ?: "",
+    )
+  }
+  LaunchedEffect(item.row.mediaId) {
+    val existing = syncRepository.getGroupForMedia(item.row.mediaId)
+    val knownCode =
+      existing?.presetCode?.takeIf { it.isNotBlank() }
+        ?: BookmarkMediaMatcher.extractJvidCode(existing?.sourceLabel)
+        ?: BookmarkMediaMatcher.extractJvidCode(item.mediaTitle)
+    if (!knownCode.isNullOrBlank()) {
+      javidText = knownCode
+    }
+  }
+
+  AppAlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(stringResource(R.string.bookmark_gallery_manage_dialog_title)) },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+          text =
+            if (!item.playableUri.isNullOrBlank()) {
+              stringResource(
+                R.string.bookmark_gallery_current_video,
+                item.mediaTitle?.takeIf { it.isNotBlank() } ?: item.row.mediaId,
+              )
+            } else {
+              stringResource(R.string.bookmark_gallery_unlinked_status)
+            },
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppTextField(
+          value = javidText,
+          onValueChange = { javidText = it },
+          modifier = Modifier.fillMaxWidth(),
+          singleLine = true,
+          label = { Text(stringResource(R.string.bookmark_gallery_javid_label)) },
+        )
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          FilledTonalButton(
+            onClick = { onPickFile(javidText) },
+            modifier = Modifier.weight(1f),
+          ) {
+            Text(stringResource(R.string.bookmark_gallery_pick_video_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+          FilledTonalButton(
+            onClick = { onSaveJavid(javidText) },
+            modifier = Modifier.weight(1f),
+          ) {
+            Text(stringResource(R.string.bookmark_gallery_save_javid_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(android.R.string.cancel))
+      }
+    },
+  )
 }
 
 /** 0 (auto) -> 2 -> 3 -> (4 in landscape) -> 0, never exceeding the orientation cap. */
@@ -665,7 +779,12 @@ private fun BookmarkGalleryCard(
                 listOf(Color.Black.copy(alpha = 0.80f), Color.Black.copy(alpha = 0.26f), Color.Transparent),
               ),
             )
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .padding(
+              start = 6.dp,
+              top = 4.dp,
+              bottom = 4.dp,
+              end = if (onLinkVideo != null) 92.dp else 6.dp,
+            ),
       ) {
         Text(
           text = cardTitle,
@@ -676,9 +795,15 @@ private fun BookmarkGalleryCard(
         )
       }
       if (onLinkVideo != null) {
+        val isUnlinked = item.playableUri.isNullOrBlank()
         Surface(
           shape = RoundedCornerShape(6.dp),
-          color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.92f),
+          color =
+            if (isUnlinked) {
+              MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.94f)
+            } else {
+              Color.Black.copy(alpha = 0.68f)
+            },
           modifier =
             Modifier
               .align(Alignment.TopEnd)
@@ -691,16 +816,32 @@ private fun BookmarkGalleryCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(3.dp),
           ) {
+            val pillTint =
+              if (isUnlinked) {
+                MaterialTheme.colorScheme.onTertiaryContainer
+              } else {
+                Color.White
+              }
             Icon(
               imageVector = Icons.RoundedFilled.Link,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onTertiaryContainer,
+              contentDescription =
+                if (isUnlinked) {
+                  stringResource(R.string.bookmark_gallery_link_video)
+                } else {
+                  stringResource(R.string.bookmark_gallery_manage_link)
+                },
+              tint = pillTint,
               modifier = Modifier.size(11.dp),
             )
             Text(
-              text = stringResource(R.string.bookmark_gallery_link_video),
+              text =
+                if (isUnlinked) {
+                  stringResource(R.string.bookmark_gallery_link_video)
+                } else {
+                  stringResource(R.string.bookmark_gallery_manage_link)
+                },
               style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
-              color = MaterialTheme.colorScheme.onTertiaryContainer,
+              color = pillTint,
               maxLines = 1,
             )
           }

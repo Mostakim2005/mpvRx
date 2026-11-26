@@ -2673,6 +2673,14 @@
   <string name="bookmark_gallery_unlinked_badge">Unlinked (Orphan)</string>
   <string name="bookmark_gallery_filter_unlinked">Unlinked only</string>
   <string name="bookmark_gallery_link_video">Point to video</string>
+  <string name="bookmark_gallery_manage_link">Link / JAVID</string>
+  <string name="bookmark_gallery_manage_dialog_title">Link Video &amp; JAVID</string>
+  <string name="bookmark_gallery_current_video">Linked video: %1$s</string>
+  <string name="bookmark_gallery_unlinked_status">Not linked to a local video file yet</string>
+  <string name="bookmark_gallery_javid_label">JAVID code (optional, e.g. ABC-123)</string>
+  <string name="bookmark_gallery_pick_video_button">Choose video file…</string>
+  <string name="bookmark_gallery_save_javid_button">Save JAVID</string>
+  <string name="bookmark_gallery_javid_saved_toast">Saved JAVID %1$s</string>
   <string name="bookmark_gallery_linked_toast">Linked %1$s (%2$d bookmarks)</string>
   <string name="bookmark_gallery_sync_pc">Sync PC &amp; Stash</string>
   <string name="bookmark_gallery_syncing">Syncing bookmarks…</string>
@@ -2694,7 +2702,7 @@
   <string name="bookmark_sync_found_pc">Found PC Hub at %1$s</string>
   <string name="bookmark_sync_not_found">No AV Manager found on Wi-Fi or USB. Run allow-lan-firewall.bat on PC or enter IP manually.</string>
   <string name="bookmark_gallery_auto_match">Auto-match videos</string>
-  <string name="bookmark_gallery_auto_matched_toast">Matched %1$d bookmark group(s) by JVID / filename</string>
+  <string name="bookmark_gallery_auto_matched_toast">Matched %1$d bookmark group(s) by JAVID / filename</string>
   <string name="bookmark_gallery_auto_match_none">No new unlinked video matches found on device</string>
   <string name="bookmark_thumb_choose">Choose thumbnail</string>
   <string name="bookmark_thumb_dialog_title">Choose Bookmark Thumbnail</string>

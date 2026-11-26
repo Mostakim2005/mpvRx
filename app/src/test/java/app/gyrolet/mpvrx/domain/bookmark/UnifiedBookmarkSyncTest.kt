@@ -158,6 +158,8 @@ class UnifiedBookmarkSyncTest {
     assertEquals("OKSN-191", BookmarkMediaMatcher.extractJvidCode("[4K] oksn191 - Title [HardSub].mkv"))
     assertEquals("FC2-PPV-1234567", BookmarkMediaMatcher.extractJvidCode("FC2_PPV_1234567_raw.mp4"))
     assertNull(BookmarkMediaMatcher.extractJvidCode("Inception.2010.1080p.x264.mp4"))
+    assertEquals("ABC-123", BookmarkMediaMatcher.normalizePresetCode("  [4K] abc123 final cut  "))
+    assertEquals("Unformatted Clip", BookmarkMediaMatcher.normalizePresetCode("  Unformatted   Clip  "))
   }
 
   @Test

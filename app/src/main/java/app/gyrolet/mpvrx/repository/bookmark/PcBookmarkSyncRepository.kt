@@ -805,9 +805,44 @@ class PcBookmarkSyncRepository(
       uploadDecryptedThumbnail(baseUrl, token, uuid, localPath)
     }
 
+  suspend fun getGroupForMedia(groupKey: String): BookmarkGroupEntity? =
+    withContext(Dispatchers.IO) {
+      val resolved = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
+      bookmarkDao.getGroup(resolved)
+    }
+
+  suspend fun assignGroupPresetCodeAndAutoMatch(
+    groupKey: String,
+    rawPresetCode: String,
+  ): Pair<String?, Int> =
+    withContext(Dispatchers.IO) {
+      val resolved = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
+      val normalized =
+        rawPresetCode.trim()
+          .takeIf { it.isNotEmpty() }
+          ?.let { BookmarkMediaMatcher.normalizePresetCode(it).uppercase(java.util.Locale.ROOT) }
+      val now = System.currentTimeMillis()
+      val existing = bookmarkDao.getGroup(resolved)
+      if (existing != null) {
+        bookmarkDao.upsertGroup(existing.copy(presetCode = normalized, updatedAt = now))
+      } else if (normalized != null) {
+        bookmarkDao.upsertGroup(
+          BookmarkGroupEntity(
+            groupKey = resolved,
+            presetCode = normalized,
+            sourceLabel = resolved,
+            updatedAt = now,
+          ),
+        )
+      }
+      val matchedCount = if (!normalized.isNullOrBlank()) autoMatchOrphanGroupsWithLocalLibrary() else 0
+      normalized to matchedCount
+    }
+
   suspend fun linkOrphanGroupToUri(
     groupKey: String,
     uri: Uri,
+    overridePresetCode: String? = null,
   ): Result<LinkedOrphanResult> =
     withContext(Dispatchers.IO) {
       runCatching {
@@ -823,10 +858,15 @@ class PcBookmarkSyncRepository(
         val stemKey = BookmarkMediaMatcher.normalizedStem(displayName)
         val now = System.currentTimeMillis()
         val existingGroup = bookmarkDao.getGroup(resolvedKey)
+        val normalizedOverride =
+          overridePresetCode?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            BookmarkMediaMatcher.normalizePresetCode(it).uppercase(java.util.Locale.ROOT)
+          }
 
         val updatedGroup =
           (existingGroup ?: BookmarkGroupEntity(groupKey = resolvedKey)).copy(
-            presetCode = existingGroup?.presetCode?.takeIf { it.isNotBlank() }
+            presetCode = normalizedOverride
+              ?: existingGroup?.presetCode?.takeIf { it.isNotBlank() }
               ?: BookmarkMediaMatcher.extractJvidCode(displayName),
             oshash = oshash ?: existingGroup?.oshash,
             stemKey = stemKey ?: existingGroup?.stemKey,
