@@ -2712,7 +2712,7 @@ fun restartFromBeginning() {
     val oldPath = bookmark.thumbnailPath
     if (!oldPath.isNullOrBlank() && oldPath != newPath) {
       val stillUsed =
-        if (isSecure) false
+        if (isSecure) secureBookmarkStore.countByThumbnailPath(oldPath) > 0
         else playbackBookmarkDao.countByThumbnailPath(oldPath) > 0
       if (!stillUsed) {
         app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore.deleteThumbnail(

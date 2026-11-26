@@ -639,7 +639,7 @@ class PcBookmarkSyncRepository(
       val groups = bookmarkDao.getAllGroups()
       val unlinked =
         groups.filter { g ->
-          bookmarkDao.mediaRef(g.groupKey) == null && bookmarkDao.countInGroup(g.groupKey) > 0
+          tagDao.mediaRef(g.groupKey) == null && bookmarkDao.countInGroup(g.groupKey) > 0
         }
       if (unlinked.isEmpty()) return@withContext 0
 

@@ -189,14 +189,22 @@ class SecureBookmarkStore(
       if (bookmarks.isEmpty()) emptyList() else bookmarkDao.addAll(bookmarks.map { it.toSecure() })
     }
 
-  suspend fun rename(id: Long, title: String) =
+  suspend fun rename(
+    id: Long,
+    title: String,
+    updatedAt: Long = System.currentTimeMillis(),
+  ) =
     withContext(Dispatchers.IO) {
-      bookmarkDao.rename(id, enc(title))
+      bookmarkDao.rename(id, enc(title), updatedAt = updatedAt)
     }
 
-  suspend fun updateThumbnail(id: Long, thumbnailPath: String?): Int =
+  suspend fun updateThumbnail(
+    id: Long,
+    thumbnailPath: String?,
+    updatedAt: Long = System.currentTimeMillis(),
+  ): Int =
     withContext(Dispatchers.IO) {
-      bookmarkDao.updateThumbnail(id, encNullable(thumbnailPath))
+      bookmarkDao.updateThumbnail(id, encNullable(thumbnailPath), updatedAt = updatedAt)
     }
 
   suspend fun findLinkedGroupKey(mediaId: String): String? =
