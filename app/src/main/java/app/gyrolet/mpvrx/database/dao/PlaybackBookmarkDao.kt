@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import androidx.room.OnConflictStrategy
 import app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkMediaLinkEntity
+import app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity
 
 data class BookmarkGroupSummary(
   val groupKey: String,
