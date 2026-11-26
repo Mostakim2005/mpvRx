@@ -566,6 +566,21 @@ fun BookmarkGalleryContent(
           Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
         }
       },
+      onMergeOverlaps = {
+        managingLinkItem = null
+        coroutineScope.launch {
+          syncRepository.mergeOverlappingBookmarksForGroup(
+            item.row.mediaId,
+            windowSec = 10.0,
+            strategy = "earliest",
+            keepAlternates = true,
+          ).onSuccess { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+          }.onFailure { err ->
+            Toast.makeText(context, err.message ?: "Merge failed", Toast.LENGTH_SHORT).show()
+          }
+        }
+      },
     )
   }
 }
@@ -577,6 +592,7 @@ private fun ManageBookmarkGroupLinkDialog(
   onDismiss: () -> Unit,
   onPickFile: (String, String) -> Unit,
   onSaveJavid: (String, String) -> Unit,
+  onMergeOverlaps: () -> Unit,
 ) {
   val context = LocalContext.current
   var javidText by remember(item.row.mediaId) {
@@ -667,6 +683,12 @@ private fun ManageBookmarkGroupLinkDialog(
           ) {
             Text(stringResource(R.string.bookmark_gallery_save_javid_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
+        }
+        FilledTonalButton(
+          onClick = onMergeOverlaps,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(stringResource(R.string.bookmark_gallery_merge_overlaps), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
       }
     },

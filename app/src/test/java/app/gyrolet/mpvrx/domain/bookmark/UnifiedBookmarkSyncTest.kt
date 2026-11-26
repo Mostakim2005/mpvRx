@@ -237,4 +237,106 @@ class UnifiedBookmarkSyncTest {
     val decoded = Json.decodeFromString(app.gyrolet.mpvrx.repository.bookmark.SyncGroupDto.serializer(), encoded)
     assertEquals("https://portal.example.invalid/watch/url-999", decoded.sourceUrl)
   }
+
+  @Test
+  fun consolidateDuplicateJvidGroupsCollapsesVariantsIntoSingleCanonicalEntity() {
+    val gPhone =
+      app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity(
+        groupKey = "file:///storage/emulated/0/Movies/abc 123_cut.mp4",
+        presetCode = "abc 123",
+        sourceLabel = "abc 123_cut.mp4",
+        updatedAt = 200L,
+      )
+    val gCanonical =
+      app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity(
+        groupKey = "ABC-123",
+        presetCode = "ABC-123",
+        oshash = "0011223344556677",
+        sourceLabel = "ABC-123",
+        sourceUrl = "https://portal.example.invalid/watch/abc-123",
+        updatedAt = 100L,
+      )
+    val plans =
+      BookmarkGroupConsolidator.planDuplicateJvidConsolidation(
+        groups = listOf(gPhone, gCanonical),
+        countsByKey = mapOf(gPhone.groupKey to 3, gCanonical.groupKey to 2),
+      )
+    assertEquals(1, plans.size)
+    assertEquals("ABC-123", plans[0].canonicalCode)
+    assertEquals("ABC-123", plans[0].winnerGroup.groupKey)
+    assertEquals(listOf(gPhone.groupKey), plans[0].losingGroupKeys)
+    assertEquals("https://portal.example.invalid/watch/abc-123", plans[0].winnerGroup.sourceUrl)
+  }
+
+  @Test
+  fun rollingWindowTimestampMergeResolvesEarliestAverageAndWeightedAverageCleanly() {
+    val bm1 =
+      app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
+        id = 1L,
+        mediaId = "ABC-123",
+        positionMs = 100_000L,
+        title = "Entrance",
+        primaryTag = "intro",
+        syncUuid = "u1",
+      )
+    val bm2 =
+      app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
+        id = 2L,
+        mediaId = "ABC-123",
+        positionMs = 104_000L,
+        title = "Entrance Close",
+        thumbnailPath = "/tmp/thumb2.dat",
+        primaryTag = "smile",
+        syncUuid = "u2",
+      )
+    val bm3 =
+      app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
+        id = 3L,
+        mediaId = "ABC-123",
+        positionMs = 108_000L,
+        title = "Bookmark",
+        primaryTag = "hd",
+        syncUuid = "u3",
+      )
+    val solo =
+      app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity(
+        id = 4L,
+        mediaId = "ABC-123",
+        positionMs = 240_000L,
+        title = "Solo",
+        syncUuid = "u4",
+      )
+
+    val tags = mapOf(1L to listOf("intro"), 2L to listOf("smile", "hd"), 3L to listOf("hd"), 4L to listOf("solo"))
+    val earliest =
+      BookmarkGroupConsolidator.planRollingWindowTimestampMerges(
+        listOf(bm1, bm2, bm3, solo),
+        tagsByBookmarkId = tags,
+        windowSec = 10.0,
+        strategy = "earliest",
+      )
+    assertEquals(1, earliest.size)
+    assertEquals(100_000L, earliest[0].targetPositionMs)
+    assertEquals(2L, earliest[0].keeper.id)
+    assertEquals(listOf(1L, 3L), earliest[0].losingBookmarks.map { it.id })
+    assertEquals(listOf("intro", "smile", "hd"), earliest[0].mergedTags)
+
+    val avg =
+      BookmarkGroupConsolidator.planRollingWindowTimestampMerges(
+        listOf(bm1, bm2, bm3),
+        tagsByBookmarkId = tags,
+        windowSec = 10.0,
+        strategy = "average",
+      )
+    assertEquals(104_000L, avg[0].targetPositionMs)
+
+    val wAvg =
+      BookmarkGroupConsolidator.planRollingWindowTimestampMerges(
+        listOf(bm1, bm2, bm3),
+        tagsByBookmarkId = tags,
+        windowSec = 10.0,
+        strategy = "weighted_average",
+      )
+    assertTrue(wAvg[0].targetPositionMs in 100_000L..108_000L)
+  }
 }

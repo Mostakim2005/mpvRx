@@ -10,9 +10,11 @@ import app.gyrolet.mpvrx.database.MpvRxDatabase
 import app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkMediaLinkEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity
+import app.gyrolet.mpvrx.database.entities.BookmarkSyncTombstoneEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkTagEntity
 import app.gyrolet.mpvrx.database.entities.BookmarkTagMemoryEntity
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
+import app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupConsolidator
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore
@@ -184,6 +186,21 @@ data class ThumbnailSelectRequest(
   @SerialName("thumbnail_base64") val thumbnailBase64: String = "",
 )
 
+@Serializable
+data class HubDensityMergeRequest(
+  @SerialName("window_sec") val windowSec: Double = 10.0,
+  @SerialName("default_strategy") val defaultStrategy: String = "earliest",
+  @SerialName("keep_alternates") val keepAlternates: Boolean = true,
+  @SerialName("sync_stash") val syncStash: Boolean = true,
+)
+
+@Serializable
+data class HubDensityMergeResponse(
+  val success: Boolean = false,
+  @SerialName("merged_clusters") val mergedClusters: Int = 0,
+  @SerialName("tombstoned_count") val tombstonedCount: Int = 0,
+)
+
 data class PcSyncResult(
   val inserted: Int,
   val updated: Int,
@@ -343,6 +360,7 @@ class PcBookmarkSyncRepository(
       runCatching {
         require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
         VaultCrypto.ensureInitialized(context)
+        consolidateDuplicateJvidGroupsInDb()
 
         val localGroups = bookmarkDao.getAllGroups()
         val rawBookmarks = bookmarkDao.getPublicBookmarks()
@@ -564,7 +582,12 @@ class PcBookmarkSyncRepository(
           } else {
             targetBookmarkId = existing.id
             if (remoteUpdMs > localPreSyncUpd) {
-              bookmarkDao.rename(existing.id, rb.title.trim().ifBlank { existing.title }, updatedAt = remoteUpdMs)
+              bookmarkDao.updatePositionAndTitle(
+                id = existing.id,
+                positionMs = posMs,
+                title = rb.title.trim().ifBlank { existing.title },
+                updatedAt = remoteUpdMs,
+              )
               bookmarkDao.updateBookmarkSyncMetadata(
                 id = existing.id,
                 endPositionMs = endMs,
@@ -616,6 +639,7 @@ class PcBookmarkSyncRepository(
           }
         }
 
+        consolidateDuplicateJvidGroupsInDb()
         val matchedCount = runCatching { autoMatchOrphanGroupsWithLocalLibrary() }.getOrDefault(0)
         val nowIso = formatIsoUtc(System.currentTimeMillis())
         prefs.lastSyncIso.set(nowIso)
@@ -867,8 +891,138 @@ class PcBookmarkSyncRepository(
           ),
         )
       }
+      if (!normalized.isNullOrBlank()) {
+        consolidateDuplicateJvidGroupsInDb(onlyCode = normalized)
+      }
       val matchedCount = if (!normalized.isNullOrBlank()) autoMatchOrphanGroupsWithLocalLibrary() else 0
       normalized to matchedCount
+    }
+
+  suspend fun consolidateDuplicateJvidGroupsInDb(onlyCode: String? = null): Int =
+    withContext(Dispatchers.IO) {
+      val groups = bookmarkDao.getAllGroups()
+      if (groups.isEmpty()) return@withContext 0
+      val counts = HashMap<String, Int>()
+      groups.forEach { g -> counts[g.groupKey] = bookmarkDao.countInGroup(g.groupKey) }
+      val plans = BookmarkGroupConsolidator.planDuplicateJvidConsolidation(groups, counts, onlyCode = onlyCode)
+      var consolidated = 0
+      val now = System.currentTimeMillis()
+      plans.forEach { plan ->
+        val winnerKey = plan.winnerGroup.groupKey
+        bookmarkDao.upsertGroup(plan.winnerGroup)
+        val winnerHasRef = bookmarkDao.getMediaRef(winnerKey) != null
+        plan.losingGroupKeys.forEach { loserKey ->
+          bookmarkDao.reassignBookmarks(oldMediaId = loserKey, newMediaId = winnerKey, updatedAt = now)
+          bookmarkDao.reassignLinks(oldGroupKey = loserKey, newGroupKey = winnerKey, updatedAt = now)
+          bookmarkDao.upsertMediaLink(
+            BookmarkMediaLinkEntity(mediaId = loserKey, groupKey = winnerKey, updatedAt = now),
+          )
+          val loserRef = bookmarkDao.getMediaRef(loserKey)
+          if (loserRef != null) {
+            if (!winnerHasRef) {
+              bookmarkDao.upsertSyncMediaRef(loserRef.copy(mediaId = winnerKey, updatedAt = now))
+            }
+            bookmarkDao.deleteMediaRef(loserKey)
+          }
+          bookmarkDao.deleteGroup(loserKey)
+          consolidated++
+        }
+      }
+      consolidated
+    }
+
+  suspend fun mergeOverlappingBookmarksForGroup(
+    groupKey: String,
+    windowSec: Double = 10.0,
+    strategy: String = "earliest",
+    keepAlternates: Boolean = true,
+  ): Result<String> =
+    withContext(Dispatchers.IO) {
+      val resolvedKey = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
+      val hubUrl = BookmarkSyncPreferences.normalizeHubUrl(prefs.hubUrl.get())
+      val token = prefs.syncToken.get()
+      if (hubUrl.isNotEmpty()) {
+        val remoteAttempt =
+          runCatching {
+            val reqBody =
+              json.encodeToString(
+                HubDensityMergeRequest(
+                  windowSec = windowSec,
+                  defaultStrategy = strategy,
+                  keepAlternates = keepAlternates,
+                  syncStash = true,
+                ),
+              )
+            val req =
+              buildRequestBuilder(
+                "$hubUrl/api/bookmarks/groups/${Uri.encode(resolvedKey)}/merge-clusters",
+                token,
+              )
+                .post(reqBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            syncClient.newCall(req).execute().use { resp ->
+              if (!resp.isSuccessful) error("Merge HTTP ${resp.code}")
+              json.decodeFromString<HubDensityMergeResponse>(resp.body.string())
+            }
+          }
+        if (remoteAttempt.isSuccess) {
+          val out = remoteAttempt.getOrThrow()
+          syncWithPcHub()
+          return@withContext Result.success(
+            "Merged ${out.mergedClusters} cluster(s) on PC & Stash (-${out.tombstonedCount} duplicates)",
+          )
+        }
+      }
+
+      runCatching {
+        val localItems = bookmarkDao.getInGroup(resolvedKey)
+        val tagsMap =
+          localItems.associate { bm ->
+            bm.id to tagDao.tagsFor(bm.id).map { it.displayName.ifBlank { it.name } }
+          }
+        val plans =
+          BookmarkGroupConsolidator.planRollingWindowTimestampMerges(
+            bookmarks = localItems,
+            tagsByBookmarkId = tagsMap,
+            windowSec = windowSec,
+            strategy = strategy,
+          )
+        if (plans.isEmpty()) return@runCatching "No overlapping bookmarks within ${windowSec.toInt()}s"
+        val now = System.currentTimeMillis()
+        var removed = 0
+        plans.forEach { plan ->
+          bookmarkDao.updatePositionAndTitle(
+            id = plan.keeper.id,
+            positionMs = plan.targetPositionMs,
+            title = plan.targetTitle,
+            updatedAt = now,
+          )
+          bookmarkDao.updateBookmarkSyncMetadata(
+            id = plan.keeper.id,
+            endPositionMs = plan.targetEndPositionMs,
+            primaryTag = plan.targetPrimaryTag,
+            syncUuid = plan.keeper.syncUuid ?: UUID.randomUUID().toString(),
+            originApp = plan.keeper.originApp.ifBlank { "mpvrx" },
+            updatedAt = now,
+          )
+          if (plan.mergedTags.isNotEmpty()) {
+            applyBookmarkTags(plan.keeper.id, plan.mergedTags)
+          }
+          plan.losingBookmarks.forEach { loser ->
+            loser.syncUuid?.takeIf { it.isNotBlank() }?.let { uuid ->
+              tombstoneDao.upsert(BookmarkSyncTombstoneEntity(syncUuid = uuid, groupKey = resolvedKey, deletedAt = now))
+            }
+            bookmarkDao.delete(loser.id)
+            loser.thumbnailPath?.takeIf { it.isNotBlank() }?.let { tp ->
+              if (bookmarkDao.countByThumbnailPath(tp) == 0) {
+                BookmarkThumbnailStore.deleteThumbnail(context, tp, isSecure = false)
+              }
+            }
+            removed++
+          }
+        }
+        "Merged ${plans.size} cluster(s) locally (-$removed duplicates)"
+      }
     }
 
   suspend fun linkOrphanGroupToUri(
@@ -940,10 +1094,14 @@ class PcBookmarkSyncRepository(
           ),
         )
 
-        val count = bookmarkDao.countInGroup(resolvedKey)
+        if (!updatedGroup.presetCode.isNullOrBlank()) {
+          consolidateDuplicateJvidGroupsInDb(onlyCode = updatedGroup.presetCode)
+        }
+        val finalKey = bookmarkDao.findLinkedGroupKey(resolvedKey) ?: resolvedKey
+        val count = bookmarkDao.countInGroup(finalKey)
         LinkedOrphanResult(
-          groupKey = resolvedKey,
-          displayName = displayName.ifBlank { resolvedKey },
+          groupKey = finalKey,
+          displayName = displayName.ifBlank { finalKey },
           bookmarkCount = count,
         )
       }

@@ -365,9 +365,11 @@ flowchart LR
 * **Links:** `[FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGroupConsolidator.kt` :: `extractCanonicalJavid`, `planDuplicateJvidConsolidation`, `planRollingWindowTimestampMerges`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `consolidateDuplicateJvidGroupsInDb`, `mergeOverlappingBookmarksForGroup`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `reassignBookmarks`, `reassignLinks`, `updatePositionAndTitle`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`, `ManageBookmarkGroupLinkDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `MIGRATION_36_37`, `SECURE_MIGRATION_1_2`

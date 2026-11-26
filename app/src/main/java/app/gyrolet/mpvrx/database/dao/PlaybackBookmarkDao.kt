@@ -121,6 +121,35 @@ interface PlaybackBookmarkDao {
     updatedAt: Long = System.currentTimeMillis(),
   )
 
+  @Query("UPDATE playback_bookmarks SET mediaId = :newMediaId, updatedAt = :updatedAt WHERE mediaId = :oldMediaId")
+  suspend fun reassignBookmarks(
+    oldMediaId: String,
+    newMediaId: String,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  @Query("SELECT * FROM bookmark_media_refs WHERE mediaId = :mediaId LIMIT 1")
+  suspend fun getMediaRef(mediaId: String): BookmarkMediaRefEntity?
+
+  @Query("DELETE FROM bookmark_media_refs WHERE mediaId = :mediaId")
+  suspend fun deleteMediaRef(mediaId: String)
+
+  @Query(
+    """
+    UPDATE playback_bookmarks
+    SET positionMs = :positionMs,
+        title = :title,
+        updatedAt = :updatedAt
+    WHERE id = :id
+    """,
+  )
+  suspend fun updatePositionAndTitle(
+    id: Long,
+    positionMs: Long,
+    title: String,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertGroup(group: BookmarkGroupEntity)
 
