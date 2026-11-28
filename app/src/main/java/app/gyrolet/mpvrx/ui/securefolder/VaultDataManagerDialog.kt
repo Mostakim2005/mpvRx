@@ -57,8 +57,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.database.repository.PlaybackStateRepository
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
+import app.gyrolet.mpvrx.domain.playbackstate.repository.PlaybackStateRepository
 import app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore
 import app.gyrolet.mpvrx.domain.bookmark.VaultSavedBookmarkInventory
 import app.gyrolet.mpvrx.domain.secure.SecureFolderSession

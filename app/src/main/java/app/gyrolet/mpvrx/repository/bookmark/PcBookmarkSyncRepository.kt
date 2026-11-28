@@ -502,7 +502,7 @@ class PcBookmarkSyncRepository(
           tombstoneDao.upsert(
             SecureBookmarkSyncTombstoneEntity(syncUuid = t.syncUuid, groupKey = t.groupKey, deletedAt = t.deletedAt),
           )
-          publicTombstoneDao.deleteByUuid(t.syncUuid)
+          publicTombstoneDao.deleteBySyncUuid(t.syncUuid)
         }
 
         // Clean public AV Manager rows inside MpvRxDatabase and old .store/thumbs files

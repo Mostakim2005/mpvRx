@@ -581,6 +581,30 @@ class SecureBookmarkStore(
       }
     }
 
+  suspend fun deleteBookmarkById(
+    bookmarkId: Long,
+    fallbackMediaId: String,
+    fallbackThumbnailPath: String? = null,
+  ) = withContext(Dispatchers.IO) {
+    val existing = bookmarkDao.getInGroup(fallbackMediaId).firstOrNull { it.id == bookmarkId }
+    val thumbPath = existing?.let { decNullable(it.thumbnailPath) } ?: fallbackThumbnailPath
+    val sUuid = existing?.syncUuid?.trim()?.takeIf { it.isNotEmpty() }
+    if (!SecureFolderSession.isDecoyUnlocked && sUuid != null) {
+      tombstoneDao.upsert(
+        SecureBookmarkSyncTombstoneEntity(
+          syncUuid = sUuid,
+          groupKey = existing.mediaId,
+          deletedAt = System.currentTimeMillis(),
+        ),
+      )
+    }
+    bookmarkDao.delete(bookmarkId)
+    tagDao.clearForBookmark(bookmarkId)
+    if (!thumbPath.isNullOrBlank() && countByThumbnailPath(thumbPath) == 0) {
+      BookmarkThumbnailStore.deleteThumbnail(context, thumbPath, isSecure = true)
+    }
+  }
+
   suspend fun tagsFor(bookmarkId: Long): List<BookmarkTagEntity> =
     withContext(Dispatchers.IO) {
       tagDao.tagsFor(bookmarkId).map { entity ->

@@ -293,6 +293,26 @@ fun BookmarkGalleryContent(
         .take(if (query.isEmpty()) 6 else 10)
     }
 
+  val openItem: (BookmarkGalleryItem) -> Unit = { item ->
+    val target = item.playableUri
+    if (target.isNullOrBlank()) {
+      if (isPrimarySecure) {
+        managingLinkItem = item
+      } else {
+        Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
+      }
+    } else {
+      MediaUtils.playFile(
+        source = target,
+        context = context,
+        launchSource = if (secureOnly) "secure_folder" else "bookmark_gallery",
+        title = item.mediaTitle ?: item.row.title,
+        startPositionSeconds = item.row.positionMs / 1000.0,
+      )
+      onClose()
+    }
+  }
+
   BoxWithConstraints(Modifier.fillMaxSize()) {
     val maxColumnCount = if (isLandscape) LANDSCAPE_MAX_COLUMNS else PORTRAIT_MAX_COLUMNS
     val columns =
@@ -305,25 +325,6 @@ fun BookmarkGalleryContent(
       pendingLinkGroupKey = item.row.mediaId
       pendingLinkPresetCode = codeOverride
       linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
-    }
-    val openItem: (BookmarkGalleryItem) -> Unit = { item ->
-      val target = item.playableUri
-      if (target.isNullOrBlank()) {
-        if (isPrimarySecure) {
-          managingLinkItem = item
-        } else {
-          Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
-        }
-      } else {
-        MediaUtils.playFile(
-          source = target,
-          context = context,
-          launchSource = if (secureOnly) "secure_folder" else "bookmark_gallery",
-          title = item.mediaTitle ?: item.row.title,
-          startPositionSeconds = item.row.positionMs / 1000.0,
-        )
-        onClose()
-      }
     }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {

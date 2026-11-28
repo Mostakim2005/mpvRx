@@ -337,20 +337,23 @@ class BookmarkGalleryRepository(
     item: BookmarkGalleryItem,
     isSecure: Boolean,
   ) {
-    val entity =
-      PlaybackBookmarkEntity(
-        id = item.row.id,
-        mediaId = item.row.mediaId,
-        positionMs = item.row.positionMs,
-        title = item.row.title,
-        createdAt = item.row.createdAt,
-        bookTrackId = item.row.bookTrackId,
-        thumbnailPath = item.row.thumbnailPath,
-        syncUuid = item.row.syncUuid,
-      )
     if (isSecure) {
-      secureBookmarkStore.deleteBookmarkSafely(entity)
+      secureBookmarkStore.deleteBookmarkById(
+        bookmarkId = item.row.id,
+        fallbackMediaId = item.row.mediaId,
+        fallbackThumbnailPath = item.row.thumbnailPath,
+      )
     } else {
+      val entity =
+        bookmarkDao.getInGroup(item.row.mediaId).firstOrNull { it.id == item.row.id }
+          ?: PlaybackBookmarkEntity(
+            id = item.row.id,
+            mediaId = item.row.mediaId,
+            positionMs = item.row.positionMs,
+            title = item.row.title,
+            createdAt = item.row.createdAt,
+            thumbnailPath = item.row.thumbnailPath,
+          )
       PlaybackBookmarkOps.deleteBookmarkSafely(dao = bookmarkDao, context = context, bookmark = entity)
       tagDao.clearForBookmark(entity.id)
     }
