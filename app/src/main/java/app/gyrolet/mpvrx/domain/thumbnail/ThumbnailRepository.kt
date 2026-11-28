@@ -103,12 +103,22 @@ class ThumbnailRepository(
 
   private val memoryCache = BitmapMemoryCache<String>(heapDivisor = 8, maxSizeMiB = 48)
   private val secureMemoryCache = BitmapMemoryCache<String>(heapDivisor = 12, maxSizeMiB = 16)
+  private val decoyMemoryCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
   private val localDiskDir: File
     get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalThumbnailCacheLocalDir(context)
   private val networkDiskDir: File
     get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalThumbnailCacheNetworkDir(context)
-  private val secureDiskDir: File
+  private val primarySecureDiskDir: File
     get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.secureThumbnailCacheDir(context)
+  private val decoySecureDiskDir: File
+    get() = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.decoyThumbnailCacheDir(context)
+  private val secureDiskDir: File
+    get() =
+      if (app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isDecoyUnlocked) {
+        decoySecureDiskDir
+      } else {
+        primarySecureDiskDir
+      }
 
   init {
     app.gyrolet.mpvrx.domain.secure.SecureFolderSession.registerOnLockListener(::evictSecureMemoryCache)
@@ -116,12 +126,14 @@ class ThumbnailRepository(
 
   fun evictSecureMemoryCache() {
     synchronized(secureMemoryCache) { secureMemoryCache.evictAll() }
+    synchronized(decoyMemoryCache) { decoyMemoryCache.evictAll() }
   }
 
-  fun clearSecureThumbnailCache() {
+  fun clearSecureThumbnailCache(decoyOnly: Boolean = false) {
     diskCacheLock.write {
       evictSecureMemoryCache()
-      secureDiskDir.listFiles()?.forEach { file ->
+      val dir = if (decoyOnly) decoySecureDiskDir else primarySecureDiskDir
+      dir.listFiles()?.forEach { file ->
         if (file.isFile && !file.name.equals(".nomedia", ignoreCase = true)) {
           runCatching { file.delete() }
         }
@@ -137,15 +149,18 @@ class ThumbnailRepository(
     path.isNotBlank() && !path.contains("://") &&
       app.gyrolet.mpvrx.domain.secure.VaultCrypto.isEncryptedFile(File(path))
 
+  private fun activeSecureCache(): BitmapMemoryCache<String> =
+    if (app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isDecoyUnlocked) decoyMemoryCache else secureMemoryCache
+
   private fun readFromMemoryCache(key: String, secure: Boolean): Bitmap? {
     if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return null
-    val cache = if (secure) secureMemoryCache else memoryCache
+    val cache = if (secure) activeSecureCache() else memoryCache
     return synchronized(cache) { cache.get(key) }
   }
 
   private fun writeToMemoryCache(key: String, bitmap: Bitmap, secure: Boolean) {
     if (secure && !app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isUnlocked) return
-    val cache = if (secure) secureMemoryCache else memoryCache
+    val cache = if (secure) activeSecureCache() else memoryCache
     synchronized(cache) { cache.put(key, bitmap) }
   }
   private val diskCacheLock = ReentrantReadWriteLock()
@@ -398,7 +413,7 @@ class ThumbnailRepository(
       val bases = identities.map { "${videoBaseKey(it)}|" }
       val suffix = "|${thumbnailModeKey()}|${thumbnailQualityKey()}" + thumbnailGeneratorCacheKey(video, generator)
       val secure = isSecureVideo(video.path)
-      val memCache = if (secure) secureMemoryCache else memoryCache
+      val memCache = if (secure) activeSecureCache() else memoryCache
       val memoryBitmap = synchronized(memCache) {
         memCache.snapshot().entries.firstOrNull { (key, bitmap) ->
           !bitmap.isRecycled && bases.any { base -> key.startsWith(base) } && key.endsWith(suffix)

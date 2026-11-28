@@ -235,6 +235,7 @@ class PlayerViewModel(
   private val json: Json by inject()
   private val playbackBookmarkDao: app.gyrolet.mpvrx.database.dao.PlaybackBookmarkDao by inject()
   private val bookmarkTagDao: app.gyrolet.mpvrx.database.dao.BookmarkTagDao by inject()
+  private val bookmarkGalleryRepository: app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository by inject()
   private val secureBookmarkStore: app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore by inject()
   private val secureFolderRepository: app.gyrolet.mpvrx.database.repository.SecureFolderRepository by inject()
   private val aiService: app.gyrolet.mpvrx.repository.ai.AiService by inject()
@@ -1405,8 +1406,7 @@ class PlayerViewModel(
     }.flatMapLatest { (isSecure, unlocked) ->
       when {
         isSecure && !unlocked -> flowOf(emptyList())
-        isSecure -> secureBookmarkStore.observePresetSummaries()
-        else -> playbackBookmarkDao.observePresetSummaries()
+        else -> bookmarkGalleryRepository.observePresetSummaries(isSecure = isSecure)
       }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

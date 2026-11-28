@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.preferences.BookmarkSyncPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
@@ -57,7 +58,11 @@ internal fun BookmarkSyncServerRow(
   val lastIso by prefs.lastSyncIso.collectAsState()
   val lastSummary by prefs.lastSyncSummary.collectAsState()
   val syncProgress by syncRepo.syncProgress.collectAsStateWithLifecycle()
+  val vaultMode by SecureFolderSession.modeState.collectAsStateWithLifecycle()
+  val isPrimaryUnlocked = vaultMode == SecureFolderSession.VaultMode.PRIMARY
   var syncing by remember { mutableStateOf(false) }
+
+  if (!isPrimaryUnlocked) return
 
   Column(modifier = modifier.fillMaxWidth()) {
     Row(
@@ -151,6 +156,20 @@ internal fun BookmarkSyncConfigDialog(
   onDismiss: () -> Unit,
 ) {
   if (!isOpen) return
+  val vaultMode by SecureFolderSession.modeState.collectAsStateWithLifecycle()
+  if (vaultMode != SecureFolderSession.VaultMode.PRIMARY) {
+    AlertDialog(
+      onDismissRequest = onDismiss,
+      title = { Text(stringResource(R.string.bookmark_sync_pref_section)) },
+      text = { Text(stringResource(R.string.bookmark_sync_vault_locked)) },
+      confirmButton = {
+        TextButton(onClick = onDismiss) {
+          Text(stringResource(android.R.string.ok))
+        }
+      },
+    )
+    return
+  }
   val prefs = koinInject<BookmarkSyncPreferences>()
   val syncRepo = koinInject<PcBookmarkSyncRepository>()
   val context = LocalContext.current

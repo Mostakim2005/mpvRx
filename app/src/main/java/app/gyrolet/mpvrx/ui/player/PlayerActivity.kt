@@ -1511,10 +1511,25 @@ class PlayerActivity :
       app.gyrolet.mpvrx.ui.player.controls.components.bookmarkPanelFraction(
         playerPreferences.bookmarkPanelSizePercent.get(),
       )
-    // Portrait keeps a fixed 45% video band; the width-based percent steps only apply in landscape.
-    val videoFraction = if (isPortrait) 0.45f else 1f - panelPercent
-    val regionWidth = if (isPortrait) containerWidth else (containerWidth * videoFraction).roundToInt().coerceIn(1, containerWidth)
-    val regionHeight = if (isPortrait) (containerHeight * videoFraction).roundToInt().coerceIn(1, containerHeight) else containerHeight
+    val videoAspect = VideoAspectGeometry.currentEffectiveDisplayAspect()
+    // Portrait uses YouTube-style natural aspect height (capped at 36% for tall 9:16 clips);
+    // Landscape preserves the exact 20/25/30/35% sidebar ratio.
+    val regionWidth =
+      if (isPortrait) {
+        containerWidth
+      } else {
+        (containerWidth * (1f - panelPercent)).roundToInt().coerceIn(1, containerWidth)
+      }
+    val regionHeight =
+      if (isPortrait) {
+        app.gyrolet.mpvrx.ui.player.controls.components.computePortraitSplitVideoHeightPx(
+          containerWidthPx = containerWidth,
+          containerHeightPx = containerHeight,
+          videoAspect = videoAspect,
+        ).coerceIn(1, containerHeight)
+      } else {
+        containerHeight
+      }
     val isRtl = binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL
 
     var targetWidth = regionWidth
@@ -1522,31 +1537,28 @@ class PlayerActivity :
     var physicalHorizontalBias = 0f
     var verticalBias = 0f
 
-    if (isVideoAmbientPresentationActive) {
-      val videoAspect = VideoAspectGeometry.currentEffectiveDisplayAspect()
-      if (videoAspect != null && videoAspect > 0.0) {
-        val geometry = AmbientGeometry.calculate(
-          regionWidth,
-          regionHeight,
-          videoAspect,
-          panscan = PlaybackSession.getPropertyDouble("panscan") ?: 0.0,
-        )
-        if (geometry != null && geometry.hasBars) {
-          val regionAspect = regionWidth.toDouble() / regionHeight.toDouble()
-          if (regionAspect > videoAspect) {
-            targetHeight = regionHeight
-            targetWidth = centeredFittedDimension((targetHeight * videoAspect).roundToInt(), regionWidth)
-          } else {
-            targetWidth = regionWidth
-            targetHeight = centeredFittedDimension((targetWidth / videoAspect).roundToInt(), regionHeight)
-          }
-          val targetLeft = (regionWidth - targetWidth) / 2f
-          val targetTop = (regionHeight - targetHeight) / 2f
-          val availX = (containerWidth - targetWidth).toFloat()
-          val availY = (containerHeight - targetHeight).toFloat()
-          physicalHorizontalBias = if (availX > 0f) (targetLeft / availX).coerceIn(0f, 1f) else 0f
-          verticalBias = if (availY > 0f) (targetTop / availY).coerceIn(0f, 1f) else 0f
+    if (isVideoAmbientPresentationActive && videoAspect != null && videoAspect > 0.0) {
+      val geometry = AmbientGeometry.calculate(
+        regionWidth,
+        regionHeight,
+        videoAspect,
+        panscan = PlaybackSession.getPropertyDouble("panscan") ?: 0.0,
+      )
+      if (geometry != null && geometry.hasBars) {
+        val regionAspect = regionWidth.toDouble() / regionHeight.toDouble()
+        if (regionAspect > videoAspect) {
+          targetHeight = regionHeight
+          targetWidth = centeredFittedDimension((targetHeight * videoAspect).roundToInt(), regionWidth)
+        } else {
+          targetWidth = regionWidth
+          targetHeight = centeredFittedDimension((targetWidth / videoAspect).roundToInt(), regionHeight)
         }
+        val targetLeft = (regionWidth - targetWidth) / 2f
+        val targetTop = (regionHeight - targetHeight) / 2f
+        val availX = (containerWidth - targetWidth).toFloat()
+        val availY = (containerHeight - targetHeight).toFloat()
+        physicalHorizontalBias = if (availX > 0f) (targetLeft / availX).coerceIn(0f, 1f) else 0f
+        verticalBias = if (availY > 0f) (targetTop / availY).coerceIn(0f, 1f) else 0f
       }
     }
 
@@ -1666,9 +1678,17 @@ class PlayerActivity :
           viewModel.isAudioOnly,
           PlaybackSession.state,
           viewModel.bookmarkPanelSizePercent,
-        ) { panelOpen, isAudio, sessionState, panelPercent ->
-          (panelOpen && !isAudio && sessionState.currentItem?.audiobook == null) to panelPercent
-        }.distinctUntilChanged().collect { (shouldSplit, _) ->
+          combine(
+            viewModel.videoAspect,
+            PlaybackSession.propDouble["video-out-params/aspect"],
+            PlaybackSession.propInt["video-params/w"],
+            PlaybackSession.propInt["video-params/h"],
+          ) { aspect, outAspect, w, h ->
+            listOf(aspect, outAspect, w, h)
+          },
+        ) { panelOpen, isAudio, sessionState, panelPercent, geom ->
+          Triple(panelOpen && !isAudio && sessionState.currentItem?.audiobook == null, panelPercent, geom)
+        }.distinctUntilChanged().collect { (shouldSplit, _, _) ->
           if (
             !shouldSplit &&
             viewModel.isBookmarkPanelOpen.value &&

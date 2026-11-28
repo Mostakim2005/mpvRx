@@ -117,11 +117,13 @@ val domainModule =
     single {
       app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository(
         context = androidContext(),
-        database = get(),
+        secureDatabase = get(),
+        publicDatabase = get(),
+        secureBookmarkStore = get(),
         prefs = get(),
         httpClient = get(),
         json = get(),
-        mediaFileRepository = getOrNull(),
+        mediaFileRepository = app.gyrolet.mpvrx.repository.MediaFileRepository,
       )
     }
   }

@@ -13,6 +13,10 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.view.View
+import android.view.inputmethod.InputMethodManager
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.clickable
@@ -295,16 +299,18 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
   }
   val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
   val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+  val localView = androidx.compose.ui.platform.LocalView.current
   val configuration = androidx.compose.ui.platform.LocalConfiguration.current
   val shouldForcePortrait = configuration.smallestScreenWidthDp < 600
+  val editorActivity = LocalContext.current.findActivity()
   val hideKeyboardAndClearFocus = {
     focusManager.clearFocus(force = true)
     keyboardController?.hide()
+    hideImeWindow(localView, editorActivity)
   }
   // On phone-sized screens, hold portrait while editing so the IME does not crush the sheet,
   // then hide the keyboard and restore the prior orientation on close
   // (TRAP: Portrait-Only-Editors-Must-Restore-Orientation).
-  val editorActivity = LocalContext.current.findActivity()
   DisposableEffect(editorActivity, shouldForcePortrait) {
     val previous = editorActivity?.requestedOrientation
     if (editorActivity != null && shouldForcePortrait) {
@@ -315,6 +321,11 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
       if (editorActivity != null && shouldForcePortrait && previous != null && previous != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
         editorActivity.requestedOrientation = previous
       }
+      // Run once more after orientation/sheet window detachment completes so Android's IME never sticks.
+      editorActivity?.window?.decorView?.postDelayed(
+        { hideImeWindow(null, editorActivity) },
+        140L,
+      )
     }
   }
   val isNewDraft = bookmark.id == 0L
@@ -380,7 +391,15 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
     title = stringResource(R.string.audiobook_bookmark_name),
   ) {
     Column(
-      Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+      Modifier
+        .fillMaxWidth()
+        .clickable(
+          interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+          indication = null,
+          onClick = hideKeyboardAndClearFocus,
+        )
+        .verticalScroll(rememberScrollState())
+        .padding(horizontal = 20.dp, vertical = 8.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
       Text(
@@ -438,6 +457,7 @@ internal fun PlaybackBookmarkEditor(viewModel: PlayerViewModel, onSaved: () -> U
             scope.launch {
               try {
                 viewModel.savePlaybackBookmark(bookmark, resolvedTitle, finalTags)
+                hideKeyboardAndClearFocus()
                 haptics.confirm()
                 onSaved()
               } catch (cancelled: CancellationException) {
@@ -561,4 +581,25 @@ private fun Context.findActivity(): Activity? {
     current = current.baseContext
   }
   return current as? Activity
+}
+
+/** Forces software keyboard dismissal across both the Compose dialog window and host Activity window. */
+private fun hideImeWindow(
+  view: View?,
+  activity: Activity?,
+) {
+  val context = activity ?: view?.context ?: return
+  val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+  view?.let { v ->
+    v.clearFocus()
+    imm?.hideSoftInputFromWindow(v.windowToken, 0)
+  }
+  activity?.window?.let { win ->
+    val decor = win.decorView
+    WindowInsetsControllerCompat(win, decor).hide(WindowInsetsCompat.Type.ime())
+    win.currentFocus?.clearFocus()
+    decor.windowToken?.let { token ->
+      imm?.hideSoftInputFromWindow(token, 0)
+    }
+  }
 }

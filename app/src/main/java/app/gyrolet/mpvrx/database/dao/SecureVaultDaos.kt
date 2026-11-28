@@ -17,6 +17,7 @@ import app.gyrolet.mpvrx.database.entities.SecureBookmarkEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkGroupEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaLinkEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaRefEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkSyncTombstoneEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagMemoryEntity
 import app.gyrolet.mpvrx.database.entities.SecurePlaybackStateEntity
@@ -92,6 +93,33 @@ interface SecureBookmarkDao {
   @Query("UPDATE secure_bookmarks SET title = :title, updatedAt = :updatedAt WHERE id = :id")
   suspend fun rename(id: Long, title: String, updatedAt: Long = System.currentTimeMillis())
 
+  @Query("UPDATE secure_bookmarks SET positionMs = :positionMs, title = :title, updatedAt = :updatedAt WHERE id = :id")
+  suspend fun updatePositionAndTitle(id: Long, positionMs: Long, title: String, updatedAt: Long = System.currentTimeMillis())
+
+  @Query(
+    """
+    UPDATE secure_bookmarks
+    SET endPositionMs = :endPositionMs,
+        primaryTag = :primaryTag,
+        syncUuid = :syncUuid,
+        updatedAt = :updatedAt
+    WHERE id = :id
+    """,
+  )
+  suspend fun updateBookmarkSyncMetadata(
+    id: Long,
+    endPositionMs: Long?,
+    primaryTag: String?,
+    syncUuid: String?,
+    updatedAt: Long = System.currentTimeMillis(),
+  )
+
+  @Query("SELECT * FROM secure_bookmarks WHERE syncUuid = :syncUuid LIMIT 1")
+  suspend fun findBookmarkBySyncUuid(syncUuid: String): SecureBookmarkEntity?
+
+  @Query("UPDATE secure_bookmarks SET mediaId = :newMediaId, updatedAt = :updatedAt WHERE mediaId = :oldMediaId")
+  suspend fun reassignBookmarks(oldMediaId: String, newMediaId: String, updatedAt: Long = System.currentTimeMillis())
+
   @Query("UPDATE secure_bookmarks SET thumbnailPath = :thumbnailPath, updatedAt = :updatedAt WHERE id = :id")
   suspend fun updateThumbnail(id: Long, thumbnailPath: String?, updatedAt: Long = System.currentTimeMillis()): Int
 
@@ -145,6 +173,12 @@ interface SecureBookmarkDao {
 
   @Query("SELECT * FROM secure_bookmark_groups")
   suspend fun getAllGroups(): List<SecureBookmarkGroupEntity>
+
+  @Query("SELECT * FROM secure_bookmark_groups ORDER BY updatedAt DESC")
+  fun observeAllGroups(): Flow<List<SecureBookmarkGroupEntity>>
+
+  @Query("UPDATE secure_bookmark_groups SET sourceUrl = :sourceUrl, updatedAt = :updatedAt WHERE groupKey = :groupKey")
+  suspend fun updateGroupSourceUrl(groupKey: String, sourceUrl: String?, updatedAt: Long = System.currentTimeMillis())
 
   @Query("DELETE FROM secure_bookmark_groups WHERE groupKey = :groupKey")
   suspend fun deleteGroup(groupKey: String)
@@ -215,6 +249,9 @@ interface SecureBookmarkTagDao {
   @Query("SELECT * FROM secure_bookmark_tags ORDER BY id ASC")
   fun observeAllTags(): Flow<List<SecureBookmarkTagEntity>>
 
+  @Query("SELECT * FROM secure_bookmark_tags ORDER BY id ASC")
+  suspend fun getAllTagsOnce(): List<SecureBookmarkTagEntity>
+
   @Insert(onConflict = OnConflictStrategy.IGNORE)
   suspend fun insertAll(tags: List<SecureBookmarkTagEntity>)
 
@@ -226,6 +263,12 @@ interface SecureBookmarkTagDao {
 
   @Query("SELECT * FROM secure_bookmark_tag_memory ORDER BY useCount DESC, lastUsedAt DESC")
   fun observeMemory(): Flow<List<SecureBookmarkTagMemoryEntity>>
+
+  @Query("SELECT * FROM secure_bookmark_tag_memory ORDER BY useCount DESC, lastUsedAt DESC")
+  suspend fun getAllMemoryOnce(): List<SecureBookmarkTagMemoryEntity>
+
+  @Query("DELETE FROM secure_bookmark_tag_memory WHERE nameHash IN (:nameHashes)")
+  suspend fun deleteMemoryByHashes(nameHashes: List<String>)
 
   @Query("SELECT * FROM secure_bookmark_tag_memory WHERE nameHash = :nameHash LIMIT 1")
   suspend fun getMemory(nameHash: String): SecureBookmarkTagMemoryEntity?
@@ -266,10 +309,31 @@ interface SecurePlaybackStateDao {
   @Query("SELECT * FROM secure_playback_state WHERE mediaKey = :mediaKey LIMIT 1")
   suspend fun getByMediaKey(mediaKey: String): SecurePlaybackStateEntity?
 
+  @Query("SELECT * FROM secure_playback_state ORDER BY updatedAt DESC")
+  suspend fun getAll(): List<SecurePlaybackStateEntity>
+
   @Query("DELETE FROM secure_playback_state WHERE mediaKey = :mediaKey")
   suspend fun deleteByMediaKey(mediaKey: String)
 
+  @Query("DELETE FROM secure_playback_state WHERE mediaKey IN (:mediaKeys)")
+  suspend fun deleteByMediaKeys(mediaKeys: List<String>)
+
   @Query("DELETE FROM secure_playback_state")
+  suspend fun clearAll()
+}
+
+@Dao
+interface SecureBookmarkSyncTombstoneDao {
+  @Query("SELECT * FROM secure_bookmark_sync_tombstones ORDER BY deletedAt DESC")
+  suspend fun getAll(): List<SecureBookmarkSyncTombstoneEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsert(entity: SecureBookmarkSyncTombstoneEntity)
+
+  @Query("DELETE FROM secure_bookmark_sync_tombstones WHERE syncUuid = :syncUuid")
+  suspend fun deleteByUuid(syncUuid: String)
+
+  @Query("DELETE FROM secure_bookmark_sync_tombstones")
   suspend fun clearAll()
 }
 
@@ -280,6 +344,9 @@ interface SecureVideoMetadataDao {
 
   @Query("SELECT * FROM secure_video_metadata WHERE pathHash IN (:pathHashes)")
   suspend fun getMetadataBatch(pathHashes: List<String>): List<SecureVideoMetadataEntity>
+
+  @Query("SELECT * FROM secure_video_metadata ORDER BY lastScanned DESC")
+  suspend fun getAll(): List<SecureVideoMetadataEntity>
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertMetadata(metadata: SecureVideoMetadataEntity)

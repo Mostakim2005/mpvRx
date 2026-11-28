@@ -434,7 +434,7 @@ data class VideoListScreen(
             } else {
               { backstack.navigateTo(app.gyrolet.mpvrx.ui.preferences.PreferencesScreen) }
             },
-          onTitleDoubleTap = { backstack.navigateTo(SecureFolderGateScreen) },
+          onTitleTripleTap = { backstack.navigateTo(SecureFolderGateScreen) },
           onTitleLongPress = { backstack.navigateTo(SecureFolderGateScreen) },
           isSingleSelection = selectionManager.isSingleSelection,
           onInfoClick = showSelectionInfo,

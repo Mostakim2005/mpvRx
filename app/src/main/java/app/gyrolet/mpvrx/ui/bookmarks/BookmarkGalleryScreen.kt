@@ -15,8 +15,10 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,9 +35,11 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -76,14 +80,18 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.database.entities.SecureMediaEntity
+import app.gyrolet.mpvrx.database.repository.SecureFolderRepository
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryItem
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryRepository
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGalleryScope
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules
 import app.gyrolet.mpvrx.domain.bookmark.filterByTags
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
+import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton
 import app.gyrolet.mpvrx.presentation.components.AppTextField
 import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -93,7 +101,9 @@ import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkThumbnailImage
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.media.MediaUtils
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
@@ -163,9 +173,13 @@ fun BookmarkGalleryContent(
   val context = LocalContext.current
   val repository = koinInject<BookmarkGalleryRepository>()
   val syncRepository = koinInject<PcBookmarkSyncRepository>()
+  val secureFolderRepository = koinInject<SecureFolderRepository>()
   val coroutineScope = rememberCoroutineScope()
   val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-  val isUnlocked by app.gyrolet.mpvrx.domain.secure.SecureFolderSession.unlockedState.collectAsStateWithLifecycle()
+  val vaultMode by SecureFolderSession.modeState.collectAsStateWithLifecycle()
+  val isUnlocked = vaultMode != SecureFolderSession.VaultMode.LOCKED
+  // AV Manager, JAVID catalog, Auto-Match & group linking belong exclusively to unlocked Primary Vault.
+  val isPrimarySecure = secureOnly && vaultMode == SecureFolderSession.VaultMode.PRIMARY
 
   LaunchedEffect(secureOnly, isUnlocked) {
     if (secureOnly && !isUnlocked) onClose()
@@ -185,15 +199,18 @@ fun BookmarkGalleryContent(
   var pendingLinkPresetCode by remember { mutableStateOf<String?>(null) }
   var pendingLinkSourceUrl by remember { mutableStateOf<String?>(null) }
   var managingLinkItem by remember { mutableStateOf<BookmarkGalleryItem?>(null) }
+  var actionBookmarkItem by remember { mutableStateOf<BookmarkGalleryItem?>(null) }
   var columnSetting by rememberSaveable { mutableStateOf(0) }
   var selectedTags by rememberSaveable { mutableStateOf(listOf<String>()) }
   var filterQuery by rememberSaveable { mutableStateOf("") }
 
   val syncProgress by syncRepository.syncProgress.collectAsStateWithLifecycle()
-  val catalogEntries by syncRepository.observeJavidCatalog().collectAsStateWithLifecycle(initialValue = emptyList())
+  val catalogEntries by (
+    if (isPrimarySecure) syncRepository.observeJavidCatalog() else flowOf(emptyList())
+  ).collectAsStateWithLifecycle(initialValue = emptyList())
 
-  LaunchedEffect(secureOnly) {
-    if (!secureOnly) {
+  LaunchedEffect(isPrimarySecure) {
+    if (isPrimarySecure) {
       val matched = syncRepository.autoMatchOrphanGroupsIfNeeded(force = true)
       if (matched > 0) {
         Toast.makeText(
@@ -245,7 +262,7 @@ fun BookmarkGalleryContent(
   val vocabulary by remember(scope) {
     repository.observeFilterTags(scope)
   }.collectAsStateWithLifecycle(initialValue = emptyList())
-  val hasUnlinkedItems = remember(items, secureOnly) { !secureOnly && items.any { it.playableUri.isNullOrBlank() } }
+  val hasUnlinkedItems = remember(items, isPrimarySecure) { isPrimarySecure && items.any { it.playableUri.isNullOrBlank() } }
 
   val filtered =
     remember(
@@ -292,7 +309,7 @@ fun BookmarkGalleryContent(
     val openItem: (BookmarkGalleryItem) -> Unit = { item ->
       val target = item.playableUri
       if (target.isNullOrBlank()) {
-        if (!secureOnly) {
+        if (isPrimarySecure) {
           managingLinkItem = item
         } else {
           Toast.makeText(context, R.string.bookmark_gallery_unavailable, Toast.LENGTH_SHORT).show()
@@ -357,7 +374,7 @@ fun BookmarkGalleryContent(
             )
           }
           Spacer(Modifier.weight(1f))
-          if (!secureOnly) {
+          if (isPrimarySecure) {
             SmallIconAction(
               icon = Icons.RoundedFilled.VideoLibrary,
               contentDescription = stringResource(R.string.bookmark_javid_catalog_button),
@@ -439,7 +456,7 @@ fun BookmarkGalleryContent(
           )
         }
 
-        if (!secureOnly && syncProgress.active) {
+        if (isPrimarySecure && syncProgress.active) {
           SyncProgressBanner(
             progress = syncProgress,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -448,7 +465,7 @@ fun BookmarkGalleryContent(
 
         val activeScopeGroupKey = selectedCatalogGroupKey ?: if (onlyCurrentVideo) currentMediaId else null
         val activeScopeGroup =
-          if (!secureOnly && activeScopeGroupKey != null) {
+          if (isPrimarySecure && activeScopeGroupKey != null) {
             catalogEntries.firstOrNull { it.groupKey == activeScopeGroupKey }
           } else {
             null
@@ -608,7 +625,8 @@ fun BookmarkGalleryContent(
             BookmarkGalleryCard(
               item = item,
               onOpen = { openItem(item) },
-              onLinkVideo = if (!secureOnly) {
+              onLongClick = { actionBookmarkItem = item },
+              onLinkVideo = if (isPrimarySecure) {
                 { managingLinkItem = item }
               } else {
                 null
@@ -622,55 +640,139 @@ fun BookmarkGalleryContent(
     }
   }
 
-  managingLinkItem?.let { item ->
-    ManageBookmarkGroupLinkDialog(
-      item = item,
-      syncRepository = syncRepository,
-      onDismiss = { managingLinkItem = null },
-      onPickFile = { codeText, urlText ->
-        managingLinkItem = null
-        pendingLinkGroupKey = item.row.mediaId
-        pendingLinkPresetCode = codeText
-        pendingLinkSourceUrl = urlText
-        linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
+  actionBookmarkItem?.let { target ->
+    AppAlertDialog(
+      onDismissRequest = { actionBookmarkItem = null },
+      title = {
+        Text(
+          text = target.row.title,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+        )
       },
-      onSaveJavid = { codeText, urlText ->
-        managingLinkItem = null
-        coroutineScope.launch {
-          val (savedCode, matched) =
-            syncRepository.assignGroupPresetCodeAndAutoMatch(
-              item.row.mediaId,
-              codeText,
-              rawSourceUrl = urlText,
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text(
+            text = "${target.mediaTitle ?: target.row.mediaId} • ${formatGalleryTimestamp(target.row.positionMs)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          FilledTonalButton(
+            onClick = {
+              actionBookmarkItem = null
+              openItem(target)
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(stringResource(R.string.bookmark_gallery_action_jump))
+          }
+          FilledTonalButton(
+            onClick = {
+              actionBookmarkItem = null
+              coroutineScope.launch {
+                repository.deleteBookmark(context, target, isSecure = secureOnly)
+              }
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Icon(
+              Icons.RoundedFilled.Delete,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.error,
+              modifier = Modifier.size(16.dp),
             )
-          val msg =
-            when {
-              matched > 0 -> context.getString(R.string.bookmark_gallery_auto_matched_toast, matched)
-              !savedCode.isNullOrBlank() -> context.getString(R.string.bookmark_gallery_javid_saved_toast, savedCode)
-              else -> context.getString(R.string.bookmark_gallery_auto_match_none)
-            }
-          Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            Spacer(Modifier.width(6.dp))
+            Text(
+              text = stringResource(R.string.audiobook_delete_bookmark),
+              color = MaterialTheme.colorScheme.error,
+            )
+          }
         }
       },
-      onMergeOverlaps = {
-        managingLinkItem = null
-        coroutineScope.launch {
-          syncRepository.mergeOverlappingBookmarksForGroup(
-            item.row.mediaId,
-            windowSec = 10.0,
-            strategy = "earliest",
-            keepAlternates = true,
-          ).onSuccess { msg ->
-            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-          }.onFailure { err ->
-            Toast.makeText(context, err.message ?: "Merge failed", Toast.LENGTH_SHORT).show()
-          }
+      confirmButton = {
+        AppDialogTextButton(onClick = { actionBookmarkItem = null }) {
+          Text(stringResource(R.string.generic_cancel))
         }
       },
     )
   }
 
-  if (!secureOnly) {
+  if (isPrimarySecure) {
+    managingLinkItem?.let { item ->
+      ManageBookmarkGroupLinkDialog(
+        item = item,
+        syncRepository = syncRepository,
+        secureFolderRepository = secureFolderRepository,
+        onDismiss = { managingLinkItem = null },
+        onPickFile = { codeText, urlText ->
+          managingLinkItem = null
+          pendingLinkGroupKey = item.row.mediaId
+          pendingLinkPresetCode = codeText
+          pendingLinkSourceUrl = urlText
+          linkVideoLauncher.launch(arrayOf("video/*", "*/*"))
+        },
+        onPickVaultEntity = { codeText, urlText, entity ->
+          managingLinkItem = null
+          coroutineScope.launch {
+            val uri = Uri.fromFile(File(entity.secureFilePath))
+            syncRepository
+              .linkOrphanGroupToUri(
+                item.row.mediaId,
+                uri,
+                overridePresetCode = codeText,
+                overrideSourceUrl = urlText,
+              )
+              .onSuccess { linked ->
+                Toast.makeText(
+                  context,
+                  context.getString(R.string.bookmark_gallery_linked_toast, linked.displayName, linked.bookmarkCount),
+                  Toast.LENGTH_LONG,
+                ).show()
+              }.onFailure { err ->
+                Toast.makeText(
+                  context,
+                  err.message ?: context.getString(R.string.bookmark_gallery_unavailable),
+                  Toast.LENGTH_SHORT,
+                ).show()
+              }
+          }
+        },
+        onSaveJavid = { codeText, urlText ->
+          managingLinkItem = null
+          coroutineScope.launch {
+            val (savedCode, matched) =
+              syncRepository.assignGroupPresetCodeAndAutoMatch(
+                item.row.mediaId,
+                codeText,
+                rawSourceUrl = urlText,
+              )
+            val msg =
+              when {
+                matched > 0 -> context.getString(R.string.bookmark_gallery_auto_matched_toast, matched)
+                !savedCode.isNullOrBlank() -> context.getString(R.string.bookmark_gallery_javid_saved_toast, savedCode)
+                else -> context.getString(R.string.bookmark_gallery_auto_match_none)
+              }
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+          }
+        },
+        onMergeOverlaps = {
+          managingLinkItem = null
+          coroutineScope.launch {
+            syncRepository.mergeOverlappingBookmarksForGroup(
+              item.row.mediaId,
+              windowSec = 10.0,
+              strategy = "earliest",
+              keepAlternates = true,
+            ).onSuccess { msg ->
+              Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }.onFailure { err ->
+              Toast.makeText(context, err.message ?: "Merge failed", Toast.LENGTH_SHORT).show()
+            }
+          }
+        },
+      )
+    }
+
     JavidCatalogDialog(
       isOpen = showJavidCatalog,
       syncRepository = syncRepository,
@@ -688,12 +790,16 @@ fun BookmarkGalleryContent(
 private fun ManageBookmarkGroupLinkDialog(
   item: BookmarkGalleryItem,
   syncRepository: PcBookmarkSyncRepository,
+  secureFolderRepository: SecureFolderRepository,
   onDismiss: () -> Unit,
   onPickFile: (String, String) -> Unit,
+  onPickVaultEntity: (String, String, SecureMediaEntity) -> Unit,
   onSaveJavid: (String, String) -> Unit,
   onMergeOverlaps: () -> Unit,
 ) {
   val context = LocalContext.current
+  var showVaultPicker by remember { mutableStateOf(false) }
+  val vaultVideos by secureFolderRepository.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
   var javidText by remember(item.row.mediaId) {
     mutableStateOf(
       BookmarkMediaMatcher.extractJvidCode(item.mediaTitle)
@@ -771,17 +877,23 @@ private fun ManageBookmarkGroupLinkDialog(
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           FilledTonalButton(
+            onClick = { showVaultPicker = true },
+            modifier = Modifier.weight(1f),
+          ) {
+            Text(stringResource(R.string.bookmark_gallery_link_vault_video), maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+          FilledTonalButton(
             onClick = { onPickFile(javidText, sourceUrlText) },
             modifier = Modifier.weight(1f),
           ) {
             Text(stringResource(R.string.bookmark_gallery_pick_video_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
-          FilledTonalButton(
-            onClick = { onSaveJavid(javidText, sourceUrlText) },
-            modifier = Modifier.weight(1f),
-          ) {
-            Text(stringResource(R.string.bookmark_gallery_save_javid_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
-          }
+        }
+        FilledTonalButton(
+          onClick = { onSaveJavid(javidText, sourceUrlText) },
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(stringResource(R.string.bookmark_gallery_save_javid_button), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         FilledTonalButton(
           onClick = onMergeOverlaps,
@@ -797,6 +909,54 @@ private fun ManageBookmarkGroupLinkDialog(
       }
     },
   )
+
+  if (showVaultPicker) {
+    AppAlertDialog(
+      onDismissRequest = { showVaultPicker = false },
+      title = { Text(stringResource(R.string.bookmark_gallery_link_vault_video)) },
+      text = {
+        if (vaultVideos.isEmpty()) {
+          Text(
+            text = stringResource(R.string.bookmark_gallery_no_vault_videos),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else {
+          LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            items(vaultVideos, key = { it.id }) { entity ->
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier =
+                  Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                      showVaultPicker = false
+                      onPickVaultEntity(javidText, sourceUrlText, entity)
+                    },
+              ) {
+                Text(
+                  text = entity.fileName,
+                  style = MaterialTheme.typography.bodyMedium,
+                  maxLines = 2,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+              }
+            }
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = { showVaultPicker = false }) {
+          Text(stringResource(android.R.string.cancel))
+        }
+      },
+    )
+  }
 }
 
 /** 0 (auto) -> 2 -> 3 -> (4 in landscape) -> 0, never exceeding the orientation cap. */
@@ -912,10 +1072,12 @@ private fun TagPill(
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BookmarkGalleryCard(
   item: BookmarkGalleryItem,
   onOpen: () -> Unit,
+  onLongClick: () -> Unit = {},
   onLinkVideo: (() -> Unit)? = null,
   width: Dp = Dp.Unspecified,
   isSecure: Boolean = false,
@@ -939,7 +1101,7 @@ private fun BookmarkGalleryCard(
         .then(if (width != Dp.Unspecified && width > 0.dp) Modifier.width(width) else Modifier.fillMaxWidth())
         .aspectRatio(16f / 9f)
         .clip(RoundedCornerShape(10.dp))
-        .clickable(onClick = onOpen),
+        .combinedClickable(onClick = onOpen, onLongClick = onLongClick),
   ) {
     Box(Modifier.fillMaxSize()) {
       BookmarkThumbnailImage(

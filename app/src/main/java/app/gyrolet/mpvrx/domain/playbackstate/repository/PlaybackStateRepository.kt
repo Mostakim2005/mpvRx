@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.domain.playbackstate.repository
 
 import app.gyrolet.mpvrx.database.entities.PlaybackStateEntity
+import app.gyrolet.mpvrx.database.entities.SecurePlaybackStateEntity
 
 interface PlaybackStateRepository {
   suspend fun upsert(playbackState: PlaybackStateEntity)
@@ -31,7 +32,12 @@ interface PlaybackStateRepository {
     oldMediaTitles: List<String>,
     newMediaTitle: String,
     toSecure: Boolean,
+    displayLabel: String = "",
   )
 
-  suspend fun clearSecurePlaybackStates()
+  suspend fun getAllSecurePlaybackStates(): List<Pair<SecurePlaybackStateEntity, String>>
+
+  suspend fun deleteSecureStatesByKeys(mediaKeys: List<String>)
+
+  suspend fun clearSecurePlaybackStates(decoyOnly: Boolean = false)
 }

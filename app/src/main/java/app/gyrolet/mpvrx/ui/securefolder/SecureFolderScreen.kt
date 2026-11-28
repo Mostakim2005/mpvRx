@@ -53,11 +53,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
 import app.gyrolet.mpvrx.domain.media.model.Video
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.preferences.MediaLayoutMode
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem
+import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
+import app.gyrolet.mpvrx.ui.bookmarks.JavidCatalogDialog
 import app.gyrolet.mpvrx.ui.browser.cards.VideoCard
 import app.gyrolet.mpvrx.ui.browser.cards.VideoCardUiConfig
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
@@ -67,6 +72,7 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.VideoSortDialog
 import app.gyrolet.mpvrx.ui.browser.states.EmptyState
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
+import app.gyrolet.mpvrx.ui.preferences.BookmarkSyncConfigDialog
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
 import app.gyrolet.mpvrx.ui.utils.popSafely
@@ -101,6 +107,14 @@ data object SecureFolderScreen : Screen {
     val browserPreferences = koinInject<BrowserPreferences>()
     val appearancePreferences = koinInject<AppearancePreferences>()
     val metadataCacheRepository = koinInject<VideoMetadataCacheRepository>()
+    val syncRepository = koinInject<PcBookmarkSyncRepository>()
+    val vaultMode by SecureFolderSession.modeState.collectAsState()
+    val isPrimaryVault = vaultMode == SecureFolderSession.VaultMode.PRIMARY
+
+    var vaultMenuExpanded by remember { mutableStateOf(false) }
+    var dataManagerOpen by remember { mutableStateOf(false) }
+    var avSyncDialogOpen by remember { mutableStateOf(false) }
+    var javidCatalogOpen by remember { mutableStateOf(false) }
 
     val media by viewModel.secureMedia.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
@@ -263,7 +277,7 @@ data object SecureFolderScreen : Screen {
                 contentDescription = "Lock Secure Folder",
               )
             }
-            // The secure slice of the gallery: only bookmarks whose video is in this folder.
+            // The secure slice of the gallery: only bookmarks whose video is in this vault compartment.
             androidx.compose.material3.IconButton(
               onClick = {
                 backstack.navigateTo(app.gyrolet.mpvrx.ui.bookmarks.BookmarkGalleryScreen(secureOnly = true))
@@ -273,6 +287,46 @@ data object SecureFolderScreen : Screen {
                 imageVector = Icons.RoundedFilled.Bookmarks,
                 contentDescription = stringResource(R.string.bookmark_gallery_open),
               )
+            }
+            // Primary Vault only (`Echo 1 / Hotel 1+2`): Decoy omits Data Manager, AV Sync, and JAVID menus.
+            if (isPrimaryVault) {
+              Box {
+                androidx.compose.material3.IconButton(onClick = { vaultMenuExpanded = true }) {
+                  Icon(
+                    imageVector = Icons.RoundedFilled.MoreVert,
+                    contentDescription = stringResource(R.string.vault_data_manager_title),
+                  )
+                }
+                AppDropdownMenu(
+                  expanded = vaultMenuExpanded,
+                  onDismissRequest = { vaultMenuExpanded = false },
+                ) {
+                  AppDropdownMenuItem(
+                    text = { Text(stringResource(R.string.vault_data_manager_title)) },
+                    leadingIcon = { Icon(Icons.RoundedFilled.Tune, contentDescription = null) },
+                    onClick = {
+                      vaultMenuExpanded = false
+                      dataManagerOpen = true
+                    },
+                  )
+                  AppDropdownMenuItem(
+                    text = { Text(stringResource(R.string.bookmark_sync_pref_section)) },
+                    leadingIcon = { Icon(Icons.RoundedFilled.Refresh, contentDescription = null) },
+                    onClick = {
+                      vaultMenuExpanded = false
+                      avSyncDialogOpen = true
+                    },
+                  )
+                  AppDropdownMenuItem(
+                    text = { Text(stringResource(R.string.bookmark_javid_catalog_button)) },
+                    leadingIcon = { Icon(Icons.RoundedFilled.VideoLibrary, contentDescription = null) },
+                    onClick = {
+                      vaultMenuExpanded = false
+                      javidCatalogOpen = true
+                    },
+                  )
+                }
+              }
             }
           },
           onSortClick = { sortDialogOpen = true },
@@ -544,6 +598,22 @@ data object SecureFolderScreen : Screen {
       enableViewModeOptions = false,
       enableLayoutModeOptions = true,
     )
+
+    if (isPrimaryVault) {
+      VaultDataManagerDialog(
+        isOpen = dataManagerOpen,
+        onDismiss = { dataManagerOpen = false },
+      )
+      BookmarkSyncConfigDialog(
+        isOpen = avSyncDialogOpen,
+        onDismiss = { avSyncDialogOpen = false },
+      )
+      JavidCatalogDialog(
+        isOpen = javidCatalogOpen,
+        syncRepository = syncRepository,
+        onDismiss = { javidCatalogOpen = false },
+      )
+    }
   }
 }
 

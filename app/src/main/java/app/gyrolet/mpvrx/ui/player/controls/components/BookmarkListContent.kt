@@ -98,6 +98,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private fun formatBookmarkTimecode(positionSeconds: Int): String {
@@ -123,6 +124,37 @@ internal fun bookmarkPanelFraction(percent: Int): Float {
   val clamped = if (percent in BOOKMARK_PANEL_PERCENT_STEPS) percent else DEFAULT_BOOKMARK_PANEL_PERCENT
   return clamped / 100f
 }
+
+/**
+ * Computes YouTube-style top video box height in Portrait Split Mode (`Golf 1`).
+ *
+ * Landscape/4:3 videos hug their exact undistorted aspect height (`width / aspect`); tall or
+ * letterboxed videos (e.g. 9:16, 1:1) cap at 36% of container height so the docked control strip
+ * and Bookmark panel keep generous vertical room instead of a bloated 80/20 split.
+ */
+internal fun computePortraitSplitVideoHeightPx(
+  containerWidthPx: Int,
+  containerHeightPx: Int,
+  videoAspect: Double?,
+): Int {
+  if (containerWidthPx <= 0 || containerHeightPx <= 0) return 0
+  val safeAspect = (videoAspect ?: (16.0 / 9.0)).toFloat().coerceIn(0.45f, 3.0f)
+  val naturalHeight = (containerWidthPx.toFloat() / safeAspect).roundToInt()
+  val minHeight = (containerHeightPx * 0.22f).roundToInt().coerceAtLeast(1)
+  val maxHeight = (containerHeightPx * 0.36f).roundToInt().coerceAtLeast(minHeight)
+  return naturalHeight.coerceIn(minHeight, maxHeight)
+}
+
+/** Quick-seek jump steps (seconds + label) shared across Portrait and Landscape player controls. */
+internal val QUICK_SEEK_STEPS: List<Pair<Int, String>> =
+  listOf(
+    -300 to "-5m",
+    -60 to "-1m",
+    -10 to "-10s",
+    10 to "+10s",
+    60 to "+1m",
+    300 to "+5m",
+  )
 
 internal fun formatGlobalBookmarkTitle(
   mediaTitle: String?,
@@ -189,7 +221,6 @@ internal fun BookmarkActionMenuDialog(
   onDelete: () -> Unit,
   onDismiss: () -> Unit,
   isSecure: Boolean = false,
-  onChooseThumbnail: (() -> Unit)? = null,
 ) {
   app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
     onDismissRequest = onDismiss,
@@ -231,8 +262,8 @@ internal fun BookmarkActionMenuDialog(
         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        // No "Jump to bookmark" row: tapping the card itself already seeks there, so repeating it
-        // here only pushed the destructive action off a landscape dialog.
+        // No "Jump to bookmark" row: tapping the card itself already seeks there, and Delete sits
+        // directly in the secondary slot for instant permanent deletion (`Foxtrot`).
         BookmarkMenuActionRow(
           icon = Icons.RoundedFilled.Edit,
           label = stringResource(R.string.bookmark_edit_menu_rename),
@@ -242,17 +273,6 @@ internal fun BookmarkActionMenuDialog(
             onRename()
           },
         )
-        if (onChooseThumbnail != null) {
-          BookmarkMenuActionRow(
-            icon = Icons.RoundedFilled.Image,
-            label = stringResource(R.string.bookmark_thumb_choose),
-            tint = MaterialTheme.colorScheme.onSurface,
-            onClick = {
-              onDismiss()
-              onChooseThumbnail()
-            },
-          )
-        }
         BookmarkMenuActionRow(
           icon = Icons.RoundedFilled.Delete,
           label = stringResource(R.string.audiobook_delete_bookmark),
@@ -266,219 +286,6 @@ internal fun BookmarkActionMenuDialog(
     },
     confirmButton = {
       TextButton(onClick = onDismiss) {
-        Text(stringResource(R.string.generic_cancel))
-      }
-    },
-  )
-}
-
-@Composable
-internal fun BookmarkThumbnailPickerDialog(
-  bookmark: PlaybackBookmarkEntity,
-  viewModel: PlayerViewModel,
-  isSecure: Boolean,
-  onDismiss: () -> Unit,
-) {
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
-  val syncRepo =
-    koinInject<app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository>()
-  var busy by remember { mutableStateOf(false) }
-  var loadingRemote by remember(bookmark.syncUuid) { mutableStateOf(false) }
-  var remoteCands by remember(bookmark.syncUuid) {
-    mutableStateOf<List<Pair<app.gyrolet.mpvrx.repository.bookmark.ThumbnailCandidateDto, Bitmap?>>>(emptyList())
-  }
-  var remoteError by remember(bookmark.syncUuid) { mutableStateOf<String?>(null) }
-
-  val canQueryRemote = !isSecure && !bookmark.syncUuid.isNullOrBlank()
-  LaunchedEffect(bookmark.syncUuid, canQueryRemote) {
-    val uuid = bookmark.syncUuid?.takeIf { canQueryRemote && it.isNotBlank() } ?: return@LaunchedEffect
-    loadingRemote = true
-    remoteError = null
-    syncRepo
-      .fetchThumbnailCandidates(uuid)
-      .onSuccess { resp ->
-        val decoded =
-          kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            resp.candidates.map { cand ->
-              val rawB64 = cand.dataUri.substringAfter("base64,", cand.dataUri).trim()
-              val bmp =
-                if (rawB64.isNotEmpty()) {
-                  runCatching {
-                    val bytes = Base64.decode(rawB64, Base64.DEFAULT)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                  }.getOrNull()
-                } else {
-                  null
-                }
-              cand to bmp
-            }
-          }
-        remoteCands = decoded
-      }.onFailure { err ->
-        remoteError = err.message
-      }
-    loadingRemote = false
-  }
-
-  val imagePicker =
-    rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { pickedUri: Uri? ->
-      if (pickedUri == null) return@rememberLauncherForActivityResult
-      busy = true
-      scope.launch {
-        val ok = viewModel.replaceBookmarkThumbnailFromUri(bookmark, pickedUri, isSecure)
-        if (ok && canQueryRemote) {
-          syncRepo.uploadBookmarkThumbnailById(bookmark.id)
-        }
-        busy = false
-        if (ok) {
-          Toast.makeText(context, R.string.bookmark_thumb_updated, Toast.LENGTH_SHORT).show()
-          onDismiss()
-        } else {
-          Toast.makeText(context, R.string.playback_bookmark_update_failed, Toast.LENGTH_SHORT).show()
-        }
-      }
-    }
-
-  app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
-    onDismissRequest = { if (!busy) onDismiss() },
-    title = {
-      Text(
-        text = stringResource(R.string.bookmark_thumb_dialog_title),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-    },
-    text = {
-      Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-      ) {
-        if (!viewModel.isAudioOnly.value) {
-          BookmarkMenuActionRow(
-            icon = Icons.RoundedFilled.CameraAlt,
-            label = stringResource(R.string.bookmark_thumb_capture_now),
-            tint = MaterialTheme.colorScheme.onSurface,
-            onClick = {
-              if (busy) return@BookmarkMenuActionRow
-              busy = true
-              scope.launch {
-                val ok = viewModel.replaceBookmarkThumbnailNow(bookmark, isSecure)
-                if (ok && canQueryRemote) {
-                  syncRepo.uploadBookmarkThumbnailById(bookmark.id)
-                }
-                busy = false
-                if (ok) {
-                  Toast.makeText(context, R.string.bookmark_thumb_updated, Toast.LENGTH_SHORT).show()
-                  onDismiss()
-                } else {
-                  Toast.makeText(context, R.string.playback_bookmark_update_failed, Toast.LENGTH_SHORT).show()
-                }
-              }
-            },
-          )
-        }
-        BookmarkMenuActionRow(
-          icon = Icons.RoundedFilled.Image,
-          label = stringResource(R.string.bookmark_thumb_pick_image),
-          tint = MaterialTheme.colorScheme.onSurface,
-          onClick = {
-            if (!busy) imagePicker.launch("image/*")
-          },
-        )
-        if (canQueryRemote) {
-          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-          Text(
-            text = stringResource(R.string.bookmark_thumb_pc_candidates),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-          )
-          when {
-            loadingRemote -> {
-              Text(
-                text = stringResource(R.string.bookmark_thumb_loading),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            remoteCands.isEmpty() -> {
-              Text(
-                text = remoteError ?: stringResource(R.string.bookmark_thumb_none_remote),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            else -> {
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(remoteCands.size) { idx ->
-                  val (cand, bmp) = remoteCands[idx]
-                  val borderColor =
-                    if (cand.isActive) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant
-                  Column(
-                    modifier =
-                      Modifier
-                        .width(136.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(if (cand.isActive) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
-                        .clickable(enabled = !busy) {
-                          busy = true
-                          scope.launch {
-                            val ok = syncRepo.selectRemoteThumbnailCandidate(bookmark, cand.source)
-                            busy = false
-                            if (ok) {
-                              Toast.makeText(
-                                context,
-                                R.string.bookmark_thumb_updated,
-                                Toast.LENGTH_SHORT,
-                              ).show()
-                              onDismiss()
-                            } else {
-                              Toast.makeText(
-                                context,
-                                R.string.playback_bookmark_update_failed,
-                                Toast.LENGTH_SHORT,
-                              ).show()
-                            }
-                          }
-                        }
-                        .padding(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                  ) {
-                    Box(
-                      modifier =
-                        Modifier
-                          .fillMaxWidth()
-                          .aspectRatio(16f / 9f)
-                          .clip(RoundedCornerShape(6.dp))
-                          .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-                      contentAlignment = Alignment.Center,
-                    ) {
-                      if (bmp != null) {
-                        Image(
-                          bitmap = bmp.asImageBitmap(),
-                          contentDescription = cand.label,
-                          contentScale = ContentScale.Fit,
-                          modifier = Modifier.fillMaxSize(),
-                        )
-                      }
-                    }
-                    Text(
-                      text = if (cand.isActive) "${cand.label} ✓" else cand.label,
-                      style = MaterialTheme.typography.labelSmall,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                    )
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    confirmButton = {
-      TextButton(enabled = !busy, onClick = onDismiss) {
         Text(stringResource(R.string.generic_cancel))
       }
     },
@@ -1397,8 +1204,6 @@ internal fun BookmarkSplitPanel(
     }
   }
 
-  var thumbPickerBookmark by remember { mutableStateOf<PlaybackBookmarkEntity?>(null) }
-
   menuBookmark?.let { target ->
     val targetPosSec = (viewModel.bookmarkPositionMs(target) / 1000L).toInt().coerceAtLeast(0)
     BookmarkActionMenuDialog(
@@ -1411,9 +1216,6 @@ internal fun BookmarkSplitPanel(
           onOpenSheet(Sheets.BookmarkEditor)
         }
       },
-      onChooseThumbnail = {
-        thumbPickerBookmark = target
-      },
       onDelete = {
         scope.launch {
           viewModel.deletePlaybackBookmark(target)
@@ -1421,14 +1223,6 @@ internal fun BookmarkSplitPanel(
         }
       },
       onDismiss = { menuBookmark = null },
-    )
-  }
-  thumbPickerBookmark?.let { pickerTarget ->
-    BookmarkThumbnailPickerDialog(
-      bookmark = pickerTarget,
-      viewModel = viewModel,
-      isSecure = isSecureScope,
-      onDismiss = { thumbPickerBookmark = null },
     )
   }
 

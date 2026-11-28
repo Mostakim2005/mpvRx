@@ -203,6 +203,9 @@ interface PlaybackBookmarkDao {
   @Query("SELECT * FROM playback_bookmarks WHERE bookTrackId IS NULL ORDER BY positionMs ASC, id ASC")
   suspend fun getPublicBookmarks(): List<PlaybackBookmarkEntity>
 
+  @Query("SELECT * FROM playback_bookmarks WHERE bookTrackId IS NULL ORDER BY createdAt DESC, positionMs")
+  fun observeAllPublicBookmarks(): Flow<List<PlaybackBookmarkEntity>>
+
   @Query("SELECT * FROM playback_bookmarks WHERE syncUuid = :syncUuid LIMIT 1")
   suspend fun findBookmarkBySyncUuid(syncUuid: String): PlaybackBookmarkEntity?
 

@@ -72,7 +72,18 @@ data class SecureBookmarkGroupEntity(
   val height: Int = 0,
   val fileSizeBytes: Long = 0L,
   val sourceLabel: String = "",
+  val sourceUrl: String? = null,
+  val originApp: String? = null,
+  val lastSyncedAt: Long = 0L,
   val updatedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "secure_bookmark_sync_tombstones")
+data class SecureBookmarkSyncTombstoneEntity(
+  @PrimaryKey
+  val syncUuid: String,
+  val groupKey: String? = null,
+  val deletedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(
@@ -149,6 +160,8 @@ data class SecurePlaybackStateEntity(
   val externalSubtitles: String = "",
   val hasBeenWatched: Boolean = false,
   val newLabelOverride: Boolean? = null,
+  val displayLabel: String = "",
+  val updatedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "secure_video_metadata")
@@ -163,5 +176,6 @@ data class SecureVideoMetadataEntity(
   val fps: Float,
   val hasEmbeddedSubtitles: Boolean = false,
   val subtitleCodec: String = "",
+  val displayLabel: String = "",
   val lastScanned: Long,
 )

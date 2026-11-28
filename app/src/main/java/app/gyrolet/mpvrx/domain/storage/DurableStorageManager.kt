@@ -37,8 +37,10 @@ object DurableStorageManager {
   private const val DEFAULT_ROOT_NAME = "mpvRx"
   private const val STORE_DIR_NAME = ".store"
   private const val VAULT_DIR_NAME = ".vault"
+  private const val DECOY_VAULT_DIR_NAME = ".vault_d"
   private const val NORMAL_DATABASE_NAME = "library.dat"
   private const val SECURE_DATABASE_NAME = "v_idx.dat"
+  private const val DECOY_DATABASE_NAME = "vd_idx.dat"
   private const val LEGACY_DATABASE_NAME = "mpvrx.db"
   private const val LEGACY_VAULT_NAME = "secure_media"
   private const val LEGACY_THUMBNAILS_NAME = "bookmark-thumbnails"
@@ -220,6 +222,26 @@ object DurableStorageManager {
   fun secureWatchStatsFile(context: Context): File =
     File(vaultRootDir(context), SECURE_WATCH_STATS_NAME)
 
+  fun decoyVaultRootDir(context: Context): File {
+    val root = durableRoot(context)
+    val dir = if (root != null) File(root, DECOY_VAULT_DIR_NAME) else File(context.filesDir, DECOY_VAULT_DIR_NAME)
+    return ensureDirectoryWithNomedia(dir)
+  }
+
+  fun decoyDatabaseFile(context: Context): File = File(decoyVaultRootDir(context), DECOY_DATABASE_NAME)
+
+  fun decoyMediaDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(decoyVaultRootDir(context), "media"))
+
+  fun decoyBookmarkThumbnailsDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(decoyVaultRootDir(context), "thumbs"))
+
+  fun decoyThumbnailCacheDir(context: Context): File =
+    ensureDirectoryWithNomedia(File(decoyVaultRootDir(context), "thumb_cache"))
+
+  fun decoyWatchStatsFile(context: Context): File =
+    File(decoyVaultRootDir(context), SECURE_WATCH_STATS_NAME)
+
   // Legacy path accessors for migration and compatibility cleanup
   fun legacyVaultDirectory(context: Context): File = File(context.filesDir, LEGACY_VAULT_NAME)
 
@@ -244,15 +266,32 @@ object DurableStorageManager {
     return isVaultPath(norm)
   }
 
-  /** True when [rawPath] points inside any Secure Folder storage root (current or legacy). */
+  /** True when [rawPath] points inside the isolated Decoy Secret Folder storage root (`.vault_d/`). */
+  fun isDecoyVaultPath(rawPath: String?): Boolean {
+    val norm = normalizeForMatching(rawPath) ?: return false
+    return norm.endsWith("/documents/mpvrx/.vault_d") ||
+      norm.contains("/documents/mpvrx/.vault_d/") ||
+      norm.endsWith("/files/.vault_d") ||
+      norm.contains("/files/.vault_d/")
+  }
+
+  /** True when [rawPath] points inside the primary vault (excluding the Decoy compartment). */
+  fun isPrimaryVaultPath(rawPath: String?): Boolean =
+    isVaultPath(rawPath) && !isDecoyVaultPath(rawPath)
+
+  /** True when [rawPath] points inside any Secure Folder storage root (primary, decoy, or legacy). */
   fun isVaultPath(rawPath: String?): Boolean {
     val norm = normalizeForMatching(rawPath) ?: return false
     return norm.endsWith("/documents/mpvrx/.vault") ||
       norm.contains("/documents/mpvrx/.vault/") ||
+      norm.endsWith("/documents/mpvrx/.vault_d") ||
+      norm.contains("/documents/mpvrx/.vault_d/") ||
       norm.endsWith("/documents/mpvrx/vault") ||
       norm.contains("/documents/mpvrx/vault/") ||
       norm.endsWith("/files/.vault") ||
       norm.contains("/files/.vault/") ||
+      norm.endsWith("/files/.vault_d") ||
+      norm.contains("/files/.vault_d/") ||
       norm.endsWith("/files/secure_media") ||
       norm.contains("/files/secure_media/")
   }

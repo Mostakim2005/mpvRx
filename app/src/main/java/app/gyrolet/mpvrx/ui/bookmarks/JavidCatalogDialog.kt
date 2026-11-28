@@ -14,6 +14,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -49,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.database.repository.SecureFolderRepository
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
 import app.gyrolet.mpvrx.presentation.components.AppTextField
 import app.gyrolet.mpvrx.repository.bookmark.JavidCatalogEntry
@@ -57,6 +60,8 @@ import app.gyrolet.mpvrx.repository.bookmark.SyncProgressState
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+import java.io.File
 import kotlin.math.roundToInt
 
 /** Shared live progress indicator rendered during PC / per-JAVID bookmark & thumbnail syncs. */
@@ -133,14 +138,19 @@ internal fun JavidCatalogDialog(
   onSelectGroupForGallery: ((JavidCatalogEntry) -> Unit)? = null,
 ) {
   if (!isOpen) return
+  val vaultMode by SecureFolderSession.modeState.collectAsStateWithLifecycle()
+  if (vaultMode != SecureFolderSession.VaultMode.PRIMARY) return
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
+  val secureFolderRepository = koinInject<SecureFolderRepository>()
   val entries by syncRepository.observeJavidCatalog().collectAsStateWithLifecycle(initialValue = emptyList())
+  val vaultVideos by secureFolderRepository.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
   val syncProgress by syncRepository.syncProgress.collectAsStateWithLifecycle()
 
   var query by remember { mutableStateOf("") }
   var onlyUnlinked by remember { mutableStateOf(false) }
   var pendingAttachEntry by remember { mutableStateOf<JavidCatalogEntry?>(null) }
+  var vaultPickEntry by remember { mutableStateOf<JavidCatalogEntry?>(null) }
 
   val attachVideoLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pickedUri ->
@@ -304,6 +314,13 @@ internal fun JavidCatalogDialog(
                       }
                     }
                     OutlinedButton(
+                      onClick = { vaultPickEntry = entry },
+                    ) {
+                      Icon(Icons.RoundedFilled.Videocam, contentDescription = null, modifier = Modifier.size(15.dp))
+                      Spacer(Modifier.size(4.dp))
+                      Text(stringResource(R.string.bookmark_gallery_link_vault_video))
+                    }
+                    OutlinedButton(
                       onClick = {
                         pendingAttachEntry = entry
                         attachVideoLauncher.launch(arrayOf("video/*", "*/*"))
@@ -384,6 +401,75 @@ internal fun JavidCatalogDialog(
       }
     },
   )
+
+  vaultPickEntry?.let { entry ->
+    AppAlertDialog(
+      onDismissRequest = { vaultPickEntry = null },
+      title = { Text(stringResource(R.string.bookmark_gallery_link_vault_video)) },
+      text = {
+        if (vaultVideos.isEmpty()) {
+          Text(
+            text = stringResource(R.string.bookmark_gallery_no_vault_videos),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else {
+          LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            items(vaultVideos, key = { it.id }) { video ->
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier =
+                  Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                      vaultPickEntry = null
+                      scope.launch {
+                        syncRepository
+                          .linkOrphanGroupToUri(
+                            groupKey = entry.groupKey,
+                            uri = Uri.fromFile(File(video.secureFilePath)),
+                            overridePresetCode = entry.javidCode,
+                            overrideSourceUrl = entry.sourceUrl,
+                          )
+                          .onSuccess { linked ->
+                            Toast.makeText(
+                              context,
+                              context.getString(R.string.bookmark_gallery_linked_toast, linked.displayName, linked.bookmarkCount),
+                              Toast.LENGTH_LONG,
+                            ).show()
+                          }.onFailure { err ->
+                            Toast.makeText(
+                              context,
+                              err.message ?: context.getString(R.string.bookmark_gallery_unavailable),
+                              Toast.LENGTH_SHORT,
+                            ).show()
+                          }
+                      }
+                    },
+              ) {
+                Text(
+                  text = video.fileName,
+                  style = MaterialTheme.typography.bodyMedium,
+                  maxLines = 2,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+              }
+            }
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = { vaultPickEntry = null }) {
+          Text(stringResource(android.R.string.cancel))
+        }
+      },
+    )
+  }
 }
 
 @Composable

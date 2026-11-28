@@ -289,12 +289,20 @@ data object SecureFolderGateScreen : Screen {
                     EnterPinContent(
                       error = gateError,
                       onSubmit = { pin ->
-                        val ok = viewModel.verifyPin(pin)
-                        if (ok) {
-                          SecureFolderSession.markUnlocked()
-                          backstack.replaceTop(SecureFolderScreen)
+                        when (viewModel.authenticatePin(pin)) {
+                          SecureFolderViewModel.PinVerifyResult.PRIMARY -> {
+                            SecureFolderSession.markUnlocked()
+                            backstack.replaceTop(SecureFolderScreen)
+                            true
+                          }
+                          SecureFolderViewModel.PinVerifyResult.DECOY -> {
+                            // Hotel 3: Decoy PIN opens isolated Decoy compartment (.vault_d/) directly.
+                            SecureFolderSession.markDecoyUnlocked()
+                            backstack.replaceTop(SecureFolderScreen)
+                            true
+                          }
+                          SecureFolderViewModel.PinVerifyResult.INVALID -> false
                         }
-                        ok
                       },
                       onForgotPin = { viewModel.startForgotPinFlow() },
                       pinLength = storedPinLength,

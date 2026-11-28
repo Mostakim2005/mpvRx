@@ -31,6 +31,7 @@ import app.gyrolet.mpvrx.repository.WatchStatsRepository
 import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
 
@@ -1133,6 +1134,22 @@ val SECURE_MIGRATION_1_2 =
     }
   }
 
+val SECURE_MIGRATION_2_3 =
+  object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL("ALTER TABLE `secure_bookmark_groups` ADD COLUMN `sourceUrl` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `secure_bookmark_groups` ADD COLUMN `originApp` TEXT DEFAULT NULL")
+      db.execSQL("ALTER TABLE `secure_bookmark_groups` ADD COLUMN `lastSyncedAt` INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("ALTER TABLE `secure_playback_state` ADD COLUMN `displayLabel` TEXT NOT NULL DEFAULT ''")
+      db.execSQL("ALTER TABLE `secure_playback_state` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("ALTER TABLE `secure_video_metadata` ADD COLUMN `displayLabel` TEXT NOT NULL DEFAULT ''")
+      db.execSQL(
+        "CREATE TABLE IF NOT EXISTS `secure_bookmark_sync_tombstones` " +
+          "(`syncUuid` TEXT NOT NULL, `groupKey` TEXT, `deletedAt` INTEGER NOT NULL, PRIMARY KEY(`syncUuid`))",
+      )
+    }
+  }
+
 val DatabaseModule =
   module {
     single<Json> {
@@ -1201,7 +1218,21 @@ val DatabaseModule =
           secureDbPath.absolutePath,
         )
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-        .addMigrations(SECURE_MIGRATION_1_2)
+        .addMigrations(SECURE_MIGRATION_1_2, SECURE_MIGRATION_2_3)
+        .build()
+    }
+
+    single<app.gyrolet.mpvrx.database.SecureVaultDatabase>(named("decoy")) {
+      val context = androidContext()
+      val decoyDbPath = app.gyrolet.mpvrx.domain.storage.DurableStorageManager.decoyDatabaseFile(context)
+      Room
+        .databaseBuilder(
+          context,
+          app.gyrolet.mpvrx.database.SecureVaultDatabase::class.java,
+          decoyDbPath.absolutePath,
+        )
+        .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+        .addMigrations(SECURE_MIGRATION_1_2, SECURE_MIGRATION_2_3)
         .build()
     }
 
@@ -1209,10 +1240,17 @@ val DatabaseModule =
       app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore(
         database = get(),
         context = androidContext(),
+        decoyDatabase = get(named("decoy")),
       )
     }
 
-    singleOf(::PlaybackStateRepositoryImpl).bind(PlaybackStateRepository::class)
+    single<PlaybackStateRepository> {
+      PlaybackStateRepositoryImpl(
+        database = get(),
+        secureDatabase = get(),
+        decoyDatabase = get(named("decoy")),
+      )
+    }
 
     single<RecentlyPlayedRepository> {
       RecentlyPlayedRepositoryImpl(get<MpvRxDatabase>().recentlyPlayedDao())
@@ -1237,6 +1275,7 @@ val DatabaseModule =
         context = androidContext(),
         dao = get<MpvRxDatabase>().videoMetadataDao(),
         secureDao = get<app.gyrolet.mpvrx.database.SecureVaultDatabase>().secureVideoMetadataDao(),
+        decoyDao = get<app.gyrolet.mpvrx.database.SecureVaultDatabase>(named("decoy")).secureVideoMetadataDao(),
       )
     }
 
@@ -1299,11 +1338,13 @@ val DatabaseModule =
       app.gyrolet.mpvrx.database.repository.SecureFolderRepository(
         context = androidContext(),
         dao = get(),
+        decoyDao = get<app.gyrolet.mpvrx.database.SecureVaultDatabase>(named("decoy")).secureVaultMediaDao(),
         secureBookmarkStore = get(),
         publicBookmarkDao = get<MpvRxDatabase>().playbackBookmarkDao(),
         publicTagDao = get<MpvRxDatabase>().bookmarkTagDao(),
         playbackStateRepository = get(),
         secureVideoMetadataDao = get(),
+        decoyVideoMetadataDao = get<app.gyrolet.mpvrx.database.SecureVaultDatabase>(named("decoy")).secureVideoMetadataDao(),
         thumbnailRepository = get(),
         watchStatsRepository = get(),
       )
@@ -1314,6 +1355,7 @@ val DatabaseModule =
         bookmarkDao = get<MpvRxDatabase>().playbackBookmarkDao(),
         tagDao = get<MpvRxDatabase>().bookmarkTagDao(),
         secureBookmarkStore = get(),
+        foldersPreferences = get(),
       )
     }
 

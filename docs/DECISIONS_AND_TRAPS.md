@@ -26,28 +26,29 @@ flowchart LR
 
 ---
 
-### [DECISION: Dynamic-Portrait-Native-Ratio-Video-And-Dynamic-Rows] | Aliases: portrait native video, dynamic rows, portrait 2-3 columns, portrait tag filter
-> **1-Line Summary:** Portrait mode computes video height dynamically based on native media aspect ratio (no hardcoding), budgets remaining height for bookmark cards (1, 2, or 3+ rows if space permits), caps columns between 2 and 3, and adds a tag filter button in the portrait toolbar.
+### [DECISION: Dynamic-Portrait-Native-Ratio-Video-And-Dynamic-Rows] | Aliases: portrait native video, dynamic rows, portrait 2-3 columns, portrait tag filter, portrait control strip, quick seek
+> **1-Line Summary:** Portrait Split sizes the top video box dynamically to its undistorted aspect height (22% floor to 36% cap), docks seekbar + `-5m/-1m/-10s/+10s/+1m/+5m` quick-seek strip + action buttons directly beneath the video in `PortraitSplitControlStrip`, and gives the full remaining height to the bookmark drawer while keeping Landscape Split unchanged.
 * **Decision Maker:** `[DECIDED BY: HUMAN - Confirmed by Agent]`
-* **Original User Intention:** Video plays natively at its true aspect ratio without artificial black bars. The drawer below adapts to whatever vertical space is left, supporting 1, 2, or 3+ rows of 16:9 cards, 2 or 3 columns only, and direct tag filtering in portrait.
+* **Original User Intention:** Prevent `80/20` dead black letterbox space in Portrait Split mode: match YouTube's Portrait player layout where the video occupies only the height needed for undistorted playback, controls live cleanly below the video, `-5m / -1m / -10s / +10s / +1m / +5m` quick-seek buttons are available in both Portrait and Landscape, and the freed vertical space goes to the bookmark panel.
 * **Options Considered:**
-  * **Option A (Rejected in 3.0.5 & 3.1.0):** Hardcoding 16:9 (`width * 9 / 16`) or hardcoding 45%/55% split. Failed because letterboxing occurred on 21:9 or 4:3 videos, and fixed percentage heights broke on tall phones.
-  * **Option B (Chosen):** Dynamic native video aspect ratio (`containerWidth / mediaAspectRatio`). The remaining screen height is dedicated to the drawer, allowing 1, 2, or 3+ rows of cards depending on available height, strictly 2 or 3 columns, with a portrait tag filter button.
+  * **Option A (Rejected in 3.0.5 & 3.1.0):** Hardcoding 16:9, fixed 45%/55% split, or overlay bottom buttons on top of the split video box (`80/20` height waste on tall/square videos).
+  * **Option B (Chosen):** `computePortraitSplitVideoHeightPx` clamps natural `width / aspect` between `22%` and `36%` of container height, synced identically between `PlayerActivity.applySplitBookmarkPlayerBounds` (`SurfaceView`) and `PlayerControls` (`Box`), followed vertically by `PortraitSplitControlStrip` and `BookmarkSplitPanel` (`weight(1f)`).
 * **Visual Pivot Map (What Failed vs. What Works):**
 ```mermaid
 flowchart LR
-    subgraph Failed["❌ Hardcoded Ratios (Failed)"]
-        A1["Forced 16:9 or 45%/55%"] --> A2["Letterboxing on non-16:9; wasted vertical space"]
+    classDef bad fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fef2f2
+    classDef good fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
+
+    subgraph Failed["Legacy Portrait Split"]
+        A1["Overlay Controls + Tall Box (~80% height)"]:::bad --> A2["Wasted black space + cramped 20% drawer"]:::bad
     end
-    subgraph Active["✅ Dynamic Native Ratio + Auto-Fit Rows (Chosen)"]
-        B1["Video height = width / mediaAspectRatio"] --> B2["Exact native video bounds"]
-        B2 --> B3["Remaining height budgets 1, 2, or 3+ rows of cards"]
-        B3 --> B4["2-3 Cols selector + Portrait Tag Filter"]
+    subgraph Active["YouTube-Style Portrait Split (Active)"]
+        B1["computePortraitSplitVideoHeightPx (22%-36% cap)"]:::good --> B2["PortraitSplitControlStrip (Seekbar + QuickSeek + Actions)"]:::good
+        B2 --> B3["Remaining Height -> BookmarkSplitPanel (2-3 Cols)"]:::good
     end
 ```
-* **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` -> `BookmarkSplitPanel`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` -> `BookmarkGridCard`, `BookmarkListContent`
+> **Legend:** Red = Rejected 80/20 overlay waste | Green = Current YouTube-style Portrait Split stack
+* **Links:** `[SUBSYSTEM: Dynamic-Portrait-Video-And-Bookmark-Drawer]`, `[FEATURE: Isolated-Vault-Decoy-Compartment-And-YouTube-Portrait-Split]`
 
 ---
 
@@ -306,14 +307,15 @@ flowchart LR
 
 ---
 
-### [TRAP: Portrait-Only-Editors-Must-Restore-The-Players-Orientation] | Aliases: bookmark editor portrait, keyboard covers landscape editor, lost landscape after edit, orientation restore
-> **1-Line Summary:** Text-heavy editors (bookmark editor, metadata editor) must be forced to portrait on phones while open, clear focus/IME, and then restore the exact orientation the player had — a forced rotation that is not undone strands the user in portrait.
-* **Strict Rule:** On phone-sized displays (`smallestScreenWidthDp < 600`), keyboard-driven editors request `SCREEN_ORIENTATION_PORTRAIT` on open, hide the software keyboard and clear focus on dismiss/save/cancel, and **must** restore the saved orientation on close (save, cancel, back, and process-death restore). On tablets and TVs (`>= 600dp`), landscape is preserved without needless rotation. The restore target is the one the player was using before the editor opened: a manual rotation-button choice outranks the media preference, and split-screen/freeform still hands orientation to the system. Never let the editor's request leak into normal playback.
-* **Verification:** Landscape phone player → open editor → editor is portrait with the focused field above the IME → save/cancel/back → IME disappears cleanly, player is landscape again with the same position and a live surface.
+### [TRAP: Portrait-Only-Editors-Must-Restore-The-Players-Orientation] | Aliases: bookmark editor portrait, keyboard covers landscape editor, lost landscape after edit, orientation restore, sticky keyboard
+> **1-Line Summary:** Text-heavy editors (bookmark editor, metadata editor) force portrait on phones while open, actively hide the IME across both the Dialog window and Activity decorView on dismiss/save/cancel/scrim tap, and then restore the exact orientation the player had — preventing both trapped orientation and sticky keyboard overlays after rotating back to landscape.
+* **Strict Rule:** On phone-sized displays (`smallestScreenWidthDp < 600`), keyboard-driven editors request `SCREEN_ORIENTATION_PORTRAIT` on open, run `hideImeWindow` (`WindowInsetsControllerCompat.hide(WindowInsetsCompat.Type.ime())` + `InputMethodManager.hideSoftInputFromWindow`) immediately, inside `DisposableEffect.onDispose`, and after a `+140ms` post-rotation delay so the IME never persists over landscape video, and restore the saved orientation on close.
+* **Verification:** Landscape phone player → open editor → editor is portrait with the focused field above the IME → save/cancel/back/empty-space tap → IME disappears cleanly, player is landscape again with the same position and a live surface.
+* **Links:** `[FEATURE: Isolated-Vault-Decoy-Compartment-And-YouTube-Portrait-Split]`
 * **Protected Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` -> `setRequestedOrientation`, `setOrientation`, `PlayerOrientationPolicy.manualOrientation`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` -> `Sheets.BookmarkEditor`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/ChaptersSheet.kt` -> `PlaybackBookmarkEditor`, `hideKeyboardAndClearFocus`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` :: `setRequestedOrientation`, `setOrientation`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerSheets.kt` :: `Sheets`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/ChaptersSheet.kt` :: `PlaybackBookmarkEditor`, `hideImeWindow`
 
 ---
 
@@ -337,13 +339,11 @@ flowchart LR
 
 ---
 
-### [DECISION: Public-Only-LAN-Bookmark-Sync-And-Oshash-Matching] | Aliases: unified bookmark hub, vault separation r-11, oshash cross-device match
-> **1-Line Summary:** Standardizes on `AV Manager` `vault.db` as the PC sync hub using Stash-identical 64-bit `oshash` and `syncUuid` tombstones while keeping `SecureVaultDatabase` strictly isolated from LAN sync.
+### [DECISION: Primary-Vault-Exclusive-AV-Sync-And-Decoy-Compartment] | Aliases: unified bookmark hub, vault separation r-11, oshash cross-device match, av manager secret isolation, decoy secret folder, vault retention, triple tap
+> **1-Line Summary:** Moves all `AV Manager` / `Stash` sync state, `bookmark_sync_*` config, JAVID groups, and thumbnails exclusively into encrypted Primary Secret Vault (`SecureVaultDatabase` v3 + `.vault/v_cfg.mvx`), keeps Vault metadata intact across video restore/delete until manually purged in `VaultDataManagerDialog`, and adds a triple-tap-gated `.vault_d/` Decoy compartment.
 * **Decision Maker:** `[DECIDED BY: HUMAN]`
-* **Rationale:** Keeps the Go Stash binary unmodified, protects `R-11` Secure Vault isolation (`SecureVaultDatabase` paths never leave device over HTTP), and ensures bookmarks for temporarily missing/PC-only videos sync as linkable orphans.
-* **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` -> `syncWithPcHub`, `linkOrphanGroupToUri`
-  * `app/src/main/java/app/gyrolet/mpvrx/preferences/SettingsManager.kt` -> `SENSITIVE_PREFERENCE_KEYS` (`bookmark_sync_token`)
+* **Rationale:** Supersedes the earlier public-sync split that leaked AV Manager / Stash items and `.nomedia`/vault bookmarks into Normal Mode. Auto-quarantines legacy public AV Manager rows + `.store/thumbs/` into `.vault/` upon Primary unlock (`VaultMode.PRIMARY`), keeps Decoy mode (`VaultMode.DECOY`) cleanly isolated on `.vault_d/`, and ensures deleting/restoring a Secret video leaves its bookmarks/JAVID/tags/thumbnails reusable in Primary Vault until deleted from `VaultDataManagerDialog`.
+* **Links:** `[SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher]`, `[ISSUE: R-11-Secure-And-Public-Bookmarks-Must-Never-Mix]`
 
 ---
 

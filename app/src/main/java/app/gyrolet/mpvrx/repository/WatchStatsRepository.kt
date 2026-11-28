@@ -60,6 +60,8 @@ class WatchStatsRepository(
     android.util.AtomicFile(app.gyrolet.mpvrx.domain.storage.DurableStorageManager.normalWatchStatsFile(context))
   private val secureFile =
     android.util.AtomicFile(app.gyrolet.mpvrx.domain.storage.DurableStorageManager.secureWatchStatsFile(context))
+  private val decoyFile =
+    android.util.AtomicFile(app.gyrolet.mpvrx.domain.storage.DurableStorageManager.decoyWatchStatsFile(context))
   private val legacyPublicFile = File(context.filesDir, STATS_FILE_NAME)
   private val legacySecureFile = File(context.filesDir, SECURE_STATS_FILE_NAME)
   private val json = Json { ignoreUnknownKeys = true }
@@ -75,15 +77,24 @@ class WatchStatsRepository(
 
   @Volatile private var cachedSecure: WatchStatsSnapshot? = null
 
+  @Volatile private var cachedDecoy: WatchStatsSnapshot? = null
+
   init {
     app.gyrolet.mpvrx.domain.secure.SecureFolderSession.registerOnLockListener {
       cachedSecure = null
+      cachedDecoy = null
     }
   }
 
+  private fun isDecoyItem(item: PlaybackItem): Boolean =
+    app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isDecoyVaultPath(item.originalUri) ||
+      app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isDecoyVaultPath(item.playableUri) ||
+      (app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isDecoyUnlocked && isProtected(item))
+
   suspend fun recordSession(item: PlaybackItem) {
     val secure = isProtected(item)
-    update(secure) { current ->
+    val decoy = isDecoyItem(item)
+    update(secure = secure, decoy = decoy) { current ->
       val key = item.stableId.ifBlank { item.originalUri }
       val existing = current.media[key]
       current.copy(
@@ -99,7 +110,8 @@ class WatchStatsRepository(
   suspend fun recordPlayback(item: PlaybackItem, seconds: Long) {
     if (seconds <= 0) return
     val secure = isProtected(item)
-    update(secure) { current ->
+    val decoy = isDecoyItem(item)
+    update(secure = secure, decoy = decoy) { current ->
       val isAudio = item.declaredMediaKind() == DeclaredPlaybackMediaKind.AUDIO
       val key = item.stableId.ifBlank { item.originalUri }
       val existing = current.media[key]
@@ -122,17 +134,59 @@ class WatchStatsRepository(
    * when [includeSecure] is true (Secret Mode only).
    */
   suspend fun snapshot(includeSecure: Boolean = false): WatchStatsSnapshot =
-    mutex.withLock { withContext(Dispatchers.IO) { if (includeSecure) readCachedSecure() else readCachedPublic() } }
+    mutex.withLock {
+      withContext(Dispatchers.IO) {
+        when {
+          includeSecure && app.gyrolet.mpvrx.domain.secure.SecureFolderSession.isDecoyUnlocked -> readCachedDecoy()
+          includeSecure -> readCachedSecure()
+          else -> readCachedPublic()
+        }
+      }
+    }
+
+  suspend fun removeSecureMediaEntries(keys: Set<String>) =
+    mutex.withLock {
+      if (keys.isEmpty()) return@withLock
+      withContext(Dispatchers.IO) {
+        val current = readCachedSecure()
+        val kept = current.media.filterKeys { it !in keys }
+        if (kept.size == current.media.size) return@withContext
+        val keptSeconds = kept.values.sumOf { it.seconds }
+        val keptSessions = kept.values.sumOf { it.sessions }
+        val keptAudio = kept.values.filter { it.isAudio }.sumOf { it.seconds }
+        val updated =
+          current.copy(
+            media = kept,
+            sessions = keptSessions.coerceAtMost(current.sessions),
+            totalSeconds = keptSeconds.coerceAtMost(current.totalSeconds),
+            audioSeconds = keptAudio.coerceAtMost(current.audioSeconds),
+            videoSeconds = (keptSeconds - keptAudio).coerceIn(0L, current.videoSeconds),
+          )
+        writeSnapshot(secureFile, updated)
+        cachedSecure = updated
+        _revision.value++
+      }
+    }
+
+  suspend fun clearDecoy() = mutex.withLock {
+    withContext(Dispatchers.IO) {
+      decoyFile.delete()
+    }
+    cachedDecoy = WatchStatsSnapshot()
+    _revision.value++
+  }
 
   suspend fun clear() = mutex.withLock {
     withContext(Dispatchers.IO) {
       publicFile.delete()
       secureFile.delete()
+      decoyFile.delete()
       legacyPublicFile.delete()
       legacySecureFile.delete()
     }
     cachedPublic = WatchStatsSnapshot()
     cachedSecure = WatchStatsSnapshot()
+    cachedDecoy = WatchStatsSnapshot()
     _resetVersion.value++
     _revision.value++
   }
@@ -148,27 +202,51 @@ class WatchStatsRepository(
 
   private suspend fun update(
     secure: Boolean,
+    decoy: Boolean = false,
     transform: (WatchStatsSnapshot) -> WatchStatsSnapshot,
   ) = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val updated = transform(if (secure) readCachedSecure() else readCachedPublic())
+      val updated =
+        transform(
+          when {
+            decoy -> readCachedDecoy()
+            secure -> readCachedSecure()
+            else -> readCachedPublic()
+          },
+        )
       // Kept even if the write fails, so the next update persists it instead of losing it.
-      if (secure) cachedSecure = updated else cachedPublic = updated
-      val file = if (secure) secureFile else publicFile
-      val output = file.startWrite()
-      try {
-        app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
-        val encoded = json.encodeToString(updated).toByteArray(Charsets.UTF_8)
-        output.write(app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(encoded))
-        file.finishWrite(output)
-        _revision.value++
-      } catch (cancelled: CancellationException) {
-        file.failWrite(output)
-        throw cancelled
-      } catch (error: Exception) {
-        file.failWrite(output)
-        Log.e(TAG, "Unable to save watch statistics", error)
+      when {
+        decoy -> cachedDecoy = updated
+        secure -> cachedSecure = updated
+        else -> cachedPublic = updated
       }
+      val file =
+        when {
+          decoy -> decoyFile
+          secure -> secureFile
+          else -> publicFile
+        }
+      writeSnapshot(file, updated)
+      _revision.value++
+    }
+  }
+
+  private fun writeSnapshot(
+    file: android.util.AtomicFile,
+    snapshot: WatchStatsSnapshot,
+  ) {
+    val output = file.startWrite()
+    try {
+      app.gyrolet.mpvrx.domain.secure.VaultCrypto.ensureInitialized(context)
+      val encoded = json.encodeToString(snapshot).toByteArray(Charsets.UTF_8)
+      output.write(app.gyrolet.mpvrx.domain.secure.VaultCrypto.encryptBytes(encoded))
+      file.finishWrite(output)
+    } catch (cancelled: CancellationException) {
+      file.failWrite(output)
+      throw cancelled
+    } catch (error: Exception) {
+      file.failWrite(output)
+      Log.e(TAG, "Unable to save watch statistics", error)
     }
   }
 
@@ -177,6 +255,9 @@ class WatchStatsRepository(
 
   private fun readCachedSecure(): WatchStatsSnapshot =
     cachedSecure ?: readWithLegacyMigration(secureFile, legacySecureFile).also { cachedSecure = it }
+
+  private fun readCachedDecoy(): WatchStatsSnapshot =
+    cachedDecoy ?: read(decoyFile).also { cachedDecoy = it }
 
   private fun readWithLegacyMigration(
     target: android.util.AtomicFile,

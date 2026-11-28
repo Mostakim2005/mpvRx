@@ -192,6 +192,19 @@ class App :
         Log.e(TAG, "Durable vault initialization/migration failed", error)
       }
     }
+    applicationScope.launch(Dispatchers.IO) {
+      app.gyrolet.mpvrx.domain.secure.SecureFolderSession.modeState.collectLatest { mode ->
+        if (mode == app.gyrolet.mpvrx.domain.secure.SecureFolderSession.VaultMode.PRIMARY) {
+          runCatching {
+            val syncRepo = getKoin().get<app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository>()
+            syncRepo.migrateLegacyPublicAvDataToPrimaryVault()
+            syncRepo.autoMatchOrphanGroupsIfNeeded(force = true)
+          }.onFailure { err ->
+            Log.w(TAG, "Primary vault quarantine/auto-match skipped: ${err.message}")
+          }
+        }
+      }
+    }
 
     // Third-party diagnostics require consent; disabled users do not start collection.
     MeasureTelemetry.initialize(this, getKoin().get<AdvancedPreferences>().measureEnabled.get())

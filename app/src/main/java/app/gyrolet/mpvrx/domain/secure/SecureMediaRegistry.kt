@@ -34,14 +34,38 @@ object SecureMediaRegistry {
   private val EMPTY = Snapshot(emptySet(), emptySet())
 
   @Volatile
+  private var primaryList: List<SecureMediaEntity> = emptyList()
+
+  @Volatile
+  private var decoyList: List<SecureMediaEntity> = emptyList()
+
+  @Volatile
+  private var primarySnapshot: Snapshot = EMPTY
+
+  @Volatile
   private var snapshot: Snapshot = EMPTY
 
-  /** Replaces the index with [entities]; call with the full secure listing, not a delta. */
-  fun update(entities: List<SecureMediaEntity>) {
-    if (entities.isEmpty()) {
-      snapshot = EMPTY
-      return
-    }
+  /** Replaces the primary index with [entities]; keeps Decoy entries segregated in [decoyList]. */
+  fun update(entities: List<SecureMediaEntity>) = updatePrimary(entities)
+
+  fun updatePrimary(entities: List<SecureMediaEntity>) {
+    primaryList = entities
+    primarySnapshot = buildSnapshot(entities)
+    rebuildCombinedSnapshot()
+  }
+
+  fun updateDecoy(entities: List<SecureMediaEntity>) {
+    decoyList = entities
+    rebuildCombinedSnapshot()
+  }
+
+  private fun rebuildCombinedSnapshot() {
+    val all = primaryList + decoyList
+    snapshot = buildSnapshot(all)
+  }
+
+  private fun buildSnapshot(entities: List<SecureMediaEntity>): Snapshot {
+    if (entities.isEmpty()) return EMPTY
     val paths = HashSet<String>(entities.size * 2)
     val identities = HashSet<String>(entities.size * 3)
     entities.forEach { entity ->
@@ -49,9 +73,13 @@ object SecureMediaRegistry {
         paths += securePath
         identities += identitiesForPath(securePath)
       }
-      normalize(entity.originalPath)?.let { paths += it }
+      normalize(entity.originalPath)?.let { orig ->
+        paths += orig
+        identities += identitiesForPath(orig)
+        identities += orig
+      }
     }
-    snapshot = Snapshot(paths, identities)
+    return Snapshot(paths, identities)
   }
 
   /**
@@ -71,6 +99,9 @@ object SecureMediaRegistry {
   }
 
   fun clear() {
+    primaryList = emptyList()
+    decoyList = emptyList()
+    primarySnapshot = EMPTY
     snapshot = EMPTY
   }
 
@@ -81,14 +112,27 @@ object SecureMediaRegistry {
   fun isProtectedReference(value: String?): Boolean {
     if (value.isNullOrBlank()) return false
     if (app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isVaultPath(value)) return true
-    val current = snapshot
-    if (current.paths.isEmpty() && current.identities.isEmpty()) return false
+    return matchesSnapshot(snapshot, value)
+  }
+
+  /** True only when [value] refers to Primary Vault storage/entries (excluding Decoy). */
+  fun isPrimaryProtectedReference(value: String?): Boolean {
+    if (value.isNullOrBlank()) return false
+    if (app.gyrolet.mpvrx.domain.storage.DurableStorageManager.isPrimaryVaultPath(value)) return true
+    return matchesSnapshot(primarySnapshot, value)
+  }
+
+  private fun matchesSnapshot(
+    targetSnapshot: Snapshot,
+    value: String,
+  ): Boolean {
+    if (targetSnapshot.paths.isEmpty() && targetSnapshot.identities.isEmpty()) return false
     val trimmed = value.trim()
-    if (trimmed in current.identities) return true
+    if (trimmed in targetSnapshot.identities || trimmed in targetSnapshot.paths) return true
     val path = normalize(trimmed)
-    if (path != null && path in current.paths) return true
-    val target = path ?: trimmed
-    return identitiesForPath(target).any { it in current.identities }
+    if (path != null && (path in targetSnapshot.paths || path in targetSnapshot.identities)) return true
+    val candidate = path ?: trimmed
+    return identitiesForPath(candidate).any { it in targetSnapshot.identities }
   }
 
   private fun normalize(raw: String?): String? {

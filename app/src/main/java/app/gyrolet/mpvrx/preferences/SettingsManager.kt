@@ -324,7 +324,9 @@ class SettingsManager(
   private fun isSensitiveExportKey(key: String): Boolean {
     if (key in SENSITIVE_PREFERENCE_KEYS) return true
     val lower = key.lowercase(Locale.ROOT)
-    return lower.endsWith("_api_key") ||
+    return lower.startsWith("bookmark_sync_") ||
+      lower.startsWith("secure_folder_") ||
+      lower.endsWith("_api_key") ||
       lower.endsWith("_pin_hash") ||
       lower.endsWith("_pin_salt") ||
       lower.endsWith("_answer_hash") ||

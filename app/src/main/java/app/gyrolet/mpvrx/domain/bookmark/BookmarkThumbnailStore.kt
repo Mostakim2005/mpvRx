@@ -39,20 +39,24 @@ object BookmarkThumbnailStore {
 
   private val publicBitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
   private val secureBitmapCache = BitmapMemoryCache<String>(heapDivisor = 24, maxSizeMiB = 8)
+  private val decoyBitmapCache = BitmapMemoryCache<String>(heapDivisor = 32, maxSizeMiB = 4)
 
   fun evictSecureMemoryCache() {
     secureBitmapCache.evictAll()
+    decoyBitmapCache.evictAll()
   }
 
   fun privateDirectory(
     context: Context,
     isSecure: Boolean = false,
+    forceDecoy: Boolean? = null,
   ): File {
+    val isDecoy = isSecure && (forceDecoy ?: SecureFolderSession.isDecoyUnlocked)
     val dir =
-      if (isSecure) {
-        DurableStorageManager.secureBookmarkThumbnailsDir(context)
-      } else {
-        DurableStorageManager.normalBookmarkThumbnailsDir(context)
+      when {
+        isDecoy -> DurableStorageManager.decoyBookmarkThumbnailsDir(context)
+        isSecure -> DurableStorageManager.secureBookmarkThumbnailsDir(context)
+        else -> DurableStorageManager.normalBookmarkThumbnailsDir(context)
       }
     if (!dir.exists()) dir.mkdirs()
     val nomedia = File(dir, NOMEDIA_FILE_NAME)
@@ -103,10 +107,19 @@ object BookmarkThumbnailStore {
   ): Bitmap? {
     if (path.isNullOrBlank()) return null
     if (isSecure && !SecureFolderSession.isUnlocked) return null
-    val cache = if (isSecure) secureBitmapCache else publicBitmapCache
+    if (!isSecure && DurableStorageManager.isVaultPath(path)) return null
+    val isDecoyPath = DurableStorageManager.isDecoyVaultPath(path)
+    if (isSecure && SecureFolderSession.isDecoyUnlocked != isDecoyPath) return null
+    val cache =
+      when {
+        isDecoyPath -> decoyBitmapCache
+        isSecure -> secureBitmapCache
+        else -> publicBitmapCache
+      }
     cache.get(path)?.takeIf { !it.isRecycled }?.let { return it }
     return withContext(Dispatchers.IO) {
       if (isSecure && !SecureFolderSession.isUnlocked) return@withContext null
+      if (isSecure && SecureFolderSession.isDecoyUnlocked != isDecoyPath) return@withContext null
       cache.get(path)?.takeIf { !it.isRecycled }?.let { return@withContext it }
       if (!isInsidePrivateDir(context, path, isSecure)) return@withContext null
       val file = File(path)
@@ -132,9 +145,11 @@ object BookmarkThumbnailStore {
     isSecure: Boolean = false,
   ) {
     if (path.isNullOrBlank()) return
-    if (isSecure) secureBitmapCache.remove(path) else publicBitmapCache.remove(path)
+    publicBitmapCache.remove(path)
+    secureBitmapCache.remove(path)
+    decoyBitmapCache.remove(path)
     withContext(Dispatchers.IO) {
-      if (isInsidePrivateDir(context, path, isSecure)) {
+      if (isInsidePrivateDir(context, path, isSecure, allowBothSecureCompartments = true)) {
         runCatching { File(path).delete() }
       }
     }
@@ -246,12 +261,18 @@ object BookmarkThumbnailStore {
       // Pre-populate the in-memory LRU cache so the UI renders the newly captured thumbnail
       // immediately without re-reading, decrypting, and JPEG-decoding it back from disk.
       val path = destFile.absolutePath
+      val isDecoyDest = isSecure && DurableStorageManager.isDecoyVaultPath(path)
       val cachedCopy =
         runCatching {
           if (scaled === source) scaled.copy(Bitmap.Config.RGB_565, false) else scaled
         }.getOrNull()
       if (cachedCopy != null && !cachedCopy.isRecycled) {
-        val targetCache = if (isSecure) secureBitmapCache else publicBitmapCache
+        val targetCache =
+          when {
+            isDecoyDest -> decoyBitmapCache
+            isSecure -> secureBitmapCache
+            else -> publicBitmapCache
+          }
         targetCache.put(path, cachedCopy)
       }
       path
@@ -261,7 +282,12 @@ object BookmarkThumbnailStore {
       null
     } finally {
       val cached =
-        if (isSecure) secureBitmapCache.get(destFile.absolutePath) else publicBitmapCache.get(destFile.absolutePath)
+        when {
+          isSecure && DurableStorageManager.isDecoyVaultPath(destFile.absolutePath) ->
+            decoyBitmapCache.get(destFile.absolutePath)
+          isSecure -> secureBitmapCache.get(destFile.absolutePath)
+          else -> publicBitmapCache.get(destFile.absolutePath)
+        }
       if (scaled !== source && scaled !== cached && !scaled.isRecycled) {
         scaled.recycle()
       }
@@ -307,15 +333,27 @@ object BookmarkThumbnailStore {
     context: Context,
     path: String,
     isSecure: Boolean,
+    allowBothSecureCompartments: Boolean = false,
   ): Boolean {
     return runCatching {
       val targetCanonical = File(path).canonicalFile.path
       val roots =
         if (isSecure) {
-          listOfNotNull(
-            DurableStorageManager.secureBookmarkThumbnailsDir(context),
-            DurableStorageManager.legacyV322VaultDirectory(context)?.let { File(it, "thumbs") },
-          )
+          when {
+            allowBothSecureCompartments ->
+              listOfNotNull(
+                DurableStorageManager.secureBookmarkThumbnailsDir(context),
+                DurableStorageManager.decoyBookmarkThumbnailsDir(context),
+                DurableStorageManager.legacyV322VaultDirectory(context)?.let { File(it, "thumbs") },
+              )
+            SecureFolderSession.isDecoyUnlocked ->
+              listOf(DurableStorageManager.decoyBookmarkThumbnailsDir(context))
+            else ->
+              listOfNotNull(
+                DurableStorageManager.secureBookmarkThumbnailsDir(context),
+                DurableStorageManager.legacyV322VaultDirectory(context)?.let { File(it, "thumbs") },
+              )
+          }
         } else {
           listOfNotNull(
             DurableStorageManager.normalBookmarkThumbnailsDir(context),

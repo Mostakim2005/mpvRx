@@ -21,6 +21,8 @@ import app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed
 import androidx.compose.foundation.layout.aspectRatio
 import app.gyrolet.mpvrx.ui.player.VideoAspectGeometry
 import app.gyrolet.mpvrx.ui.player.controls.components.BookmarkSplitPanel
+import app.gyrolet.mpvrx.ui.player.controls.components.QUICK_SEEK_STEPS
+import app.gyrolet.mpvrx.ui.player.controls.components.computePortraitSplitVideoHeightPx
 import android.content.res.Configuration.ORIENTATION_PORTRAIT
 import android.database.ContentObserver
 import android.media.AudioManager
@@ -52,6 +54,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -82,6 +85,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
@@ -176,6 +180,7 @@ import app.gyrolet.mpvrx.ui.player.buildControlsExitV
 import app.gyrolet.mpvrx.ui.player.controls.components.AnimatedPlayPauseIcon
 import app.gyrolet.mpvrx.ui.player.controls.components.BrightnessSlider
 import app.gyrolet.mpvrx.ui.player.controls.components.ControlsButton
+import app.gyrolet.mpvrx.ui.player.controls.components.LocalBorderlessPlayerControls
 import app.gyrolet.mpvrx.ui.player.controls.components.LocalForceDarkPlayerButtonsBackground
 import app.gyrolet.mpvrx.ui.player.controls.components.LocalPlayerButtonsOpacity
 import app.gyrolet.mpvrx.ui.player.controls.components.asPlayerButtonBackground
@@ -1062,7 +1067,86 @@ fun PlayerControls(
             .fillMaxSize()
             .onSizeChanged { containerBounds = it },
       ) {
-        val videoOverlayPane: @Composable (Modifier) -> Unit = { paneModifier ->
+        val renderPlayerSeekbar: @Composable (Modifier, Color, Boolean) -> Unit =
+          { seekbarMod, timerColor, portraitSeekbar ->
+            val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
+            val invertDuration by playerPreferences.invertDuration.collectAsState()
+            val remaining by PlaybackSession.propFloat["playtime-remaining"].collectAsStateWithLifecycle()
+            val seekbarStyle by appearancePreferences.seekbarStyle.collectAsState()
+            val useWavySeekbar by playerPreferences.useWavySeekbar.collectAsState()
+            val displayedSeekbarPosition = precisePosition
+            val seekbarChapters =
+              remember(chapters, showChapterIndicators) {
+                if (showChapterIndicators) chapters.toImmutableList() else persistentListOf()
+              }
+            val playbackBookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
+            val seekbarBookmarks =
+              remember(playbackBookmarks) {
+                playbackBookmarks.mapNotNull { bookmark ->
+                  val posSec = viewModel.bookmarkPositionMs(bookmark) / 1000f
+                  if (posSec.isFinite() && posSec >= 0f) dev.vivvvek.seeker.Segment(bookmark.title, posSec) else null
+                }.toImmutableList()
+              }
+            val skipSegmentsImmutable = remember(skipSegments) { skipSegments.toImmutableList() }
+            val demuxerCacheTimeFlow = remember { PlaybackSession.propDouble["demuxer-cache-time"] }
+            val demuxerCacheTime = if (showBufferedRange) demuxerCacheTimeFlow.collectAsState().value else null
+            val currentDemuxerCacheTime =
+              demuxerCacheTime
+                ?.toFloat()
+                ?.takeIf { it > 0f && !it.isNaN() && !it.isInfinite() && seekbarDuration > 0f }
+                ?.coerceIn(0f, seekbarDuration)
+            var stableDemuxerCacheTime by remember { mutableFloatStateOf(currentDemuxerCacheTime ?: 0f) }
+            val isHorizontalSeekOverlayActive = gestureSeekUpdate is PlayerUpdates.HorizontalSeek
+            LaunchedEffect(showBufferedRange, seekbarDuration, currentDemuxerCacheTime, isPlayerSeeking) {
+              when {
+                !showBufferedRange || seekbarDuration <= 0f -> stableDemuxerCacheTime = 0f
+                currentDemuxerCacheTime != null -> stableDemuxerCacheTime = currentDemuxerCacheTime
+                !isPlayerSeeking -> stableDemuxerCacheTime = 0f
+              }
+            }
+            val effectiveRemaining =
+              (remaining ?: 0f).takeIf { it > 0f }
+                ?: (seekbarDuration - displayedSeekbarPosition).coerceAtLeast(0f)
+
+            SeekbarWithTimers(
+              position = displayedSeekbarPosition,
+              committedPosition = precisePosition,
+              externalScrubbing = isHorizontalSeekOverlayActive,
+              duration = seekbarDuration,
+              remaining = effectiveRemaining,
+              onValueChange = {
+                isSeeking = true
+                resetControlsTimestamp = System.currentTimeMillis()
+                viewModel.scrubTo(it)
+              },
+              onValueChangeFinished = { targetPosition ->
+                isSeeking = false
+                resetControlsTimestamp = System.currentTimeMillis()
+                viewModel.seekFromScrub(targetPosition)
+                viewModel.showControls()
+              },
+              timersInverted = Pair(false, invertDuration),
+              durationTimerOnCLick = {
+                resetControlsTimestamp = System.currentTimeMillis()
+                playerPreferences.invertDuration.set(!invertDuration)
+              },
+              positionTimerOnClick = {},
+              chapters = seekbarChapters,
+              skipSegments = skipSegmentsImmutable,
+              bookmarks = seekbarBookmarks,
+              paused = paused ?: false,
+              seekbarStyle = seekbarStyle,
+              useWavySeekbar = useWavySeekbar,
+              timerTextColor = timerColor,
+              loopStart = abLoopA?.toFloat(),
+              loopEnd = abLoopB?.toFloat(),
+              bufferDuration = stableDemuxerCacheTime.takeIf { showBufferedRange && it > 0f },
+              isPortrait = portraitSeekbar,
+              modifier = seekbarMod,
+            )
+          }
+
+        val videoOverlayPane: @Composable (Modifier, Boolean) -> Unit = { paneModifier, isPortraitSplitVideoPane ->
           GestureHandler(
             viewModel = viewModel,
             externalPanelShown = isPlayerDrawerShown,
@@ -1175,7 +1259,7 @@ fun PlayerControls(
                   drawRect(ControlsEdgeVignetteBrush, alpha = edgeVignetteAlpha)
                 }
               }.then(safeAreaInsetModifier)
-              .then(navigationBarBottomInsetModifier),
+              .then(if (isPortraitSplitVideoPane) Modifier else navigationBarBottomInsetModifier),
           ) {
           val topControls = createRef()
           val (volumeSlider, brightnessSlider) = createRefs()
@@ -1185,6 +1269,7 @@ fun PlayerControls(
           val bufferingIndicator = createRef()
           val skipSegmentChip = createRef()
           val seekbar = createRef()
+          val quickSeekStripRef = createRef()
           val (playerUpdates) = createRefs()
           val (customLeftButtonsRef, customRightButtonsRef) = createRefs()
           val customButtonsPortraitRef = createRef()
@@ -1193,18 +1278,27 @@ fun PlayerControls(
             showVideoQualitySelector &&
               !(if (isPortrait) portraitHasConfiguredQualityButton else landscapeHasConfiguredQualityButton)
           val hasBottomActions =
-            automaticQualityButton ||
-              (if (isPortrait) {
-                portraitBottomButtons.isNotEmpty()
-              } else {
-                bottomLeftButtons.isNotEmpty() || bottomRightButtons.isNotEmpty()
-              })
+            !isPortraitSplitVideoPane &&
+              (
+                automaticQualityButton ||
+                  (if (isPortrait) {
+                    portraitBottomButtons.isNotEmpty()
+                  } else {
+                    bottomLeftButtons.isNotEmpty() || bottomRightButtons.isNotEmpty()
+                  })
+              )
           val controlsWidth =
             if (playerBounds.width > 0) with(density) { playerBounds.width.toDp() } else configuration.screenWidthDp.dp
           val hasPlaylistControls =
             playlistMode && (playlistItems.size > 1 || viewModel.getPlaylistTotalCount() > 1)
           val playbackControlsPlacement =
-            if (isPortrait) portraitPlaybackControlsPlacement else landscapePlaybackControlsPlacement
+            if (isPortraitSplitVideoPane) {
+              PlaybackControlsPlacement.Center
+            } else if (isPortrait) {
+              portraitPlaybackControlsPlacement
+            } else {
+              landscapePlaybackControlsPlacement
+            }
           val sharedLandscapeRow = !isPortrait && playbackControlsPlacement != PlaybackControlsPlacement.Center
           val playbackGeometry = resolvePlaybackControlsGeometry(
             width = controlsWidth,
@@ -1468,9 +1562,13 @@ fun PlayerControls(
           val currentAspectRatio by viewModel.currentAspectRatio.collectAsState()
           val videoZoom by viewModel.videoZoom.collectAsState()
 
-          val areButtonsVisible = controlsShown && !areControlsLocked && !areSlidersShown
-          val seekbarVisible = (controlsShown || if (isHorizontalSeekActive) showSeekbarDuringHorizontalSeeking else seekBarShown) &&
-            !areControlsLocked && !areSlidersShown
+          val areButtonsVisible = !isPortraitSplitVideoPane && controlsShown && !areControlsLocked && !areSlidersShown
+          val seekbarVisible =
+            !isPortraitSplitVideoPane &&
+              (controlsShown || if (isHorizontalSeekActive) showSeekbarDuringHorizontalSeeking else seekBarShown) &&
+              !areControlsLocked && !areSlidersShown
+          val showQuickSeekStrip = areButtonsVisible
+          val quickSeekBandReservation = if (showQuickSeekStrip) 36.dp else 0.dp
           val leftCustomButtons = remember(customButtons) { customButtons.filter { it.isLeft } }
           val rightCustomButtons = remember(customButtons) { customButtons.filterNot { it.isLeft } }
           val showLandscapeLeftCustomButtons = areButtonsVisible && !isPortrait && leftCustomButtons.isNotEmpty()
@@ -1478,7 +1576,7 @@ fun PlayerControls(
           val showPortraitCustomButtons = areButtonsVisible && isPortrait && customButtons.isNotEmpty()
           // Custom rows carry transparent padding for liquid-glass shadows; offset it so the visible
           // pills have twice the old 8dp clearance, independently of the tighter seekbar gaps.
-          val customRowBottomOffset = bottomClusterTop + customButtonsGap - CustomButtonsRowInsetVertical
+          val customRowBottomOffset = bottomClusterTop + quickSeekBandReservation + customButtonsGap - CustomButtonsRowInsetVertical
           val customRowEdgeMargin = spacing.large - CustomButtonsRowInsetHorizontal
           val customRowAboveSkipChip =
             showLandscapeLeftCustomButtons || showLandscapeRightCustomButtons || showPortraitCustomButtons
@@ -1488,7 +1586,7 @@ fun PlayerControls(
               if (showLandscapeRightCustomButtons || showPortraitCustomButtons) measured(bottomHeights.rightCustomRow, CustomButtonsRowFallbackHeight) else 0.dp,
             ) - CustomButtonsRowInsetVertical * 2).coerceAtLeast(0.dp)
           val visibleBottomClusterTop = when {
-            areButtonsVisible -> bottomClusterTop
+            areButtonsVisible -> bottomClusterTop + quickSeekBandReservation
             seekbarVisible -> (bandCenters[BottomSlot.Seekbar] ?: clusterEdge) + bandHeight(BottomSlot.Seekbar) / 2
             else -> clusterEdge
           }
@@ -2212,6 +2310,28 @@ fun PlayerControls(
           }
 
           AnimatedVisibility(
+            visible = showQuickSeekStrip,
+            enter = buildControlsEnterV(controlsAnimStyle, reduceMotion, enterMs) { it },
+            exit = buildControlsExitV(controlsAnimStyle, reduceMotion, exitMs) { it },
+            modifier =
+              navigationHorizontalPaddingModifier
+                .constrainAs(quickSeekStripRef) {
+                  start.linkTo(parent.start, spacing.large)
+                  end.linkTo(parent.end, spacing.large)
+                  bottom.linkTo(parent.bottom, bottomClusterTop + spacing.extraSmall)
+                  width = Dimension.fillToConstraints
+                },
+          ) {
+            PlayerQuickSeekStrip(
+              onSeekBy = { offsetSec ->
+                resetControlsTimestamp = System.currentTimeMillis()
+                viewModel.seekBy(offsetSec)
+              },
+              onSurface = false,
+            )
+          }
+
+          AnimatedVisibility(
             visible =
               seekbarVisible,
             enter = buildControlsEnterV(controlsAnimStyle, reduceMotion, enterMs) { it },
@@ -2234,87 +2354,10 @@ fun PlayerControls(
                   end.linkTo(parent.end, spacing.large)
                 },
           ) {
-            val position by PlaybackSession.propInt["time-pos"].collectAsStateWithLifecycle()
-            val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
-            val invertDuration by playerPreferences.invertDuration.collectAsState()
-            val remaining  by PlaybackSession.propFloat["playtime-remaining"].collectAsStateWithLifecycle()
-            val seekbarStyle by appearancePreferences.seekbarStyle.collectAsState()
-            val useWavySeekbar by playerPreferences.useWavySeekbar.collectAsState()
-            val displayedSeekbarPosition = precisePosition
-            // Memoize the immutable copies so they are not reallocated on every position
-            // tick (this scope recomposes ~20x/sec while scrubbing).
-            val seekbarChapters =
-              remember(chapters, showChapterIndicators) {
-                if (showChapterIndicators) chapters.toImmutableList() else persistentListOf()
-              }
-            val playbackBookmarks by viewModel.playbackBookmarks.collectAsStateWithLifecycle()
-            val seekbarBookmarks =
-              remember(playbackBookmarks) {
-                playbackBookmarks.mapNotNull { bookmark ->
-                  val posSec = viewModel.bookmarkPositionMs(bookmark) / 1000f
-                  if (posSec.isFinite() && posSec >= 0f) dev.vivvvek.seeker.Segment(bookmark.title, posSec) else null
-                }.toImmutableList()
-              }
-            val skipSegmentsImmutable = remember(skipSegments) { skipSegments.toImmutableList() }
-
-            // mpv republishes the cache endpoint several times per second during playback. Reading
-            // it at the top of PlayerControls re-ran the whole controls tree (and re-solved its
-            // ConstraintLayout) on every update, even with the controls hidden; keep it here.
-            val demuxerCacheTimeFlow = remember { PlaybackSession.propDouble["demuxer-cache-time"] }
-            val demuxerCacheTime = if (showBufferedRange) demuxerCacheTimeFlow.collectAsState().value else null
-            val currentDemuxerCacheTime =
-              demuxerCacheTime
-                ?.toFloat()
-                ?.takeIf { it > 0f && !it.isNaN() && !it.isInfinite() && seekbarDuration > 0f }
-                ?.coerceIn(0f, seekbarDuration)
-            var stableDemuxerCacheTime by remember { mutableFloatStateOf(currentDemuxerCacheTime ?: 0f) }
-            LaunchedEffect(showBufferedRange, seekbarDuration, currentDemuxerCacheTime, isPlayerSeeking) {
-              when {
-                !showBufferedRange || seekbarDuration <= 0f -> stableDemuxerCacheTime = 0f
-                currentDemuxerCacheTime != null -> stableDemuxerCacheTime = currentDemuxerCacheTime
-                !isPlayerSeeking -> stableDemuxerCacheTime = 0f
-              }
-            }
-
-            val effectiveRemaining =
-              (remaining ?: 0f).takeIf { it > 0f }
-                ?: (seekbarDuration - displayedSeekbarPosition).coerceAtLeast(0f)
-
-            SeekbarWithTimers(
-              position = displayedSeekbarPosition,
-              committedPosition = precisePosition,
-              externalScrubbing = isHorizontalSeekActive,
-              duration = seekbarDuration,
-              remaining = effectiveRemaining,
-              onValueChange = {
-                isSeeking = true
-                resetControlsTimestamp = System.currentTimeMillis()
-                viewModel.scrubTo(it)
-              },
-              onValueChangeFinished = { targetPosition ->
-                isSeeking = false
-                resetControlsTimestamp = System.currentTimeMillis()
-                viewModel.seekFromScrub(targetPosition)
-                viewModel.showControls()
-              },
-              timersInverted = Pair(false, invertDuration),
-              durationTimerOnCLick = {
-                resetControlsTimestamp = System.currentTimeMillis()
-                playerPreferences.invertDuration.set(!invertDuration)
-              },
-              positionTimerOnClick = {},
-              chapters = seekbarChapters,
-              skipSegments = skipSegmentsImmutable,
-              bookmarks = seekbarBookmarks,
-              paused = paused ?: false,
-              seekbarStyle = seekbarStyle,
-              useWavySeekbar = useWavySeekbar,
-              timerTextColor = Color.White,
-              loopStart = abLoopA?.toFloat(),
-              loopEnd = abLoopB?.toFloat(),
-              bufferDuration = stableDemuxerCacheTime.takeIf { showBufferedRange && it > 0f },
-              isPortrait = isPortrait,
-              modifier = Modifier.onSizeChanged { if (it.height > 0) bottomHeights.seekbar = it.height },
+            renderPlayerSeekbar(
+              Modifier.onSizeChanged { if (it.height > 0) bottomHeights.seekbar = it.height },
+              Color.White,
+              isPortrait,
             )
           }
 
@@ -2338,7 +2381,10 @@ fun PlayerControls(
                     Modifier
                   },
                 ).constrainAs(topControls) {
-                  top.linkTo(parent.top, if (isPortrait) spacing.extraLarge else spacing.small)
+                  top.linkTo(
+                    parent.top,
+                    if (isPortraitSplitVideoPane) spacing.small else if (isPortrait) spacing.extraLarge else spacing.small,
+                  )
                   start.linkTo(parent.start, spacing.large)
                   end.linkTo(parent.end, spacing.large)
                   width = Dimension.fillToConstraints
@@ -2554,30 +2600,78 @@ fun PlayerControls(
           val videoWeight = 1f - panelWeight
           CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             if (isPortrait) {
-              Column(modifier = Modifier.fillMaxSize()) {
-                CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
-                  // Portrait budget: Native video aspect ratio (no hardcoding), remaining vertical space dedicated to bookmark drawer.
-                  val nativeAspect = (VideoAspectGeometry.currentEffectiveDisplayAspect() ?: (16.0 / 9.0)).toFloat().coerceIn(0.5f, 3.0f)
-                  Box(modifier = Modifier.fillMaxWidth().aspectRatio(nativeAspect)) {
-                    videoOverlayPane(Modifier.fillMaxSize())
+              BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val mpvOutAspect by PlaybackSession.propDouble["video-out-params/aspect"].collectAsStateWithLifecycle()
+                val mpvW by PlaybackSession.propInt["video-params/w"].collectAsStateWithLifecycle()
+                val mpvH by PlaybackSession.propInt["video-params/h"].collectAsStateWithLifecycle()
+                val currentAspect by viewModel.videoAspect.collectAsState()
+                val effectiveAspect =
+                  remember(currentAspect, mpvOutAspect, mpvW, mpvH) {
+                    VideoAspectGeometry.currentEffectiveDisplayAspect()
+                      ?: mpvOutAspect?.takeIf { it > 0.0 }
+                      ?: if ((mpvW ?: 0) > 0 && (mpvH ?: 0) > 0) (mpvW!!.toDouble() / mpvH!!.toDouble()) else null
                   }
-                  BookmarkSplitPanel(
-                    viewModel = viewModel,
-                    chapters = chapters.toImmutableList(),
-                    currentPositionSeconds = chapterPositionState.value,
-                    isPortrait = true,
-                    onOpenSheet = onOpenSheet,
-                    onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
-                    onClose = { viewModel.setBookmarkPanelOpen(false) },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                val topVideoHeightPx =
+                  computePortraitSplitVideoHeightPx(
+                    containerWidthPx = constraints.maxWidth,
+                    containerHeightPx = constraints.maxHeight,
+                    videoAspect = effectiveAspect,
                   )
+                val topVideoHeightDp = with(LocalDensity.current) { topVideoHeightPx.toDp() }
+                Column(modifier = Modifier.fillMaxSize()) {
+                  CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
+                    Box(modifier = Modifier.fillMaxWidth().height(topVideoHeightDp)) {
+                      videoOverlayPane(Modifier.fillMaxSize(), true)
+                    }
+                    PortraitSplitControlStrip(
+                      seekbar = { mod ->
+                        renderPlayerSeekbar(mod, MaterialTheme.colorScheme.onSurface, true)
+                      },
+                      onSeekBy = { offsetSec ->
+                        resetControlsTimestamp = System.currentTimeMillis()
+                        viewModel.seekBy(offsetSec)
+                      },
+                      buttonsRow = {
+                        val autoQuality = showVideoQualitySelector && !portraitHasConfiguredQualityButton
+                        BottomPlayerControlsPortrait(
+                          buttons = portraitBottomButtons,
+                          showVideoQualitySelector = autoQuality,
+                          chapters = chapters,
+                          currentChapter = currentChapter,
+                          isSpeedNonOne = isSpeedNonOne,
+                          currentZoom = currentZoom,
+                          aspect = aspect,
+                          mediaTitle = mediaTitle,
+                          decoder = decoder,
+                          playbackSpeed = playbackSpeed ?: 1f,
+                          onBackPress = onBackPress,
+                          onOpenSheet = onOpenSheet,
+                          onOpenPanel = onOpenPanel,
+                          viewModel = viewModel,
+                          activity = playerActivity,
+                          alignToEnd = false,
+                          horizontalArrangement = Arrangement.spacedBy(spacing.small, Alignment.CenterHorizontally),
+                        )
+                      },
+                    )
+                    BookmarkSplitPanel(
+                      viewModel = viewModel,
+                      chapters = chapters.toImmutableList(),
+                      currentPositionSeconds = chapterPositionState.value,
+                      isPortrait = true,
+                      onOpenSheet = onOpenSheet,
+                      onSwitchToOverlay = { viewModel.switchBookmarkPresentation(useSplitPanel = false) },
+                      onClose = { viewModel.setBookmarkPanelOpen(false) },
+                      modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                  }
                 }
               }
             } else {
               Row(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides currentLayoutDirection) {
                   Box(modifier = Modifier.fillMaxHeight().weight(videoWeight)) {
-                    videoOverlayPane(Modifier.fillMaxSize())
+                    videoOverlayPane(Modifier.fillMaxSize(), false)
                   }
                   BookmarkSplitPanel(
                     viewModel = viewModel,
@@ -2594,7 +2688,7 @@ fun PlayerControls(
             }
           }
         } else {
-          videoOverlayPane(Modifier.fillMaxSize())
+          videoOverlayPane(Modifier.fillMaxSize(), false)
         }
 
         PlayerSheets(
@@ -3256,6 +3350,105 @@ private fun CustomControlButton(
         maxLines = 1,
         softWrap = false,
       )
+    }
+  }
+}
+
+@Composable
+private fun PortraitSplitControlStrip(
+  seekbar: @Composable (Modifier) -> Unit,
+  onSeekBy: (Int) -> Unit,
+  buttonsRow: @Composable () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Surface(
+    color = MaterialTheme.colorScheme.surfaceContainer,
+    contentColor = MaterialTheme.colorScheme.onSurface,
+    modifier = modifier.fillMaxWidth(),
+  ) {
+    Column(
+      modifier =
+        Modifier
+          .fillMaxWidth()
+          .padding(horizontal = MaterialTheme.spacing.medium, vertical = MaterialTheme.spacing.smaller),
+      verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+    ) {
+      seekbar(Modifier.fillMaxWidth())
+      PlayerQuickSeekStrip(
+        onSeekBy = onSeekBy,
+        onSurface = true,
+        modifier = Modifier.fillMaxWidth(),
+      )
+      CompositionLocalProvider(
+        LocalBorderlessPlayerControls provides true,
+        LocalForceDarkPlayerButtonsBackground provides false,
+        LocalContentColor provides MaterialTheme.colorScheme.onSurface,
+      ) {
+        Box(
+          modifier = Modifier.fillMaxWidth(),
+          contentAlignment = Alignment.Center,
+        ) {
+          buttonsRow()
+        }
+      }
+      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+    }
+  }
+}
+
+@Composable
+private fun PlayerQuickSeekStrip(
+  onSeekBy: (Int) -> Unit,
+  onSurface: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  val containerColor =
+    if (onSurface) {
+      MaterialTheme.colorScheme.surfaceContainerHigh
+    } else {
+      Color.Black.copy(alpha = 0.45f)
+    }
+  val contentColor =
+    if (onSurface) {
+      MaterialTheme.colorScheme.onSurface
+    } else {
+      Color.White
+    }
+  val borderColor =
+    if (onSurface) {
+      MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+    } else {
+      Color.White.copy(alpha = 0.24f)
+    }
+
+  Box(
+    modifier = modifier.fillMaxWidth(),
+    contentAlignment = Alignment.Center,
+  ) {
+    Row(
+      modifier =
+        Modifier
+          .horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      QUICK_SEEK_STEPS.forEach { (offsetSeconds, label) ->
+        Surface(
+          onClick = { onSeekBy(offsetSeconds) },
+          shape = CircleShape,
+          color = containerColor,
+          contentColor = contentColor,
+          border = BorderStroke(1.dp, borderColor),
+        ) {
+          Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+          )
+        }
+      }
     }
   }
 }

@@ -12,6 +12,7 @@ package app.gyrolet.mpvrx.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import app.gyrolet.mpvrx.database.dao.SecureBookmarkDao
+import app.gyrolet.mpvrx.database.dao.SecureBookmarkSyncTombstoneDao
 import app.gyrolet.mpvrx.database.dao.SecureBookmarkTagDao
 import app.gyrolet.mpvrx.database.dao.SecurePlaybackStateDao
 import app.gyrolet.mpvrx.database.dao.SecureVaultMediaDao
@@ -20,6 +21,7 @@ import app.gyrolet.mpvrx.database.entities.SecureBookmarkEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkGroupEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaLinkEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaRefEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkSyncTombstoneEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagEntity
 import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagMemoryEntity
 import app.gyrolet.mpvrx.database.entities.SecurePlaybackStateEntity
@@ -33,12 +35,13 @@ import app.gyrolet.mpvrx.database.entities.SecureVideoMetadataEntity
     SecureBookmarkGroupEntity::class,
     SecureBookmarkMediaLinkEntity::class,
     SecureBookmarkMediaRefEntity::class,
+    SecureBookmarkSyncTombstoneEntity::class,
     SecureBookmarkTagEntity::class,
     SecureBookmarkTagMemoryEntity::class,
     SecurePlaybackStateEntity::class,
     SecureVideoMetadataEntity::class,
   ],
-  version = 2,
+  version = 3,
   exportSchema = true,
 )
 abstract class SecureVaultDatabase : RoomDatabase() {
@@ -47,6 +50,8 @@ abstract class SecureVaultDatabase : RoomDatabase() {
   abstract fun secureBookmarkDao(): SecureBookmarkDao
 
   abstract fun secureBookmarkTagDao(): SecureBookmarkTagDao
+
+  abstract fun secureBookmarkSyncTombstoneDao(): SecureBookmarkSyncTombstoneDao
 
   abstract fun securePlaybackStateDao(): SecurePlaybackStateDao
 

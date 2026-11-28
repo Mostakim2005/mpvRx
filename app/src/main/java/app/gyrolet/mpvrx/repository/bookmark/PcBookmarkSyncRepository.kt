@@ -7,23 +7,31 @@ import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.documentfile.provider.DocumentFile
 import app.gyrolet.mpvrx.database.MpvRxDatabase
+import app.gyrolet.mpvrx.database.SecureVaultDatabase
 import app.gyrolet.mpvrx.database.entities.BookmarkGroupEntity
-import app.gyrolet.mpvrx.database.entities.BookmarkMediaLinkEntity
-import app.gyrolet.mpvrx.database.entities.BookmarkMediaRefEntity
-import app.gyrolet.mpvrx.database.entities.BookmarkSyncTombstoneEntity
-import app.gyrolet.mpvrx.database.entities.BookmarkTagEntity
-import app.gyrolet.mpvrx.database.entities.BookmarkTagMemoryEntity
 import app.gyrolet.mpvrx.database.entities.PlaybackBookmarkEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkGroupEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaLinkEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkMediaRefEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkSyncTombstoneEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagEntity
+import app.gyrolet.mpvrx.database.entities.SecureBookmarkTagMemoryEntity
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkGroupConsolidator
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkMediaMatcher
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkTagRules
 import app.gyrolet.mpvrx.domain.bookmark.BookmarkThumbnailStore
 import app.gyrolet.mpvrx.domain.bookmark.OshashCalculator
+import app.gyrolet.mpvrx.domain.bookmark.SecureBookmarkStore
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
+import app.gyrolet.mpvrx.domain.secure.SecureMediaRegistry
 import app.gyrolet.mpvrx.domain.secure.VaultCrypto
+import app.gyrolet.mpvrx.domain.storage.DurableStorageManager
 import app.gyrolet.mpvrx.preferences.BookmarkSyncPreferences
 import app.gyrolet.mpvrx.repository.MediaFileRepository
 import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -33,7 +41,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.net.URLEncoder
@@ -247,24 +259,120 @@ data class JavidCatalogEntry(
 
 /**
  * Coordinates two-way LAN bookmark sync with AV Manager (`vault.db`) <-> Stash (`localhost:9999`)
- * and orphan BookmarkGroup linking in [MpvRxDatabase].
+ * and orphan BookmarkGroup linking strictly inside the encrypted Primary [SecureVaultDatabase].
  *
- * Security boundary (`R-11`): Never reads from or writes to `SecureVaultDatabase` so Secure Vault
- * paths, URIs, and secrets remain isolated on-device.
+ * Security boundary (`Alpha 1 / Alpha 3 / Bravo 1`):
+ * - Every remote sync, catalog, and vault-matching API requires `SecureFolderSession.isPrimaryUnlocked`.
+ * - Locked sessions and Decoy sessions fail closed and emit empty state.
+ * - Synced thumbnails live solely in `.vault/thumbs/`.
+ * - One-time quarantine migration moves legacy AV Manager rows out of public [MpvRxDatabase] when
+ *   the Primary Vault unlocks, never leaking back to public tables.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class PcBookmarkSyncRepository(
   private val context: Context,
-  private val database: MpvRxDatabase,
+  private val secureDatabase: SecureVaultDatabase,
+  private val publicDatabase: MpvRxDatabase,
+  private val secureBookmarkStore: SecureBookmarkStore,
   private val prefs: BookmarkSyncPreferences,
   private val httpClient: OkHttpClient,
   private val json: Json,
-  private val mediaFileRepository: MediaFileRepository? = null,
+  @Suppress("UNUSED_PARAMETER") private val mediaFileRepository: MediaFileRepository? = null,
 ) {
-  private val bookmarkDao get() = database.playbackBookmarkDao()
-  private val tagDao get() = database.bookmarkTagDao()
-  private val tombstoneDao get() = database.bookmarkSyncTombstoneDao()
+  private val bookmarkDao get() = secureDatabase.secureBookmarkDao()
+  private val tagDao get() = secureDatabase.secureBookmarkTagDao()
+  private val tombstoneDao get() = secureDatabase.secureBookmarkSyncTombstoneDao()
+  private val vaultMediaDao get() = secureDatabase.secureVaultMediaDao()
+  private val vaultMetaDao get() = secureDatabase.secureVideoMetadataDao()
+
+  private val publicBookmarkDao get() = publicDatabase.playbackBookmarkDao()
+  private val publicTagDao get() = publicDatabase.bookmarkTagDao()
+  private val publicTombstoneDao get() = publicDatabase.bookmarkSyncTombstoneDao()
+
+  private val quarantineMutex = Mutex()
   private val _syncProgress = MutableStateFlow(SyncProgressState())
   val syncProgress: StateFlow<SyncProgressState> = _syncProgress.asStateFlow()
+
+  init {
+    SecureFolderSession.registerOnLockListener {
+      _syncProgress.value = SyncProgressState()
+    }
+  }
+
+  private fun requirePrimaryUnlocked() {
+    check(SecureFolderSession.isPrimaryUnlocked) {
+      "Unlock Primary Secret Folder to use AV Manager Sync"
+    }
+  }
+
+  private fun enc(value: String): String {
+    VaultCrypto.ensureInitialized(context)
+    return if (value.isEmpty()) "" else VaultCrypto.encryptString(value)
+  }
+
+  private fun dec(value: String): String {
+    VaultCrypto.ensureInitialized(context)
+    return if (value.isEmpty()) "" else runCatching { VaultCrypto.decryptString(value) }.getOrDefault(value)
+  }
+
+  private fun encNullable(value: String?): String? =
+    value?.takeIf { it.isNotEmpty() }?.let(::enc)
+
+  private fun decNullable(value: String?): String? =
+    value?.takeIf { it.isNotEmpty() }?.let(::dec)
+
+  private fun SecureBookmarkGroupEntity.toDomain(): BookmarkGroupEntity =
+    BookmarkGroupEntity(
+      groupKey = groupKey,
+      presetCode = decNullable(presetCode),
+      oshash = oshash,
+      fingerprint = fingerprint,
+      stemKey = decNullable(stemKey),
+      durationSec = durationSec,
+      width = width,
+      height = height,
+      fileSizeBytes = fileSizeBytes,
+      sourceLabel = dec(sourceLabel),
+      sourceUrl = decNullable(sourceUrl),
+      updatedAt = updatedAt,
+    )
+
+  private fun BookmarkGroupEntity.toSecure(
+    originApp: String? = null,
+    lastSyncedAt: Long = 0L,
+  ): SecureBookmarkGroupEntity =
+    SecureBookmarkGroupEntity(
+      groupKey = groupKey,
+      presetCode = encNullable(presetCode),
+      oshash = oshash,
+      fingerprint = fingerprint,
+      stemKey = encNullable(stemKey),
+      durationSec = durationSec,
+      width = width,
+      height = height,
+      fileSizeBytes = fileSizeBytes,
+      sourceLabel = enc(sourceLabel),
+      sourceUrl = encNullable(sourceUrl),
+      originApp = encNullable(originApp),
+      lastSyncedAt = lastSyncedAt,
+      updatedAt = updatedAt,
+    )
+
+  private fun SecureBookmarkEntity.toDomain(originApp: String = "av_manager"): PlaybackBookmarkEntity =
+    PlaybackBookmarkEntity(
+      id = id,
+      mediaId = mediaId,
+      positionMs = positionMs,
+      title = dec(title),
+      createdAt = createdAt,
+      bookTrackId = bookTrackId,
+      thumbnailPath = decNullable(thumbnailPath),
+      endPositionMs = endPositionMs,
+      primaryTag = decNullable(primaryTag),
+      syncUuid = syncUuid,
+      originApp = originApp,
+      updatedAt = updatedAt,
+    )
 
   private fun emitProgress(
     active: Boolean,
@@ -285,50 +393,213 @@ class PcBookmarkSyncRepository(
       )
   }
 
-  /** Observes all independent JAVID / bookmark groups stored in Room with link & tag metadata. */
-  fun observeJavidCatalog(): Flow<List<JavidCatalogEntry>> =
-    combine(
-      bookmarkDao.observeAllGroups(),
-      bookmarkDao.observeGallery(),
-      tagDao.observeMediaRefs(),
-      tagDao.observeAllPairs(),
-    ) { groups, galleryRows, refs, tagPairs ->
-      val refsByMedia = refs.associateBy { it.mediaId }
-      val rowsByGroup = galleryRows.groupBy { it.mediaId }
-      val tagsByBookmark = tagPairs.groupBy({ it.bookmarkId }, { it.name })
+  /**
+   * Quarantine migration (`Bravo 1`): moves any legacy AV Manager synced rows (`syncUuid != null`,
+   * `originApp == av_manager`, `sourceUrl != null`, or `javid:` groups) and their `.store/thumbs/`
+   * thumbnails out of public [MpvRxDatabase] into encrypted Primary [SecureVaultDatabase].
+   * Runs only when Primary Secret Folder is unlocked.
+   */
+  suspend fun migrateLegacyPublicAvDataToPrimaryVault(): Int =
+    quarantineMutex.withLock {
+      withContext(Dispatchers.IO) {
+        if (!SecureFolderSession.isPrimaryUnlocked) return@withContext 0
+        VaultCrypto.ensureInitialized(context)
 
-      groups
-        .mapNotNull { grp ->
-          val gRows = rowsByGroup[grp.groupKey].orEmpty()
-          if (gRows.isEmpty()) return@mapNotNull null
-          val ref = refsByMedia[grp.groupKey]
-          val extractedJavid =
-            grp.presetCode?.takeIf { it.isNotBlank() }
-              ?: BookmarkMediaMatcher.extractJvidCode(grp.sourceLabel)
-              ?: BookmarkMediaMatcher.extractJvidCode(grp.groupKey)
-              ?: grp.groupKey
-          val tagList =
-            gRows
-              .flatMap { r -> tagsByBookmark[r.id].orEmpty() }
-              .distinct()
-              .sorted()
-              .take(8)
-          JavidCatalogEntry(
-            groupKey = grp.groupKey,
-            javidCode = extractedJavid,
-            sourceLabel = grp.sourceLabel.ifBlank { ref?.title.orEmpty() },
-            sourceUrl = grp.sourceUrl?.trim()?.takeIf { it.isNotEmpty() },
-            bookmarkCount = gRows.size,
-            playableUri = ref?.playableUri,
-            mediaTitle = ref?.title,
-            tags = tagList,
-            updatedAt = grp.updatedAt,
+        val pubGroups = publicBookmarkDao.getAllGroups()
+        val pubBookmarks = publicBookmarkDao.getPublicBookmarks()
+        val pubLinks = publicBookmarkDao.getAllLinks()
+        val pubRefs = publicTagDao.getAllMediaRefs()
+        val pubTombs = publicTombstoneDao.getAll()
+
+        val avGroupKeys = HashSet<String>()
+        pubGroups.forEach { g ->
+          if (!g.sourceUrl.isNullOrBlank() || g.groupKey.startsWith("javid:", ignoreCase = true)) {
+            avGroupKeys += g.groupKey
+          }
+        }
+        pubBookmarks.forEach { b ->
+          if (
+            !b.syncUuid.isNullOrBlank() ||
+            b.originApp.equals("av_manager", ignoreCase = true) ||
+            b.mediaId.startsWith("javid:", ignoreCase = true)
+          ) {
+            avGroupKeys += b.mediaId
+          }
+        }
+        if (avGroupKeys.isEmpty() && pubTombs.isEmpty()) return@withContext 0
+
+        val now = System.currentTimeMillis()
+        val secGroupsByKey = bookmarkDao.getAllGroups().map { it.toDomain() }.associateBy { it.groupKey }
+        val primaryThumbDir = BookmarkThumbnailStore.privateDirectory(context, isSecure = true, forceDecoy = false)
+
+        avGroupKeys.forEach { gk ->
+          val pg = pubGroups.firstOrNull { it.groupKey == gk }
+          if (pg != null) {
+            val existing = secGroupsByKey[gk]
+            val merged =
+              BookmarkGroupEntity(
+                groupKey = gk,
+                presetCode = existing?.presetCode?.takeIf { it.isNotBlank() } ?: pg.presetCode,
+                oshash = existing?.oshash?.takeIf { it.isNotBlank() } ?: pg.oshash,
+                fingerprint = existing?.fingerprint?.takeIf { it.isNotBlank() } ?: pg.fingerprint,
+                stemKey = existing?.stemKey?.takeIf { it.isNotBlank() } ?: pg.stemKey,
+                durationSec = existing?.durationSec?.takeIf { it > 0 } ?: pg.durationSec,
+                width = existing?.width?.takeIf { it > 0 } ?: pg.width,
+                height = existing?.height?.takeIf { it > 0 } ?: pg.height,
+                fileSizeBytes = existing?.fileSizeBytes?.takeIf { it > 0L } ?: pg.fileSizeBytes,
+                sourceLabel = existing?.sourceLabel?.takeIf { it.isNotBlank() } ?: pg.sourceLabel,
+                sourceUrl = existing?.sourceUrl?.takeIf { it.isNotBlank() } ?: pg.sourceUrl,
+                updatedAt = maxOf(existing?.updatedAt ?: 0L, pg.updatedAt),
+              )
+            bookmarkDao.upsertGroup(merged.toSecure(originApp = "av_manager", lastSyncedAt = now))
+          }
+        }
+
+        val currentVaultBms = bookmarkDao.getAll().map { it.toDomain() }.toMutableList()
+        val movingBms = pubBookmarks.filter { it.mediaId in avGroupKeys }
+        var movedCount = 0
+        movingBms.forEach { oldBm ->
+          val duplicate =
+            oldBm.syncUuid?.let { uuid -> currentVaultBms.firstOrNull { it.syncUuid == uuid } }
+              ?: currentVaultBms.firstOrNull {
+                it.mediaId == oldBm.mediaId && abs(it.positionMs - oldBm.positionMs) <= 1000L && it.title == oldBm.title
+              }
+          if (duplicate == null) {
+            val migratedThumb =
+              if (!oldBm.thumbnailPath.isNullOrBlank()) {
+                BookmarkThumbnailStore.migrateThumbnailFile(
+                  context = context,
+                  existingPath = oldBm.thumbnailPath,
+                  toSecure = true,
+                ) ?: oldBm.thumbnailPath?.takeIf { DurableStorageManager.isPrimaryVaultPath(it) }
+              } else {
+                null
+              }
+            val insertedEntity =
+              SecureBookmarkEntity(
+                mediaId = oldBm.mediaId,
+                positionMs = oldBm.positionMs,
+                title = enc(oldBm.title),
+                createdAt = oldBm.createdAt,
+                bookTrackId = oldBm.bookTrackId,
+                thumbnailPath = encNullable(migratedThumb),
+                endPositionMs = oldBm.endPositionMs,
+                primaryTag = encNullable(oldBm.primaryTag),
+                syncUuid = oldBm.syncUuid,
+                updatedAt = oldBm.updatedAt.takeIf { it > 0L } ?: oldBm.createdAt,
+              )
+            val newId = bookmarkDao.add(insertedEntity)
+            val oldTags = publicTagDao.tagsFor(oldBm.id).map { it.displayName.ifBlank { it.name } }
+            if (oldTags.isNotEmpty()) {
+              applyBookmarkTags(newId, oldTags)
+            }
+            currentVaultBms.add(insertedEntity.copy(id = newId).toDomain())
+            movedCount++
+          }
+        }
+
+        pubTombs.forEach { t ->
+          tombstoneDao.upsert(
+            SecureBookmarkSyncTombstoneEntity(syncUuid = t.syncUuid, groupKey = t.groupKey, deletedAt = t.deletedAt),
           )
-        }.sortedWith(
-          compareByDescending<JavidCatalogEntry> { it.updatedAt }
-            .thenBy { it.javidCode },
-        )
-    }.distinctUntilChanged()
+          publicTombstoneDao.deleteByUuid(t.syncUuid)
+        }
+
+        // Clean public AV Manager rows inside MpvRxDatabase and old .store/thumbs files
+        val idsToDelete = movingBms.map { it.id }
+        if (idsToDelete.isNotEmpty()) {
+          idsToDelete.chunked(900).forEach { publicBookmarkDao.deleteByIds(it) }
+          idsToDelete.forEach { publicTagDao.clearForBookmark(it) }
+        }
+        pubLinks.forEach { link ->
+          if (link.groupKey in avGroupKeys || link.mediaId in avGroupKeys) {
+            publicBookmarkDao.deleteMediaLink(link.mediaId)
+          }
+        }
+        pubRefs.forEach { ref ->
+          if (ref.mediaId in avGroupKeys || DurableStorageManager.isVaultPath(ref.playableUri)) {
+            publicTagDao.deleteMediaRef(ref.mediaId)
+          }
+        }
+        avGroupKeys.forEach { gk ->
+          if (publicBookmarkDao.countInGroup(gk) == 0 && publicBookmarkDao.countLinksForGroup(gk) == 0) {
+            publicBookmarkDao.deleteGroup(gk)
+          }
+          publicTagDao.deleteMediaRef(gk)
+        }
+        movingBms.forEach { oldBm ->
+          val oldThumb = oldBm.thumbnailPath
+          if (!oldThumb.isNullOrBlank() && publicBookmarkDao.countByThumbnailPath(oldThumb) == 0) {
+            BookmarkThumbnailStore.deleteThumbnail(context, oldThumb, isSecure = false)
+          }
+        }
+        // Keep primaryThumbDir touched only when needed
+        if (primaryThumbDir.isDirectory && movedCount > 0) {
+          BookmarkThumbnailStore.evictSecureMemoryCache()
+        }
+        movedCount
+      }
+    }
+
+  /** Observes all independent JAVID / bookmark groups stored in Primary Vault (empty when locked or Decoy). */
+  fun observeJavidCatalog(): Flow<List<JavidCatalogEntry>> =
+    SecureFolderSession.modeState.flatMapLatest { mode ->
+      if (mode != SecureFolderSession.VaultMode.PRIMARY) {
+        flowOf(emptyList())
+      } else {
+        combine(
+          bookmarkDao.observeAllGroups(),
+          bookmarkDao.observeGallery(),
+          tagDao.observeMediaRefs(),
+          tagDao.observeAllTags(),
+        ) { rawGroups, galleryRows, rawRefs, rawTags ->
+          val refsByMedia =
+            rawRefs.associate { r ->
+              r.mediaId to
+                Pair(
+                  dec(r.playableUri).takeIf { u -> !DurableStorageManager.isVaultPath(u) || File(u).isFile },
+                  decNullable(r.title),
+                )
+            }
+          val rowsByGroup = galleryRows.groupBy { it.mediaId }
+          val tagsByBookmark = rawTags.groupBy({ it.bookmarkId }, { dec(it.displayName).ifBlank { dec(it.name) } })
+
+          rawGroups
+            .mapNotNull { rawGrp ->
+              val grp = rawGrp.toDomain()
+              val gRows = rowsByGroup[grp.groupKey].orEmpty()
+              if (gRows.isEmpty()) return@mapNotNull null
+              val refPair = refsByMedia[grp.groupKey]
+              val extractedJavid =
+                grp.presetCode?.takeIf { it.isNotBlank() }
+                  ?: BookmarkMediaMatcher.extractJvidCode(grp.sourceLabel)
+                  ?: BookmarkMediaMatcher.extractJvidCode(grp.groupKey)
+                  ?: grp.groupKey
+              val tagList =
+                gRows
+                  .flatMap { r -> tagsByBookmark[r.id].orEmpty() }
+                  .distinct()
+                  .sorted()
+                  .take(8)
+              JavidCatalogEntry(
+                groupKey = grp.groupKey,
+                javidCode = extractedJavid,
+                sourceLabel = grp.sourceLabel.ifBlank { refPair?.second.orEmpty() },
+                sourceUrl = grp.sourceUrl?.trim()?.takeIf { it.isNotEmpty() },
+                bookmarkCount = gRows.size,
+                playableUri = refPair?.first,
+                mediaTitle = refPair?.second,
+                tags = tagList,
+                updatedAt = grp.updatedAt,
+              )
+            }.sortedWith(
+              compareByDescending<JavidCatalogEntry> { it.updatedAt }
+                .thenBy { it.javidCode },
+            )
+        }.distinctUntilChanged()
+      }
+    }
+
   private val syncClient: OkHttpClient by lazy {
     httpClient
       .newBuilder()
@@ -347,6 +618,7 @@ class PcBookmarkSyncRepository(
     withContext(Dispatchers.IO) {
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       runCatching {
+        requirePrimaryUnlocked()
         require(baseUrl.isNotEmpty()) { "Enter AV Manager URL or tap Find PC (Wi-Fi)" }
         val req = buildRequestBuilder("$baseUrl/api/sync/status", token).get().build()
         val body =
@@ -370,6 +642,7 @@ class PcBookmarkSyncRepository(
   suspend fun discoverPcHubOnLan(includeUsbLoopback: Boolean = true): Result<String> =
     withContext(Dispatchers.IO) {
       runCatching {
+        requirePrimaryUnlocked()
         val probeClient =
           httpClient
             .newBuilder()
@@ -453,17 +726,23 @@ class PcBookmarkSyncRepository(
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       try {
         runCatching {
-          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+          requirePrimaryUnlocked()
+          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Vault Settings" }
           VaultCrypto.ensureInitialized(context)
           emitProgress(true, "Consolidating JAVID groups…", "", 0, 1, 0.05f)
           consolidateDuplicateJvidGroupsInDb()
 
-          val localGroups = bookmarkDao.getAllGroups()
-          val rawBookmarks = bookmarkDao.getPublicBookmarks()
-          val allTags = tagDao.getAllTagsOnce().groupBy { it.bookmarkId }
+          val localGroups = bookmarkDao.getAllGroups().map { it.toDomain() }
+          val rawBookmarks = bookmarkDao.getAll().map { it.toDomain() }
+          val allTags =
+            tagDao.getAllTagsOnce().groupBy(
+              { it.bookmarkId },
+              { dec(it.displayName).ifBlank { dec(it.name) } },
+            )
 
           val localBookmarks =
             rawBookmarks.map { bm ->
+              val fallbackPrimary = bm.primaryTag ?: allTags[bm.id]?.firstOrNull()
               if (!bm.syncUuid.isNullOrBlank()) {
                 bm
               } else {
@@ -471,12 +750,11 @@ class PcBookmarkSyncRepository(
                 bookmarkDao.updateBookmarkSyncMetadata(
                   id = bm.id,
                   endPositionMs = bm.endPositionMs,
-                  primaryTag = bm.primaryTag ?: allTags[bm.id]?.firstOrNull()?.name,
+                  primaryTag = encNullable(fallbackPrimary),
                   syncUuid = generatedUuid,
-                  originApp = bm.originApp.ifBlank { "mpvrx" },
                   updatedAt = bm.updatedAt.takeIf { it > 0L } ?: bm.createdAt,
                 )
-                bm.copy(syncUuid = generatedUuid)
+                bm.copy(syncUuid = generatedUuid, primaryTag = fallbackPrimary)
               }
             }
 
@@ -500,7 +778,7 @@ class PcBookmarkSyncRepository(
 
           val bookmarkDtos =
             localBookmarks.map { bm ->
-              val tagsList = allTags[bm.id].orEmpty().map { it.displayName.ifBlank { it.name } }.distinct()
+              val tagsList = allTags[bm.id].orEmpty().filter { it.isNotBlank() }.distinct()
               val pTag = bm.primaryTag?.takeIf { it.isNotBlank() } ?: tagsList.firstOrNull().orEmpty()
               SyncBookmarkDto(
                 syncUuid = bm.syncUuid!!,
@@ -575,7 +853,8 @@ class PcBookmarkSyncRepository(
       val cleanTarget = groupKeyOrCode.trim()
       try {
         runCatching {
-          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+          requirePrimaryUnlocked()
+          require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Vault Settings" }
           require(cleanTarget.isNotEmpty()) { "JAVID code or group key required" }
           VaultCrypto.ensureInitialized(context)
           emitProgress(true, "Fetching JAVID set $cleanTarget…", baseUrl, 0, 1, 0.18f)
@@ -612,6 +891,8 @@ class PcBookmarkSyncRepository(
     bundle: SyncBundleResponse,
     pushedCount: Int,
   ): PcSyncResult {
+    requirePrimaryUnlocked()
+    VaultCrypto.ensureInitialized(context)
     var insertedCount = 0
     var updatedCount = 0
     var downloadedThumbs = 0
@@ -624,14 +905,15 @@ class PcBookmarkSyncRepository(
       val uuid = tomb.syncUuid.trim()
       if (uuid.isEmpty()) return@forEach
       tombstoneSet.add(uuid)
-      val existing = bookmarkDao.findBookmarkBySyncUuid(uuid)
+      val existing = bookmarkDao.findBookmarkBySyncUuid(uuid)?.toDomain()
       if (existing != null) {
         val tombMs = parseIsoMillis(tomb.deletedAt)
         if (tombMs <= 0L || tombMs >= existing.updatedAt) {
           bookmarkDao.delete(existing.id)
+          tagDao.clearForBookmark(existing.id)
           val thumbPath = existing.thumbnailPath
-          if (!thumbPath.isNullOrBlank() && bookmarkDao.countByThumbnailPath(thumbPath) == 0) {
-            BookmarkThumbnailStore.deleteThumbnail(context, thumbPath, isSecure = false)
+          if (!thumbPath.isNullOrBlank() && secureBookmarkStore.countByThumbnailPath(thumbPath) == 0) {
+            BookmarkThumbnailStore.deleteThumbnail(context, thumbPath, isSecure = true)
           }
         }
       }
@@ -639,8 +921,9 @@ class PcBookmarkSyncRepository(
 
     // 2. Reconcile groups (match by groupKey / oshash / JAVID / fingerprint, using LWW for sourceUrl & label)
     emitProgress(true, "Reconciling JAVID groups…", "${bundle.groups.size} group(s)", 0, 1, 0.38f)
+    val syncStampMs = System.currentTimeMillis()
     val groupKeyMap = HashMap<String, String>()
-    val refreshedGroups = bookmarkDao.getAllGroups()
+    val refreshedGroups = bookmarkDao.getAllGroups().map { it.toDomain() }
     bundle.groups.forEach { rg ->
       val rgJvid =
         BookmarkMediaMatcher.extractJvidCode(rg.code)
@@ -702,14 +985,14 @@ class PcBookmarkSyncRepository(
           sourceUrl = effectiveSourceUrl,
           updatedAt = maxOf(localGrpUpd, remoteGrpUpd),
         )
-      bookmarkDao.upsertGroup(mergedGroup)
+      bookmarkDao.upsertGroup(mergedGroup.toSecure(originApp = "av_manager", lastSyncedAt = syncStampMs))
     }
 
-    // 3. Reconcile bookmarks + tags, queueing thumbnail transfers for progress reporting
+    // 3. Reconcile bookmarks + tags, queueing thumbnail transfers strictly inside Primary `.vault/thumbs/`
     val totalRemoteBm = bundle.bookmarks.size
     emitProgress(true, "Merging bookmarks & tags…", "0 / $totalRemoteBm", 0, totalRemoteBm, 0.45f)
-    val currentPublic = bookmarkDao.getPublicBookmarks().toMutableList()
-    val thumbDir = BookmarkThumbnailStore.privateDirectory(context, isSecure = false)
+    val currentVault = bookmarkDao.getAll().map { it.toDomain() }.toMutableList()
+    val thumbDir = BookmarkThumbnailStore.privateDirectory(context, isSecure = true, forceDecoy = false)
     val thumbJobs = ArrayList<Triple<Boolean, Long, Triple<String, String?, Long>>>()
 
     bundle.bookmarks.forEachIndexed { idx, rb ->
@@ -745,8 +1028,8 @@ class PcBookmarkSyncRepository(
       val remoteCreatedMs = parseIsoMillis(rb.createdAt).takeIf { it > 0L } ?: remoteUpdMs
 
       val existing =
-        currentPublic.firstOrNull { it.syncUuid == uuid }
-          ?: currentPublic.firstOrNull {
+        currentVault.firstOrNull { it.syncUuid == uuid }
+          ?: currentVault.firstOrNull {
             it.mediaId == targetGroupKey && abs(it.positionMs - posMs) <= 1000L
           }
 
@@ -755,11 +1038,12 @@ class PcBookmarkSyncRepository(
       val localPreSyncUpd = existing?.updatedAt?.takeIf { it > 0L } ?: existing?.createdAt ?: 0L
 
       if (existing == null) {
-        val insertedEntity =
+        val cleanTitle = rb.title.trim().ifBlank { "Bookmark" }
+        val domainBookmark =
           PlaybackBookmarkEntity(
             mediaId = targetGroupKey,
             positionMs = posMs,
-            title = rb.title.trim().ifBlank { "Bookmark" },
+            title = cleanTitle,
             createdAt = remoteCreatedMs,
             bookTrackId = null,
             thumbnailPath = null,
@@ -769,8 +1053,21 @@ class PcBookmarkSyncRepository(
             originApp = rb.originApp.ifBlank { "av_manager" },
             updatedAt = remoteUpdMs,
           )
-        targetBookmarkId = bookmarkDao.insertSyncBookmark(insertedEntity)
-        currentPublic.add(insertedEntity.copy(id = targetBookmarkId))
+        val encryptedEntity =
+          SecureBookmarkEntity(
+            mediaId = targetGroupKey,
+            positionMs = posMs,
+            title = enc(cleanTitle),
+            createdAt = remoteCreatedMs,
+            bookTrackId = null,
+            thumbnailPath = null,
+            endPositionMs = endMs,
+            primaryTag = encNullable(primaryTag),
+            syncUuid = uuid,
+            updatedAt = remoteUpdMs,
+          )
+        targetBookmarkId = bookmarkDao.add(encryptedEntity)
+        currentVault.add(domainBookmark.copy(id = targetBookmarkId))
         if (mergedTags.isNotEmpty()) {
           applyBookmarkTags(targetBookmarkId, mergedTags)
         }
@@ -781,15 +1078,14 @@ class PcBookmarkSyncRepository(
           bookmarkDao.updatePositionAndTitle(
             id = existing.id,
             positionMs = posMs,
-            title = rb.title.trim().ifBlank { existing.title },
+            title = enc(rb.title.trim().ifBlank { existing.title }),
             updatedAt = remoteUpdMs,
           )
           bookmarkDao.updateBookmarkSyncMetadata(
             id = existing.id,
             endPositionMs = endMs,
-            primaryTag = primaryTag,
+            primaryTag = encNullable(primaryTag),
             syncUuid = uuid,
-            originApp = existing.originApp,
             updatedAt = remoteUpdMs,
           )
           applyBookmarkTags(existing.id, mergedTags)
@@ -798,9 +1094,8 @@ class PcBookmarkSyncRepository(
           bookmarkDao.updateBookmarkSyncMetadata(
             id = existing.id,
             endPositionMs = existing.endPositionMs ?: endMs,
-            primaryTag = existing.primaryTag ?: primaryTag,
+            primaryTag = encNullable(existing.primaryTag ?: primaryTag),
             syncUuid = uuid,
-            originApp = existing.originApp,
             updatedAt = localPreSyncUpd,
           )
         }
@@ -841,12 +1136,12 @@ class PcBookmarkSyncRepository(
           val downloaded = downloadAndEncryptThumbnail(baseUrl, token, uuid, thumbDir)
           if (downloaded != null) {
             val stamp = if (remoteUpdMs > 0L) remoteUpdMs else System.currentTimeMillis()
-            bookmarkDao.updateThumbnail(bmId, downloaded, updatedAt = stamp)
+            bookmarkDao.updateThumbnail(bmId, enc(downloaded), updatedAt = stamp)
             if (!prevThumb.isNullOrBlank() &&
               prevThumb != downloaded &&
-              bookmarkDao.countByThumbnailPath(prevThumb) == 0
+              secureBookmarkStore.countByThumbnailPath(prevThumb) == 0
             ) {
-              BookmarkThumbnailStore.deleteThumbnail(context, prevThumb, isSecure = false)
+              BookmarkThumbnailStore.deleteThumbnail(context, prevThumb, isSecure = true)
             }
             downloadedThumbs++
           }
@@ -854,7 +1149,7 @@ class PcBookmarkSyncRepository(
       }
     }
 
-    emitProgress(true, "Matching local video files…", "", 0, 1, 0.96f)
+    emitProgress(true, "Matching vault video files…", "", 0, 1, 0.96f)
     consolidateDuplicateJvidGroupsInDb()
     val matchedCount = runCatching { autoMatchOrphanGroupsWithLocalLibrary() }.getOrDefault(0)
     emitProgress(true, "Sync complete", "", 1, 1, 1f)
@@ -872,16 +1167,21 @@ class PcBookmarkSyncRepository(
 
   private val lastAutoMatchAtMs = java.util.concurrent.atomic.AtomicLong(0L)
 
-  /** Throttled Echo-2 trigger: skips disk scan completely unless unlinked bookmark groups exist. */
+  /** Throttled trigger: matches orphan AV/JAVID groups strictly against unlocked Primary Vault videos. */
   suspend fun autoMatchOrphanGroupsIfNeeded(
     force: Boolean = false,
     minIntervalMs: Long = 20_000L,
   ): Int =
     withContext(Dispatchers.IO) {
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext 0
       val now = System.currentTimeMillis()
       val prev = lastAutoMatchAtMs.get()
       if (!force && (now - prev) < minIntervalMs) return@withContext 0
-      if (bookmarkDao.countUnlinkedGroupsWithBookmarks() <= 0) return@withContext 0
+      val hasUnlinked =
+        bookmarkDao.getAllGroups().any { g ->
+          tagDao.mediaRef(g.groupKey) == null && bookmarkDao.countInGroup(g.groupKey) > 0
+        }
+      if (!hasUnlinked) return@withContext 0
       if (!force && !lastAutoMatchAtMs.compareAndSet(prev, now)) return@withContext 0
       if (force) lastAutoMatchAtMs.set(now)
       autoMatchOrphanGroupsWithLocalLibrary()
@@ -889,37 +1189,40 @@ class PcBookmarkSyncRepository(
 
   suspend fun autoMatchOrphanGroupsWithLocalLibrary(): Int =
     withContext(Dispatchers.IO) {
-      val repo = mediaFileRepository ?: return@withContext 0
-      val groups = bookmarkDao.getAllGroups()
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext 0
+      VaultCrypto.ensureInitialized(context)
+      val groups = bookmarkDao.getAllGroups().map { it.toDomain() }
       val unlinked =
         groups.filter { g ->
           tagDao.mediaRef(g.groupKey) == null && bookmarkDao.countInGroup(g.groupKey) > 0
         }
       if (unlinked.isEmpty()) return@withContext 0
 
-      val folders = runCatching { repo.getAllVideoFolders(context, includeAudioOverride = false) }.getOrNull()
-        ?: return@withContext 0
-      if (folders.isEmpty()) return@withContext 0
-      val bucketIds = folders.map { it.bucketId }.toSet()
-      val videos =
-        runCatching {
-          repo.getVideosForBuckets(context, bucketIds, includeAudioOverride = false)
-        }.getOrNull().orEmpty()
-      if (videos.isEmpty()) return@withContext 0
+      val secureMedia = vaultMediaDao.getAll()
+      if (secureMedia.isEmpty()) return@withContext 0
+      val metaByHash = vaultMetaDao.getAll().associateBy { it.pathHash }
 
-      val byJvid = HashMap<String, app.gyrolet.mpvrx.domain.media.model.Video>()
-      val byStem = HashMap<String, MutableList<app.gyrolet.mpvrx.domain.media.model.Video>>()
-      videos.forEach { vid ->
-        val rawName = vid.displayName.ifBlank { File(vid.path).name }
-        val jvid = BookmarkMediaMatcher.extractJvidCode(rawName)
-        if (!jvid.isNullOrBlank()) {
-          byJvid.putIfAbsent(jvid.uppercase(java.util.Locale.ROOT), vid)
-        }
-        val stem = BookmarkMediaMatcher.normalizedStem(rawName)
-        if (!stem.isNullOrBlank()) {
-          byStem.getOrPut(stem) { ArrayList() }.add(vid)
+      val byJvid = HashMap<String, Pair<String, Pair<String, Int>>>()
+      val byStem = HashMap<String, MutableList<Pair<String, Pair<String, Int>>>>()
+      secureMedia.forEach { entity ->
+        if (!File(entity.secureFilePath).isFile) return@forEach
+        val decryptedName = dec(entity.fileName).ifBlank { File(entity.secureFilePath).name }
+        val decryptedOrigName = File(dec(entity.originalPath)).name
+        val meta = metaByHash[VaultCrypto.hmacKey(entity.secureFilePath)]
+        val durationSec = ((meta?.duration ?: 0L) / 1000L).toInt()
+        val entry = entity.secureFilePath to (decryptedName to durationSec)
+
+        val candidateNames = listOf(decryptedName, decryptedOrigName).filter { it.isNotBlank() }.distinct()
+        candidateNames.forEach { rawName ->
+          BookmarkMediaMatcher.extractJvidCode(rawName)?.let { code ->
+            byJvid.putIfAbsent(code.uppercase(java.util.Locale.ROOT), entry)
+          }
+          BookmarkMediaMatcher.normalizedStem(rawName)?.let { stem ->
+            byStem.getOrPut(stem) { ArrayList() }.add(entry)
+          }
         }
       }
+      if (byJvid.isEmpty() && byStem.isEmpty()) return@withContext 0
 
       val now = System.currentTimeMillis()
       var matchedCount = 0
@@ -931,46 +1234,49 @@ class PcBookmarkSyncRepository(
         val cand =
           gJvid?.let { byJvid[it.uppercase(java.util.Locale.ROOT)] }
             ?: grp.stemKey?.let { sk ->
-              byStem[sk]?.firstOrNull { v ->
-                val vDur = (v.duration / 1000L).toInt()
+              byStem[sk]?.firstOrNull { (_, info) ->
+                val vDur = info.second
                 grp.durationSec <= 0 || vDur <= 0 || abs(grp.durationSec - vDur) <= 3
               }
             }
         if (cand != null) {
-          val uriStr = cand.uri.toString()
+          val vaultPath = cand.first
+          val displayTitle = cand.second.first
+          val uriStr = Uri.fromFile(File(vaultPath)).toString()
           val mediaIds =
             buildSet {
+              SecureMediaRegistry.identitiesForPath(vaultPath).forEach(::add)
               add(PlaybackIdentity.forUri(uriStr))
-              if (cand.path.isNotBlank()) add(PlaybackIdentity.normalizeLocalPath(cand.path))
+              add(PlaybackIdentity.normalizeLocalPath(vaultPath))
               add(uriStr)
             }
           mediaIds.forEach { cid ->
             bookmarkDao.upsertMediaLink(
-              BookmarkMediaLinkEntity(mediaId = cid, groupKey = grp.groupKey, updatedAt = now),
+              SecureBookmarkMediaLinkEntity(mediaId = cid, groupKey = grp.groupKey, updatedAt = now),
             )
-            bookmarkDao.upsertSyncMediaRef(
-              BookmarkMediaRefEntity(
+            tagDao.upsertMediaRef(
+              SecureBookmarkMediaRefEntity(
                 mediaId = cid,
-                playableUri = uriStr,
-                title = cand.displayName.ifBlank { cand.title },
+                playableUri = enc(uriStr),
+                title = encNullable(displayTitle),
                 updatedAt = now,
               ),
             )
           }
-          bookmarkDao.upsertSyncMediaRef(
-            BookmarkMediaRefEntity(
+          tagDao.upsertMediaRef(
+            SecureBookmarkMediaRefEntity(
               mediaId = grp.groupKey,
-              playableUri = uriStr,
-              title = cand.displayName.ifBlank { cand.title },
+              playableUri = enc(uriStr),
+              title = encNullable(displayTitle),
               updatedAt = now,
             ),
           )
           bookmarkDao.upsertGroup(
             grp.copy(
               presetCode = grp.presetCode?.takeIf { it.isNotBlank() } ?: gJvid,
-              sourceLabel = grp.sourceLabel.ifBlank { cand.displayName.ifBlank { File(cand.path).name } },
+              sourceLabel = grp.sourceLabel.ifBlank { displayTitle },
               updatedAt = now,
-            ),
+            ).toSecure(originApp = "av_manager", lastSyncedAt = now),
           )
           matchedCount++
         }
@@ -986,7 +1292,8 @@ class PcBookmarkSyncRepository(
     withContext(Dispatchers.IO) {
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       runCatching {
-        require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Media Servers settings" }
+        requirePrimaryUnlocked()
+        require(baseUrl.isNotEmpty()) { "Set AV Manager URL in Vault Settings" }
         val req =
           buildRequestBuilder("$baseUrl/api/bookmarks/$syncUuid/thumbnails", token).get().build()
         val body =
@@ -1006,10 +1313,12 @@ class PcBookmarkSyncRepository(
     token: String = prefs.syncToken.get(),
   ): Boolean =
     withContext(Dispatchers.IO) {
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext false
       val uuid = bookmark.syncUuid?.trim()?.takeIf { it.isNotEmpty() } ?: return@withContext false
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       if (baseUrl.isEmpty()) return@withContext false
       runCatching {
+        VaultCrypto.ensureInitialized(context)
         val payload = json.encodeToString(ThumbnailSelectRequest(source = source))
         val req =
           buildRequestBuilder("$baseUrl/api/bookmarks/$uuid/thumbnails/select", token)
@@ -1033,13 +1342,16 @@ class PcBookmarkSyncRepository(
             }
           }
         if (rawBytes.isEmpty()) return@runCatching false
-        val newPath = BookmarkThumbnailStore.saveImageBytes(context, rawBytes, isSecure = false)
+        val newPath = BookmarkThumbnailStore.saveImageBytes(context, rawBytes, isSecure = true)
           ?: return@runCatching false
         val now = System.currentTimeMillis()
-        bookmarkDao.updateThumbnail(bookmark.id, newPath, updatedAt = now)
+        bookmarkDao.updateThumbnail(bookmark.id, enc(newPath), updatedAt = now)
         val oldPath = bookmark.thumbnailPath
-        if (!oldPath.isNullOrBlank() && oldPath != newPath && bookmarkDao.countByThumbnailPath(oldPath) == 0) {
-          BookmarkThumbnailStore.deleteThumbnail(context, oldPath, isSecure = false)
+        if (!oldPath.isNullOrBlank() &&
+          oldPath != newPath &&
+          secureBookmarkStore.countByThumbnailPath(oldPath) == 0
+        ) {
+          BookmarkThumbnailStore.deleteThumbnail(context, oldPath, isSecure = true)
         }
         true
       }.getOrDefault(false)
@@ -1051,9 +1363,10 @@ class PcBookmarkSyncRepository(
     token: String = prefs.syncToken.get(),
   ): Boolean =
     withContext(Dispatchers.IO) {
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext false
       val baseUrl = BookmarkSyncPreferences.normalizeHubUrl(hubUrl)
       if (baseUrl.isEmpty()) return@withContext false
-      val bm = bookmarkDao.getPublicBookmarks().firstOrNull { it.id == bookmarkId } ?: return@withContext false
+      val bm = bookmarkDao.getAll().firstOrNull { it.id == bookmarkId }?.toDomain() ?: return@withContext false
       val uuid = bm.syncUuid?.trim()?.takeIf { it.isNotEmpty() } ?: return@withContext false
       val localPath = bm.thumbnailPath?.takeIf { it.isNotBlank() } ?: return@withContext false
       uploadDecryptedThumbnail(baseUrl, token, uuid, localPath)
@@ -1061,8 +1374,9 @@ class PcBookmarkSyncRepository(
 
   suspend fun getGroupForMedia(groupKey: String): BookmarkGroupEntity? =
     withContext(Dispatchers.IO) {
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext null
       val resolved = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
-      bookmarkDao.getGroup(resolved)
+      bookmarkDao.getGroup(resolved)?.toDomain()
     }
 
   suspend fun assignGroupPresetCodeAndAutoMatch(
@@ -1071,6 +1385,8 @@ class PcBookmarkSyncRepository(
     rawSourceUrl: String? = null,
   ): Pair<String?, Int> =
     withContext(Dispatchers.IO) {
+      requirePrimaryUnlocked()
+      VaultCrypto.ensureInitialized(context)
       val resolved = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
       val normalized =
         rawPresetCode.trim()
@@ -1081,14 +1397,14 @@ class PcBookmarkSyncRepository(
           it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
         }
       val now = System.currentTimeMillis()
-      val existing = bookmarkDao.getGroup(resolved)
+      val existing = bookmarkDao.getGroup(resolved)?.toDomain()
       if (existing != null) {
         bookmarkDao.upsertGroup(
           existing.copy(
             presetCode = normalized,
             sourceUrl = if (rawSourceUrl != null) cleanUrl else existing.sourceUrl,
             updatedAt = now,
-          ),
+          ).toSecure(originApp = "av_manager", lastSyncedAt = now),
         )
       } else if (normalized != null || cleanUrl != null) {
         bookmarkDao.upsertGroup(
@@ -1098,7 +1414,7 @@ class PcBookmarkSyncRepository(
             sourceLabel = resolved,
             sourceUrl = cleanUrl,
             updatedAt = now,
-          ),
+          ).toSecure(originApp = "av_manager", lastSyncedAt = now),
         )
       }
       if (!normalized.isNullOrBlank()) {
@@ -1110,7 +1426,9 @@ class PcBookmarkSyncRepository(
 
   suspend fun consolidateDuplicateJvidGroupsInDb(onlyCode: String? = null): Int =
     withContext(Dispatchers.IO) {
-      val groups = bookmarkDao.getAllGroups()
+      if (!SecureFolderSession.isPrimaryUnlocked) return@withContext 0
+      VaultCrypto.ensureInitialized(context)
+      val groups = bookmarkDao.getAllGroups().map { it.toDomain() }
       if (groups.isEmpty()) return@withContext 0
       val counts = HashMap<String, Int>()
       groups.forEach { g -> counts[g.groupKey] = bookmarkDao.countInGroup(g.groupKey) }
@@ -1119,20 +1437,20 @@ class PcBookmarkSyncRepository(
       val now = System.currentTimeMillis()
       plans.forEach { plan ->
         val winnerKey = plan.winnerGroup.groupKey
-        bookmarkDao.upsertGroup(plan.winnerGroup)
-        val winnerHasRef = bookmarkDao.getMediaRef(winnerKey) != null
+        bookmarkDao.upsertGroup(plan.winnerGroup.toSecure(originApp = "av_manager", lastSyncedAt = now))
+        val winnerHasRef = tagDao.mediaRef(winnerKey) != null
         plan.losingGroupKeys.forEach { loserKey ->
           bookmarkDao.reassignBookmarks(oldMediaId = loserKey, newMediaId = winnerKey, updatedAt = now)
-          bookmarkDao.reassignLinks(oldGroupKey = loserKey, newGroupKey = winnerKey, updatedAt = now)
+          bookmarkDao.reassignLinks(sourceGroupKey = loserKey, targetGroupKey = winnerKey)
           bookmarkDao.upsertMediaLink(
-            BookmarkMediaLinkEntity(mediaId = loserKey, groupKey = winnerKey, updatedAt = now),
+            SecureBookmarkMediaLinkEntity(mediaId = loserKey, groupKey = winnerKey, updatedAt = now),
           )
-          val loserRef = bookmarkDao.getMediaRef(loserKey)
+          val loserRef = tagDao.mediaRef(loserKey)
           if (loserRef != null) {
             if (!winnerHasRef) {
-              bookmarkDao.upsertSyncMediaRef(loserRef.copy(mediaId = winnerKey, updatedAt = now))
+              tagDao.upsertMediaRef(loserRef.copy(mediaId = winnerKey, updatedAt = now))
             }
-            bookmarkDao.deleteMediaRef(loserKey)
+            tagDao.deleteMediaRef(loserKey)
           }
           bookmarkDao.deleteGroup(loserKey)
           consolidated++
@@ -1151,44 +1469,44 @@ class PcBookmarkSyncRepository(
       val resolvedKey = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
       val hubUrl = BookmarkSyncPreferences.normalizeHubUrl(prefs.hubUrl.get())
       val token = prefs.syncToken.get()
-      if (hubUrl.isNotEmpty()) {
-        val remoteAttempt =
-          runCatching {
-            val reqBody =
-              json.encodeToString(
-                HubDensityMergeRequest(
-                  windowSec = windowSec,
-                  defaultStrategy = strategy,
-                  keepAlternates = keepAlternates,
-                  syncStash = true,
-                ),
-              )
-            val req =
-              buildRequestBuilder(
-                "$hubUrl/api/bookmarks/groups/${Uri.encode(resolvedKey)}/merge-clusters",
-                token,
-              )
-                .post(reqBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            syncClient.newCall(req).execute().use { resp ->
-              if (!resp.isSuccessful) error("Merge HTTP ${resp.code}")
-              json.decodeFromString<HubDensityMergeResponse>(resp.body.string())
-            }
-          }
-        if (remoteAttempt.isSuccess) {
-          val out = remoteAttempt.getOrThrow()
-          syncWithPcHub()
-          return@withContext Result.success(
-            "Merged ${out.mergedClusters} cluster(s) on PC & Stash (-${out.tombstonedCount} duplicates)",
-          )
-        }
-      }
-
       runCatching {
-        val localItems = bookmarkDao.getInGroup(resolvedKey)
+        requirePrimaryUnlocked()
+        VaultCrypto.ensureInitialized(context)
+        if (hubUrl.isNotEmpty()) {
+          val remoteAttempt =
+            runCatching {
+              val reqBody =
+                json.encodeToString(
+                  HubDensityMergeRequest(
+                    windowSec = windowSec,
+                    defaultStrategy = strategy,
+                    keepAlternates = keepAlternates,
+                    syncStash = true,
+                  ),
+                )
+              val req =
+                buildRequestBuilder(
+                  "$hubUrl/api/bookmarks/groups/${Uri.encode(resolvedKey)}/merge-clusters",
+                  token,
+                )
+                  .post(reqBody.toRequestBody(JSON_MEDIA_TYPE))
+                  .build()
+              syncClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) error("Merge HTTP ${resp.code}")
+                json.decodeFromString<HubDensityMergeResponse>(resp.body.string())
+              }
+            }
+          if (remoteAttempt.isSuccess) {
+            val out = remoteAttempt.getOrThrow()
+            syncWithPcHub()
+            return@runCatching "Merged ${out.mergedClusters} cluster(s) on PC & Stash (-${out.tombstonedCount} duplicates)"
+          }
+        }
+
+        val localItems = bookmarkDao.getInGroup(resolvedKey).map { it.toDomain() }
         val tagsMap =
           localItems.associate { bm ->
-            bm.id to tagDao.tagsFor(bm.id).map { it.displayName.ifBlank { it.name } }
+            bm.id to tagDao.tagsFor(bm.id).map { dec(it.displayName).ifBlank { dec(it.name) } }
           }
         val plans =
           BookmarkGroupConsolidator.planRollingWindowTimestampMerges(
@@ -1204,15 +1522,14 @@ class PcBookmarkSyncRepository(
           bookmarkDao.updatePositionAndTitle(
             id = plan.keeper.id,
             positionMs = plan.targetPositionMs,
-            title = plan.targetTitle,
+            title = enc(plan.targetTitle),
             updatedAt = now,
           )
           bookmarkDao.updateBookmarkSyncMetadata(
             id = plan.keeper.id,
             endPositionMs = plan.targetEndPositionMs,
-            primaryTag = plan.targetPrimaryTag,
+            primaryTag = encNullable(plan.targetPrimaryTag),
             syncUuid = plan.keeper.syncUuid ?: UUID.randomUUID().toString(),
-            originApp = plan.keeper.originApp.ifBlank { "mpvrx" },
             updatedAt = now,
           )
           if (plan.mergedTags.isNotEmpty()) {
@@ -1220,12 +1537,15 @@ class PcBookmarkSyncRepository(
           }
           plan.losingBookmarks.forEach { loser ->
             loser.syncUuid?.takeIf { it.isNotBlank() }?.let { uuid ->
-              tombstoneDao.upsert(BookmarkSyncTombstoneEntity(syncUuid = uuid, groupKey = resolvedKey, deletedAt = now))
+              tombstoneDao.upsert(
+                SecureBookmarkSyncTombstoneEntity(syncUuid = uuid, groupKey = resolvedKey, deletedAt = now),
+              )
             }
             bookmarkDao.delete(loser.id)
+            tagDao.clearForBookmark(loser.id)
             loser.thumbnailPath?.takeIf { it.isNotBlank() }?.let { tp ->
-              if (bookmarkDao.countByThumbnailPath(tp) == 0) {
-                BookmarkThumbnailStore.deleteThumbnail(context, tp, isSecure = false)
+              if (secureBookmarkStore.countByThumbnailPath(tp) == 0) {
+                BookmarkThumbnailStore.deleteThumbnail(context, tp, isSecure = true)
               }
             }
             removed++
@@ -1243,18 +1563,23 @@ class PcBookmarkSyncRepository(
   ): Result<LinkedOrphanResult> =
     withContext(Dispatchers.IO) {
       runCatching {
+        requirePrimaryUnlocked()
+        VaultCrypto.ensureInitialized(context)
+        val rawUriString = uri.toString()
+        require(!DurableStorageManager.isDecoyVaultPath(rawUriString)) {
+          "Decoy files cannot be linked to Primary Vault bookmarks"
+        }
         runCatching {
           context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val uriString = uri.toString()
-        val mediaId = PlaybackIdentity.forUri(uriString)
+        val mediaId = PlaybackIdentity.forUri(rawUriString)
         val resolvedKey = bookmarkDao.findLinkedGroupKey(groupKey) ?: groupKey
         val displayName = resolveUriDisplayName(uri)
         val fileSize = resolveUriFileSize(uri)
         val oshash = OshashCalculator.computeOshash(context, uri)
         val stemKey = BookmarkMediaMatcher.normalizedStem(displayName)
         val now = System.currentTimeMillis()
-        val existingGroup = bookmarkDao.getGroup(resolvedKey)
+        val existingGroup = bookmarkDao.getGroup(resolvedKey)?.toDomain()
         val normalizedOverride =
           overridePresetCode?.trim()?.takeIf { it.isNotEmpty() }?.let {
             BookmarkMediaMatcher.normalizePresetCode(it).uppercase(java.util.Locale.ROOT)
@@ -1272,34 +1597,37 @@ class PcBookmarkSyncRepository(
             sourceUrl = overrideSourceUrl?.trim()?.takeIf { it.isNotEmpty() } ?: existingGroup?.sourceUrl,
             updatedAt = now,
           )
-        bookmarkDao.upsertGroup(updatedGroup)
+        bookmarkDao.upsertGroup(updatedGroup.toSecure(originApp = "av_manager", lastSyncedAt = now))
 
         val mediaIds =
           buildSet {
             add(mediaId)
             if (uri.scheme.equals("file", ignoreCase = true)) {
-              uri.path?.let { add(PlaybackIdentity.normalizeLocalPath(it)) }
+              uri.path?.let { localPath ->
+                SecureMediaRegistry.identitiesForPath(localPath).forEach(::add)
+                add(PlaybackIdentity.normalizeLocalPath(localPath))
+              }
             }
-            add(uriString)
+            add(rawUriString)
           }
         mediaIds.forEach { candidateId ->
           bookmarkDao.upsertMediaLink(
-            BookmarkMediaLinkEntity(mediaId = candidateId, groupKey = resolvedKey, updatedAt = now),
+            SecureBookmarkMediaLinkEntity(mediaId = candidateId, groupKey = resolvedKey, updatedAt = now),
           )
-          bookmarkDao.upsertSyncMediaRef(
-            BookmarkMediaRefEntity(
+          tagDao.upsertMediaRef(
+            SecureBookmarkMediaRefEntity(
               mediaId = candidateId,
-              playableUri = uriString,
-              title = displayName.ifBlank { null },
+              playableUri = enc(rawUriString),
+              title = encNullable(displayName.ifBlank { null }),
               updatedAt = now,
             ),
           )
         }
-        bookmarkDao.upsertSyncMediaRef(
-          BookmarkMediaRefEntity(
+        tagDao.upsertMediaRef(
+          SecureBookmarkMediaRefEntity(
             mediaId = resolvedKey,
-            playableUri = uriString,
-            title = displayName.ifBlank { null },
+            playableUri = enc(rawUriString),
+            title = encNullable(displayName.ifBlank { null }),
             updatedAt = now,
           ),
         )
@@ -1327,17 +1655,28 @@ class PcBookmarkSyncRepository(
     if (clean.isEmpty()) return
     tagDao.insertAll(
       clean.map { name ->
-        BookmarkTagEntity(
+        val hash = VaultCrypto.hmacKey(name)
+        SecureBookmarkTagEntity(
           bookmarkId = bookmarkId,
-          name = name,
-          displayName = name,
+          nameHash = hash,
+          name = enc(name),
+          displayName = enc(name),
           createdAt = now,
         )
       },
     )
     clean.forEach { name ->
-      tagDao.insertMemory(BookmarkTagMemoryEntity(name = name, displayName = name, lastUsedAt = now))
-      tagDao.bumpMemory(name = name, displayName = name, now = now)
+      val hash = VaultCrypto.hmacKey(name)
+      val prev = tagDao.getMemory(hash)
+      tagDao.upsertMemory(
+        SecureBookmarkTagMemoryEntity(
+          nameHash = hash,
+          name = enc(name),
+          displayName = enc(name),
+          useCount = (prev?.useCount ?: 0) + 1,
+          lastUsedAt = now,
+        ),
+      )
     }
   }
 
@@ -1356,9 +1695,10 @@ class PcBookmarkSyncRepository(
         }
       }.getOrNull() ?: return null
     if (bytes.isEmpty()) return null
-    val encrypted = runCatching { VaultCrypto.encryptBytes(bytes) }.getOrNull() ?: bytes
-    val ext = if (VaultCrypto.isEncryptedBytes(encrypted)) "dat" else "jpg"
-    val dest = File(thumbDir, "bm_sync_${UUID.randomUUID()}.$ext")
+    VaultCrypto.ensureInitialized(context)
+    val encrypted = VaultCrypto.encryptBytes(bytes)
+    thumbDir.mkdirs()
+    val dest = File(thumbDir, "bm_sync_${UUID.randomUUID()}.dat")
     dest.writeBytes(encrypted)
     return dest.absolutePath
   }

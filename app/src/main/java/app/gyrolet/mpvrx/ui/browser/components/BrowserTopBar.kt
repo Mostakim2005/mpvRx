@@ -179,7 +179,7 @@ fun BrowserTopBar(
   additionalActions: @Composable RowScope.() -> Unit = { },
   titleTrailing: (@Composable RowScope.() -> Unit)? = null,
   onTitleLongPress: (() -> Unit)? = null,
-  onTitleDoubleTap: (() -> Unit)? = null,
+  onTitleTripleTap: (() -> Unit)? = null,
   onMoveToSecureClick: (() -> Unit)? = null,
   useRemoveIcon: Boolean = false,
   onRestoreClick: (() -> Unit)? = null,
@@ -256,7 +256,7 @@ fun BrowserTopBar(
         titleTrailing = titleTrailing,
         modifier = toolbarModifier,
         onTitleLongPress = onTitleLongPress,
-        onTitleDoubleTap = onTitleDoubleTap,
+        onTitleTripleTap = onTitleTripleTap,
         colors = colors,
         forceHeadlineSmall = forceHeadlineSmall,
         titleBadge = titleBadge,
@@ -284,7 +284,7 @@ private fun NormalTopBar(
   titleTrailing: (@Composable RowScope.() -> Unit)? = null,
   modifier: Modifier = Modifier,
   onTitleLongPress: (() -> Unit)?,
-  onTitleDoubleTap: (() -> Unit)? = null,
+  onTitleTripleTap: (() -> Unit)? = null,
   colors: TopAppBarColors? = null,
   forceHeadlineSmall: Boolean = false,
   titleBadge: String? = null,
@@ -326,7 +326,7 @@ private fun NormalTopBar(
   }
 
   val currentOnTitleLongPress by rememberUpdatedState(onTitleLongPress)
-  val currentOnTitleDoubleTap by rememberUpdatedState(onTitleDoubleTap)
+  val currentOnTitleTripleTap by rememberUpdatedState(onTitleTripleTap)
   val currentOnTitleTap by rememberUpdatedState(
     newValue = { localOffset: Offset ->
       if (themeTransition?.isAnimating != true) {
@@ -367,16 +367,36 @@ private fun NormalTopBar(
           Modifier
             .onGloballyPositioned { coordinates ->
               titleBounds.value = coordinates.boundsInWindow()
-            }.pointerInput(onTitleLongPress != null, onTitleDoubleTap != null) {
-              // Keep an in-progress hold or double tap alive across callback/state updates.
+            }.pointerInput(onTitleLongPress != null, onTitleTripleTap != null) {
+              // Triple-tap cancels the single-tap theme transition so secret entries never flash dark/light.
+              val recentTaps = ArrayDeque<Long>()
+              var pendingThemeTapJob: kotlinx.coroutines.Job? = null
               detectTapGestures(
-                onTap = { currentOnTitleTap(it) },
-                onDoubleTap =
-                  if (onTitleDoubleTap != null) {
-                    { currentOnTitleDoubleTap?.invoke() }
+                onTap = { localOffset ->
+                  val tripleHandler = currentOnTitleTripleTap
+                  if (tripleHandler == null) {
+                    currentOnTitleTap(localOffset)
                   } else {
-                    null
-                  },
+                    val now = System.currentTimeMillis()
+                    while (recentTaps.isNotEmpty() && now - recentTaps.first() > 750L) {
+                      recentTaps.removeFirst()
+                    }
+                    recentTaps.addLast(now)
+                    pendingThemeTapJob?.cancel()
+                    if (recentTaps.size >= 3) {
+                      recentTaps.clear()
+                      tripleHandler()
+                    } else if (recentTaps.size == 1) {
+                      pendingThemeTapJob =
+                        coroutineScope.launch {
+                          delay(320L)
+                          recentTaps.clear()
+                          currentOnTitleTap(localOffset)
+                        }
+                    }
+                  }
+                },
+                onDoubleTap = null,
                 onLongPress =
                   if (onTitleLongPress != null) {
                     { currentOnTitleLongPress?.invoke() }

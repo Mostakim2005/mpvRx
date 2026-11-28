@@ -79,28 +79,31 @@ flowchart TB
 
 ## 3. Core Subsystems & Engineering Tricks
 
-### [SUBSYSTEM: Dynamic-Portrait-Video-And-Bookmark-Drawer] | Aliases: portrait native ratio, dynamic rows, portrait tag filter
-> **1-Line Summary:** Computes portrait video height dynamically based on native media aspect ratio, dedicates remaining vertical space to 16:9 bookmark cards (1, 2, or 3+ rows), caps columns at 2 or 3, and embeds a tag filter button in the portrait toolbar.
+### [SUBSYSTEM: Dynamic-Portrait-Video-And-Bookmark-Drawer] | Aliases: portrait native ratio, dynamic rows, portrait tag filter, portrait control strip, quick seek strip
+> **1-Line Summary:** Synchronizes `PlayerActivity` `SurfaceView` and `PlayerControls` to the video's undistorted aspect height (`22%` floor, `36%` cap), docks seekbar + `-5m/-1m/-10s/+10s/+1m/+5m` quick-seek strip + portrait controls in `PortraitSplitControlStrip` below the video, and gives remaining portrait space to `BookmarkSplitPanel` while leaving Landscape Split untouched.
 * **How It Works (Plain English):**
-  * **Native Video Aspect Ratio:** In `PlayerControls.kt`, the video height is no longer hardcoded to 16:9 or a fixed percentage. It is calculated as `containerWidth / mediaAspectRatio`. A standard 16:9 video uses `width * 9 / 16`; an ultra-wide 21:9 video uses `width * 9 / 21`, immediately freeing extra vertical space.
-  * **Dynamic Row Capacity:** The remaining height (`containerHeight - videoHeight - toolbarHeight`) is evaluated. Depending on the user's row preference (`1 Row`, `2 Rows`, `Auto-Fit`), the drawer displays 1, 2, or 3+ visible rows of cards without awkward clipping.
-  * **Columns Selector:** Strictly restricted to 2 or 3 columns (`2 Cols` ⇄ `3 Cols`).
-  * **Tag Filter & 2-Tier Portrait Toolbar:** Tier 1 holds title + `FilterList` (opens tag overlay), `Bookmarks`, `Add`, `ZoomOutMap`, `Close`; Tier 2 holds a horizontally scrollable chip strip (`Sync to video`, `2 Cols`/`3 Cols`, `Video`/`Global`, optional `JAVID`) so 360dp phones never clip.
+  * **Synchronized YouTube-Style Top Box:** Both `PlayerActivity.applySplitBookmarkPlayerBounds` and `PlayerControls` call `computePortraitSplitVideoHeightPx(width, height, effectiveAspect)` so the `SurfaceView` and Compose top video pane align pixel-for-pixel without `80/20` dead black bars.
+  * **Dedicated Control Strip Beneath Video:** `PortraitSplitControlStrip` holds `renderPlayerSeekbar`, `PlayerQuickSeekStrip` (`-5m`, `-1m`, `-10s`, `+10s`, `+1m`, `+5m`), and theme-safe `BottomPlayerControlsPortrait` cleanly outside the video bounds, while fullscreen Portrait & Landscape overlays also render `PlayerQuickSeekStrip`.
+  * **Expanded Bookmark Panel (`weight(1f)`):** Consumes the freed lower space for 2–3 column cards, tag filters, scrollable toggle chips (`Sync to video`, `2 Cols`/`3 Cols`, `Video`/`Global`, optional `JAVID`), and instant permanent `Delete bookmark` in `BookmarkActionMenuDialog`.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart TD
-    A["Video Metadata (width x height)"] --> B["Compute mediaAspectRatio = w / h"]
-    B --> C["videoHeight = screenWidth / mediaAspectRatio"]
-    C --> D["remainingHeight = screenHeight - videoHeight - controlsHeight"]
-    D --> E{"User Row Preference"}
-    E -->|1-Row| F["1 Row Visible (~110dp card height) + scroll"]
-    E -->|2-Rows| G["2 Rows Visible (~220dp) + scroll"]
-    E -->|Auto/3-Rows| H["3+ Rows Visible on wide videos / tall screens"]
+    classDef video fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#eff6ff
+    classDef strip fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#eef2ff
+    classDef drawer fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
+
+    Aspect["Effective Display Aspect (video-out-params/aspect)"]:::video --> Calc["computePortraitSplitVideoHeightPx\n(22% min .. 36% max)"]:::video
+    Calc -->|Synced bounds| VideoBox["Top Video Pane + Play/Pause"]:::video
+    VideoBox --> Strip["PortraitSplitControlStrip\nSeekbar + QuickSeek (-5m..+5m) + Actions"]:::strip
+    Strip --> Drawer["BookmarkSplitPanel (weight 1f)\n2-3 Cols Grid + Tag Filter"]:::drawer
 ```
+> **Legend:** Blue = Top Undistorted Video Pane | Indigo = Docked Control Deck & Quick-Seek Strip | Emerald = Expanded Bookmark Drawer
+* **Links:** `[FEATURE: Isolated-Vault-Decoy-Compartment-And-YouTube-Portrait-Split]`, `[DECISION: Dynamic-Portrait-Native-Ratio-Video-And-Dynamic-Rows]`
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` :: `BookmarkSplitPanel`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkSplitPanel`, `BookmarkGridCard`, `PanelToggleChip`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkPositionSync.kt` :: `resolveBookmarkSyncTarget`, `resolveBookmarkOrChapterScrollIndex`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/PlayerActivity.kt` :: `applySplitBookmarkPlayerBounds`, `setupBookmarkSplitPanelObserver`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/PlayerControls.kt` :: `PortraitSplitControlStrip`, `PlayerQuickSeekStrip`, `BookmarkSplitPanel`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `computePortraitSplitVideoHeightPx`, `QUICK_SEEK_STEPS`, `BookmarkActionMenuDialog`, `BookmarkSplitPanel`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/sheets/ChaptersSheet.kt` :: `PlaybackBookmarkEditor`, `hideImeWindow`
 
 ---
 
@@ -221,20 +224,39 @@ sequenceDiagram
 
 ---
 
-### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry, mvx1 encryption, vault streaming proxy
-> **1-Line Summary:** Hard-segregates Secure Folder media, bookmarks, thumbnails, playback states, metadata cache, watch stats, and PIN config into an AES-128-CTR (`MVX1`) encrypted vault under `Documents/mpvRx/.vault/` with loopback range streaming (`VaultStreamingProxy`) and a 30-second background grace lock.
+### [SUBSYSTEM: Zero-Leak-Secure-Sandbox-And-Vault-Persistence] | Aliases: persistent vault, survive uninstall, secure media registry, mvx1 encryption, vault streaming proxy, decoy secret folder, vault data manager
+> **1-Line Summary:** Hard-segregates Normal Library (`.store/library.dat`), Primary Secret Vault (`.vault/v_idx.dat` + `v_cfg.mvx`), and Decoy Secret Vault (`.vault_d/vd_idx.dat`) with `MVX1` AES-128-CTR encryption, triple-tap entry (`SECRET_TAP_COUNT = 3`), PIN-gated `VaultControlHubDialog`, non-destructive restore/delete retention, and a 30-second background grace lock.
 * **How It Works (Plain English):**
-  * **Hardware-Accelerated `MVX1` Encryption (`VaultCrypto`):** Every vault media file (`.vault/media/<uuid>.dat`), thumbnail (`.vault/thumbs/*.dat`, `.vault/thumb_cache/*.dat`, `.store/thumbs/*.dat`, `.store/thumb_cache/*.dat`), watch-stats snapshot (`watch_stats.mvx`, `v_stats.mvx`), durable settings mirror (`settings.mvx`, `v_cfg.mvx`), and sensitive SQLite text column in `SecureVaultDatabase` (`v_idx.dat`) is encrypted with AES-128-CTR (`MVX1` 32-byte header carrying a 16-byte random IV and 64-bit plaintext length). A 128-bit master key is wrapped with PBKDF2-HMAC-SHA256 + HMAC integrity tag inside `.vault/.vkey` (avoiding `AndroidKeyStore`, which wipes on Clear Data or app uninstall).
-  * **Zero-Copy Seekable Playback & Probing:** `libmpv` streams encrypted vault videos via `VaultStreamingProxy` (`127.0.0.1` NanoHTTPD server computing `baseIv + (byteOffset / 16)` in $O(1)$ per HTTP `Range` request, gated on `SecureFolderSession.isUnlocked`). Android `MediaMetadataRetriever` and `MediaExtractor` read encrypted files in-memory via `VaultMediaDataSource` (`MediaDataSource`).
-  * **Hard Database Segregation:** Normal media uses `MpvRxDatabase` (`.store/library.dat`); Secure Folder media uses `SecureVaultDatabase` (`.vault/v_idx.dat`) and `SecureBookmarkStore`. Moving files into or out of the Secure Folder (`SecureFolderRepository.moveIn` / `restore`) atomically migrates bookmarks, tags, groups, thumbnails, and playback resume states across the two databases.
-  * **Session Grace Lock & Single PIN Prompt:** `SecureFolderSession` maintains `unlockedState: StateFlow<Boolean>` with a 30-second background grace timer (`BACKGROUND_LOCK_GRACE_MS = 30_000L`) and an explicit Lock button in `SecureFolderScreen`. `MediaUtils.startGuarded` skips `SecureUnlockActivity` whenever `SecureFolderSession.isUnlocked` is `true`, eliminating double PIN prompts. When locked, `VaultStreamingProxy.revokeAllActiveStreams()` and memory cache eviction run immediately, and `SecureFolderScreen`, `SecureFolderAddFilesScreen`, `BookmarkGalleryScreen(secureOnly = true)`, and `PlayerActivity` auto-lock.
+  * **Hardware-Accelerated `MVX1` Encryption (`VaultCrypto`):** Every Primary (`.vault/`) and Decoy (`.vault_d/`) media file, thumbnail, watch-stats snapshot (`v_stats.mvx`), durable settings mirror (`v_cfg.mvx`, which also isolates `bookmark_sync_*` config), and sensitive SQLite text column in `SecureVaultDatabase` (`v_idx.dat` / `vd_idx.dat`) is encrypted with AES-128-CTR (`MVX1`). A 128-bit master key is wrapped with PBKDF2-HMAC-SHA256 + HMAC integrity tag inside `.vault/.vkey`.
+  * **Zero-Copy Seekable Playback & Probing:** `libmpv` streams encrypted vault videos via `VaultStreamingProxy` (`127.0.0.1` loopback HTTP range server), gated on `SecureFolderSession.isUnlocked`, while `VaultMode` (`LOCKED`, `PRIMARY`, `DECOY`) selects which database and media compartment is active.
+  * **Hard 3-Compartment Segregation & Non-Destructive Vault Retention:** Normal media uses `MpvRxDatabase` (`.store/library.dat`); Primary Vault uses `SecureVaultDatabase` (`.vault/v_idx.dat`) + `SecureBookmarkStore`; Decoy Vault uses an isolated `named("decoy")` `SecureVaultDatabase` (`.vault_d/vd_idx.dat`). Moving files into Primary Vault migrates bookmarks/tags/states/stats/thumbnails into `.vault/`; restoring or deleting a Secret video leaves encrypted Vault bookmarks, JAVID groups, `.vault/thumbs/`, tags, playback states, and stats intact until manually removed in `VaultDataManagerDialog`.
+  * **Triple-Tap Gates & Decoy Plausible Deniability:** Tapping `"mpvRx"` title/wordmark 3 times (`SECRET_TAP_COUNT = 3`, cancelling the delayed Light/Dark theme transition) opens `SecureFolderGateScreen`; entering the Primary PIN unlocks `VaultMode.PRIMARY` (and quarantines any legacy public AV Manager rows/thumbs), while entering the Decoy PIN opens `VaultMode.DECOY` with zero biometrics or Primary/AV hints. Triple-tapping the `"Secure Folder Settings"` header prompts for the Primary PIN and opens `VaultControlHubDialog` (Decoy toggle/PIN/wipe, AV Sync settings, JAVID Catalog, and 6-tab `VaultDataManagerDialog`).
+* **Data Flow Diagram:**
+```mermaid
+flowchart LR
+    classDef normal fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
+    classDef primary fill:#881337,stroke:#f43f5e,stroke-width:2px,color:#fff1f2
+    classDef decoy fill:#475569,stroke:#94a3b8,stroke-width:2px,color:#f8fafc
+    classDef gate fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#eef2ff
+
+    Tap["Triple-Tap mpvRx Title\n(SECRET_TAP_COUNT = 3)"]:::gate --> Gate{"Verify PIN"}:::gate
+    Gate -->|Primary PIN| Primary[("Primary Vault (.vault/)\nv_idx.dat + v_cfg.mvx + AV Sync")]:::primary
+    Gate -->|Decoy PIN| Decoy[("Decoy Vault (.vault_d/)\nvd_idx.dat (No AV/Primary Hints)")]:::decoy
+    Normal[("Normal Library (.store/)\nlibrary.dat (Isolated)")]:::normal -->|Move-In Video| Primary
+    Primary -.->|"Restore / Delete Video Only\n(Keep Bookmarks/Thumbs/Stats)"| Primary
+    Settings["Triple-Tap Settings Header\n+ Primary PIN"]:::gate --> Hub["VaultControlHubDialog\n+ VaultDataManagerDialog"]:::primary
+```
+> **Legend:** Indigo = Triple-Tap / PIN Gates | Rose = Primary Secret Vault & Data Manager | Slate = Isolated Decoy Vault | Emerald = Public Library (Never Sees AV Sync or Vault Items)
+* **Links:** `[FEATURE: Isolated-Vault-Decoy-Compartment-And-YouTube-Portrait-Split]`, `[ISSUE: R-11-Secure-And-Public-Bookmarks-Must-Never-Mix]`, `[DECISION: Hard-Database-Segregation-And-MVX1-AES-CTR-Vault-Encryption]`
 * **Code Anchors (Grep Targets):**
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultCrypto.kt` -> `encryptBytes`, `decryptBytes`, `readDecryptedAt`, `openDecryptedRangeStream`, `hmacKey`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultStreamingProxy.kt` -> `registerVaultFile`, `revokeAllActiveStreams`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultMediaDataSource.kt` -> `VaultMediaDataSource`, `readAt`
-  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` -> `unlockedState`, `onAppBackgrounded`, `onAppForegrounded`, `lockNow`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/SecureVaultDatabase.kt` -> `SecureVaultDatabase`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` -> `moveIn`, `restore`, `destroyAll`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultCrypto.kt` :: `encryptBytes`, `decryptBytes`, `readDecryptedAt`, `openDecryptedRangeStream`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/VaultStreamingProxy.kt` :: `registerVaultFile`, `revokeAllActiveStreams`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/secure/SecureFolderSession.kt` :: `VaultMode`, `modeState`, `markUnlocked`, `markDecoyUnlocked`, `lockNow`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurableStorageManager.kt` :: `isDecoyVaultPath`, `isPrimaryVaultPath`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/storage/DurablePreferencesSync.kt` :: `isVaultKey`, `shouldMirrorPublicKey`
+  * `app/src/main/java/app/gyrolet/mpvrx/database/repository/SecureFolderRepository.kt` :: `moveIn`, `restore`, `deleteForever`, `destroyDecoyOnly`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/VaultDataManagerDialog.kt` :: `VaultControlHubDialog`, `VaultDataManagerDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/securefolder/SecureFolderSettingsScreen.kt` :: `SecureFolderSettingsScreen`
 
 ---
 
@@ -333,48 +355,47 @@ flowchart LR
 
 ---
 
-### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, javid extraction, usb adb sync, thumbnail chooser, javid catalog, sync progress
-> **1-Line Summary:** Bridges `MpvRxDatabase` v37 (`oshash`, canonical JAVID `presetCode`, single LWW `sourceUrl` per JAVID, `syncUuid`, `primaryTag`, `endPositionMs`, tombstones) with `AV Manager` / `Stash` via Wi-Fi/USB discovery, smart LWW delta + single-JAVID selective sync (`syncWithPcHub` / `syncSingleJavidFromPcHub` sharing `reconcileRemoteBundle`), live determinant `SyncProgressBanner`, `JavidCatalogDialog` browser + local video attacher, Echo-2 automatic local JAVID matching, and multi-source thumbnail switching while isolating `SecureVaultDatabase` v2.
+### [SUBSYSTEM: Three-Way-Unified-Bookmark-Sync-And-Oshash-Matcher] | Aliases: oshash matching, preset zip v2, lan bookmark sync, orphan point to video, javid extraction, usb adb sync, delete bookmark, javid catalog, sync progress
+> **1-Line Summary:** Bridges unlocked Primary `SecureVaultDatabase` v3 (`oshash`, canonical JAVID `presetCode`, single LWW `sourceUrl` per JAVID, `syncUuid`, `primaryTag`, `endPositionMs`, AES-encrypted fields, `.vault/thumbs/`, tombstones) with `AV Manager` / `Stash` via Wi-Fi/USB discovery, smart LWW delta + single-JAVID selective sync, `SyncProgressBanner`, `JavidCatalogDialog` (with Vault video picker), Echo-2 auto-matching, and instant permanent `Delete bookmark` — while isolating Normal Library (`MpvRxDatabase` v37) and Decoy Vault (`named("decoy")`).
 * **How It Works (Plain English):**
-  * Canonical JAVID extraction (`BookmarkMediaMatcher.extractJvidCode`, e.g. `[ThZu.Cc]_mimk232c.mp4` -> `MIMK-232`) works alongside 64-bit `oshash` so `resolveGroupKey`, `syncWithPcHub`, and `autoMatchOrphanGroupsIfNeeded` automatically unify bookmarks even when filenames differ or videos are copied onto the phone later (triggered cleanly on Gallery open, `MainActivity`/`PlayerActivity` resume, and `MediaLibraryEvents.changes` when unlinked groups exist).
-  * `PcBookmarkSyncRepository` exchanges Last-Write-Wins deltas (`POST /api/sync/merge` or scoped `GET /api/sync/bundle?code=...`) with timestamp-guarded `sourceUrl` LWW and bi-directional JPEG thumbnails (`/api/sync/thumbnail/{uuid}`), emitting real `SyncProgressState` (`0%..100%`, stage label, `X / N` thumbnail counts) over `StateFlow` into Gallery & Settings progress bars (`SyncProgressBanner`).
-  * `JavidCatalogDialog` (opened from Gallery top bar OR Sync Settings) lets users browse every independent `JAVID` set in Room, search by code/title/tag, open its single `sourceUrl`, pull updates for just that `JAVID`, filter gallery cards, or attach any downloaded video file whose filename omits the `JAVID`.
+  * **Primary Vault Exclusive Isolation (`R-11`):** `PcBookmarkSyncRepository` refuses to sync unless `SecureFolderSession.isPrimaryUnlocked` (`VaultMode.PRIMARY`). On Primary unlock (`App.kt` collector), `migrateLegacyPublicAvDataToPrimaryVault()` automatically quarantines any legacy public `AV Manager` rows + `.store/thumbs/` files out of `MpvRxDatabase` into encrypted Primary `SecureVaultDatabase` v3 and `.vault/thumbs/`. Normal Mode (`MediaServersPreferencesScreen`, `BookmarkGalleryScreen(secureOnly = false)`) and Decoy Vault never expose or write AV Manager data.
+  * **Canonical JAVID & Oshash Matching:** `BookmarkMediaMatcher.extractJvidCode` works alongside 64-bit `oshash` so `syncWithPcHub` and `autoMatchOrphanGroupsIfNeeded` match Vault videos cleanly even when filenames lack JAVID tags or arrive later.
+  * **Instant Permanent Delete & Portrait IME Cleanliness:** `BookmarkActionMenuDialog` and `BookmarkGalleryScreen` replace `Choose thumbnail` with instant `Delete bookmark` (`BookmarkGalleryRepository.deleteBookmark`), deleting rows, tags, thumbnail files, and recording Vault tombstones immediately.
 * **Data Flow Diagram:**
 ```mermaid
 flowchart LR
     classDef publicDb fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
     classDef secureDb fill:#881337,stroke:#f43f5e,stroke-width:2px,color:#fff1f2
+    classDef decoyDb fill:#475569,stroke:#94a3b8,stroke-width:2px,color:#f8fafc
     classDef syncNode fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#ffffff
     classDef pcHub fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fffbeb
 
-    PublicDB[("MpvRxDatabase v37\noshash, JAVID, sourceUrl, tombstones")]:::publicDb
-    SecureDB[("SecureVaultDatabase v2\nMVX1 Encrypted (Isolated R-11)")]:::secureDb
-    PresetV2["Preset .zip v2 & JSON\nPreset / Vault / Stash JSON"]:::syncNode
-    SyncRepo["PcBookmarkSyncRepository\nLAN Ping + LWW + Progress StateFlow"]:::syncNode
-    AvHub[("AV Manager vault.db\n<-> Stash localhost:9999")]:::pcHub
-    OrphanUI["BookmarkGallery & JavidCatalog\nAttach Video + 1-URL + Progress Bar"]:::publicDb
+    PublicDB[("Normal MpvRxDatabase\nZero AV Sync Access")]:::publicDb
+    DecoyDB[("Decoy SecureVaultDatabase\n.vault_d Isolated")]:::decoyDb
+    PrimaryDB[("Primary SecureVaultDatabase v3\nAES Fields + .vault/thumbs")]:::secureDb
+    SyncRepo["PcBookmarkSyncRepository\nRequires VaultMode.PRIMARY"]:::syncNode
+    AvHub[("AV Manager vault.db\nStash localhost:9999")]:::pcHub
+    OrphanUI["Vault Gallery, JavidCatalog\n& VaultDataManagerDialog"]:::secureDb
 
-    PublicDB <--> SyncRepo <-->|LWW Merge + Thumbs| AvHub
-    PublicDB <--> PresetV2
-    SecureDB <-.->|"Local ZIP/JSON Only\n(Never LAN Synced)"| PresetV2
-    OrphanUI -->|JAVID Link + Catalog + Single Pull| PublicDB
+    PublicDB -.->|"One-Time Quarantine on Unlock"| PrimaryDB
+    PrimaryDB <--> SyncRepo <-->|"LWW Merge + Thumbs"| AvHub
+    OrphanUI -->|JAVID Link + Pick Vault Video + Purge| PrimaryDB
+    DecoyDB -.->|"Never Crosses Boundary"| PublicDB
 ```
-
-> **Legend box:** Emerald = Public DB, Auto-Match & JAVID Catalog | Rose = Isolated Secure Vault | Indigo = Sync Repository & Universal Preset Reader | Amber = PC Hub (`AV Manager` + `Stash`)
-
-* **Links:** `[FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
+> **Legend:** Rose = Primary Secret Vault (`VaultMode.PRIMARY` Only) | Indigo = Sync Repository | Amber = PC Hub (`AV Manager` + `Stash`) | Emerald = Normal Public Library | Slate = Isolated Decoy Vault
+* **Links:** `[FEATURE: Unified-Bookmark-Preset-V2-Oshash-LAN-Sync-And-Orphan-Linker]`, `[FEATURE: Isolated-Vault-Decoy-Compartment-And-YouTube-Portrait-Split]`, `[DECISION: Primary-Vault-Exclusive-AV-Sync-And-Decoy-Compartment]`, `[TRAP: Stale-Rename-Update-Timestamps-And-Loopback-USB-Conflict]`
 * **Code Anchors (Grep Targets):**
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkMediaMatcher.kt` :: `extractJvidCode`, `normalizePresetCode`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGroupConsolidator.kt` :: `extractCanonicalJavid`, `planDuplicateJvidConsolidation`, `planRollingWindowTimestampMerges`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkPresetArchive.kt` :: `readArchive`, `parseJsonImport`
   * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/OshashCalculator.kt` :: `computeOshash`
-  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `syncSingleJavidFromPcHub`, `reconcileRemoteBundle`, `observeJavidCatalog`, `consolidateDuplicateJvidGroupsInDb`, `mergeOverlappingBookmarksForGroup`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `fetchThumbnailCandidates`, `selectRemoteThumbnailCandidate`, `linkOrphanGroupToUri`, `assignGroupPresetCodeAndAutoMatch`, `getGroupForMedia`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/dao/PlaybackBookmarkDao.kt` :: `observeAllGroups`, `updateGroupSourceUrl`, `reassignBookmarks`, `reassignLinks`, `updatePositionAndTitle`
+  * `app/src/main/java/app/gyrolet/mpvrx/repository/bookmark/PcBookmarkSyncRepository.kt` :: `discoverPcHubOnLan`, `syncWithPcHub`, `syncSingleJavidFromPcHub`, `reconcileRemoteBundle`, `migrateLegacyPublicAvDataToPrimaryVault`, `observeJavidCatalog`, `autoMatchOrphanGroupsWithLocalLibrary`, `autoMatchOrphanGroupsIfNeeded`, `linkOrphanGroupToUri`
+  * `app/src/main/java/app/gyrolet/mpvrx/domain/bookmark/BookmarkGalleryRepository.kt` :: `deleteBookmark`, `observePresetSummaries`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/BookmarkGalleryScreen.kt` :: `BookmarkGalleryContent`, `BookmarkGalleryCard`, `ManageBookmarkGroupLinkDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/bookmarks/JavidCatalogDialog.kt` :: `SyncProgressBanner`, `JavidCatalogDialog`
-  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`, `BookmarkThumbnailPickerDialog`
+  * `app/src/main/java/app/gyrolet/mpvrx/ui/player/controls/components/BookmarkListContent.kt` :: `BookmarkActionMenuDialog`
   * `app/src/main/java/app/gyrolet/mpvrx/ui/preferences/BookmarkSyncPreferencesSection.kt` :: `BookmarkSyncServerRow`, `BookmarkSyncConfigDialog`
-  * `app/src/main/java/app/gyrolet/mpvrx/database/MpvRxDatabase.kt` & `di/DatabaseModule.kt` :: `MIGRATION_35_36`, `MIGRATION_36_37`, `SECURE_MIGRATION_1_2`
+  * `app/src/main/java/app/gyrolet/mpvrx/di/DatabaseModule.kt` :: `MIGRATION_36_37`, `SECURE_MIGRATION_1_2`, `SECURE_MIGRATION_2_3`
 
 ---
 

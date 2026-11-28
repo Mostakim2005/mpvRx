@@ -77,6 +77,8 @@ fun ChangePinDialog(
         when {
           newPin.length != newLength -> errorRes = R.string.secure_folder_error_pin_incomplete
           newPin != confirmPin -> errorRes = R.string.secure_folder_error_pins_dont_match
+          preferences.isDecoyPinSet() && preferences.verifyDecoyPin(newPin) ->
+            errorRes = R.string.vault_control_hub_decoy_pin_same_error
           else -> {
             preferences.setPin(newPin)
             onChanged()
@@ -323,6 +325,8 @@ fun ForgotPinDialog(
         when {
           newPin.length != newLength -> errorRes = R.string.secure_folder_error_pin_incomplete
           newPin != confirmPin -> errorRes = R.string.secure_folder_error_pins_dont_match
+          preferences.isDecoyPinSet() && preferences.verifyDecoyPin(newPin) ->
+            errorRes = R.string.vault_control_hub_decoy_pin_same_error
           else -> {
             preferences.setPin(newPin)
             onChanged()
@@ -512,6 +516,91 @@ fun VerifyPinDialog(
     confirmButton = {
       Button(onClick = ::submit, enabled = pin.isNotEmpty()) {
         Text(stringResource(R.string.secure_folder_verify))
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) { Text(stringResource(R.string.generic_cancel)) }
+    },
+  )
+}
+
+/** Configures the Decoy Vault PIN using the same digit count as the Primary PIN (`Hotel 1+2`). */
+@Composable
+fun DecoyPinDialog(
+  isOpen: Boolean,
+  preferences: SecureFolderPreferences,
+  onDismiss: () -> Unit,
+  onSaved: () -> Unit = {},
+) {
+  if (!isOpen) return
+
+  val targetLength = preferences.pinLength.get()
+  var newPin by rememberSaveable(isOpen) { mutableStateOf("") }
+  var confirmPin by rememberSaveable(isOpen) { mutableStateOf("") }
+  var showPin by rememberSaveable(isOpen) { mutableStateOf(false) }
+  var errorRes by rememberSaveable(isOpen) { mutableStateOf<Int?>(null) }
+
+  fun submit() {
+    when {
+      newPin.length != targetLength -> errorRes = R.string.secure_folder_error_pin_incomplete
+      newPin != confirmPin -> errorRes = R.string.secure_folder_error_pins_dont_match
+      preferences.verifyPin(newPin) -> errorRes = R.string.vault_control_hub_decoy_pin_same_error
+      else -> {
+        preferences.setDecoyPin(newPin)
+        preferences.isDecoyEnabled.set(true)
+        onSaved()
+        onDismiss()
+      }
+    }
+  }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    icon = { Icon(Icons.RoundedFilled.Lock, contentDescription = null) },
+    title = { Text(stringResource(R.string.vault_control_hub_decoy_set_pin)) },
+    text = {
+      Column {
+        Text(
+          text = stringResource(R.string.vault_control_hub_decoy_pin_summary),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(bottom = 8.dp),
+        )
+        PinField(
+          value = newPin,
+          onValueChange = {
+            newPin = it.filter(Char::isDigit).take(targetLength)
+            errorRes = null
+          },
+          showPin = showPin,
+          onToggleShowPin = { showPin = !showPin },
+          label = stringResource(R.string.secure_folder_new_pin),
+        )
+        PinField(
+          value = confirmPin,
+          onValueChange = {
+            confirmPin = it.filter(Char::isDigit).take(targetLength)
+            errorRes = null
+          },
+          showPin = showPin,
+          onToggleShowPin = { showPin = !showPin },
+          label = stringResource(R.string.secure_folder_confirm_new_pin),
+          onDone = ::submit,
+          modifier = Modifier.padding(top = 8.dp),
+        )
+        if (errorRes != null) {
+          Text(
+            stringResource(errorRes!!),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 8.dp),
+          )
+        }
+      }
+    },
+    confirmButton = {
+      Button(onClick = ::submit) {
+        Text(stringResource(R.string.secure_folder_save))
       }
     },
     dismissButton = {

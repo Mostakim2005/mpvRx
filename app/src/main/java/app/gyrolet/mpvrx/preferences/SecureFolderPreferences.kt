@@ -51,6 +51,36 @@ class SecureFolderPreferences(
   fun verifyPin(pin: String): Boolean = PinHasher.verify(pin, pinSalt.get(), pinHash.get())
 
   // ============================================================================
+  // Decoy Vault PIN (plausible second secret compartment)
+  // ============================================================================
+  val isDecoyEnabled = preferenceStore.getBoolean("secure_folder_decoy_enabled", false)
+  private val decoyPinHash = preferenceStore.getString("secure_folder_decoy_pin_hash", "")
+  private val decoyPinSalt = preferenceStore.getString("secure_folder_decoy_pin_salt", "")
+  val decoyPinLength = preferenceStore.getInt("secure_folder_decoy_pin_length", DEFAULT_PIN_LENGTH)
+
+  fun isDecoyPinSet(): Boolean = decoyPinHash.get().isNotBlank()
+
+  fun isDecoyActive(): Boolean = isDecoyEnabled.get() && isDecoyPinSet()
+
+  fun setDecoyPin(pin: String) {
+    val salt = PinHasher.generateSalt()
+    decoyPinSalt.set(salt)
+    decoyPinHash.set(PinHasher.hash(pin, salt))
+    decoyPinLength.set(pin.length)
+    isDecoyEnabled.set(true)
+  }
+
+  fun verifyDecoyPin(pin: String): Boolean =
+    isDecoyActive() && PinHasher.verify(pin, decoyPinSalt.get(), decoyPinHash.get())
+
+  fun clearDecoyPin() {
+    isDecoyEnabled.set(false)
+    decoyPinHash.set("")
+    decoyPinSalt.set("")
+    decoyPinLength.set(DEFAULT_PIN_LENGTH)
+  }
+
+  // ============================================================================
   // Forgot-PIN security question
   // ============================================================================
   val securityQuestion = preferenceStore.getString("secure_folder_security_question", "")
@@ -107,5 +137,6 @@ class SecureFolderPreferences(
     dontAskBeforeMove.set(false)
     dontAskBeforeRestore.set(false)
     dontAskBeforeDelete.set(false)
+    clearDecoyPin()
   }
 }

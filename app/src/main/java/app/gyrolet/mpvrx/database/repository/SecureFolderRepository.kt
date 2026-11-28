@@ -69,11 +69,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class SecureFolderRepository(
   private val context: Context,
   private val dao: SecureVaultMediaDao,
+  private val decoyDao: SecureVaultMediaDao? = null,
   private val secureBookmarkStore: SecureBookmarkStore,
   private val publicBookmarkDao: PlaybackBookmarkDao,
   private val publicTagDao: BookmarkTagDao,
   private val playbackStateRepository: PlaybackStateRepository,
   private val secureVideoMetadataDao: SecureVideoMetadataDao,
+  private val decoyVideoMetadataDao: SecureVideoMetadataDao? = null,
   private val thumbnailRepository: ThumbnailRepository,
   private val watchStatsRepository: WatchStatsRepository,
 ) {
@@ -111,12 +113,29 @@ class SecureFolderRepository(
 
   private val isCancelled = AtomicBoolean(false)
 
+  private fun activeDao(): SecureVaultMediaDao =
+    if (SecureFolderSession.isDecoyUnlocked && decoyDao != null) decoyDao else dao
+
+  private fun activeMetadataDao(): SecureVideoMetadataDao =
+    if (SecureFolderSession.isDecoyUnlocked && decoyVideoMetadataDao != null) decoyVideoMetadataDao else secureVideoMetadataDao
+
   init {
     CoroutineScope(SupervisorJob() + Dispatchers.IO + LoggingCoroutineExceptionHandler).launch {
       VaultCrypto.ensureInitialized(context)
-      observeAll().collect { entities -> SecureMediaRegistry.update(entities) }
+      observePrimaryRaw().collect { entities -> SecureMediaRegistry.updatePrimary(entities) }
+    }
+    decoyDao?.let { dDao ->
+      CoroutineScope(SupervisorJob() + Dispatchers.IO + LoggingCoroutineExceptionHandler).launch {
+        VaultCrypto.ensureInitialized(context)
+        dDao.observeAll().map { list -> list.map { it.toDomain() } }.collect { entities ->
+          SecureMediaRegistry.updateDecoy(entities)
+        }
+      }
     }
   }
+
+  private fun observePrimaryRaw(): Flow<List<SecureMediaEntity>> =
+    dao.observeAll().map { list -> list.map { it.toDomain() } }
 
   private fun enc(value: String): String {
     VaultCrypto.ensureInitialized(context)
@@ -141,7 +160,8 @@ class SecureFolderRepository(
 
   suspend fun syncRegistry() {
     withContext(Dispatchers.IO) {
-      SecureMediaRegistry.update(getAll())
+      SecureMediaRegistry.updatePrimary(dao.getAll().map { it.toDomain() })
+      decoyDao?.let { SecureMediaRegistry.updateDecoy(it.getAll().map { row -> row.toDomain() }) }
     }
   }
 
@@ -154,12 +174,21 @@ class SecureFolderRepository(
     _progress.value = SecureOperationProgress()
   }
 
-  private fun secureDir(context: Context): File = DurableStorageManager.vaultMediaDir(context)
+  private fun secureDir(context: Context): File =
+    if (SecureFolderSession.isDecoyUnlocked) {
+      DurableStorageManager.decoyMediaDir(context)
+    } else {
+      DurableStorageManager.vaultMediaDir(context)
+    }
 
   private fun playbackIds(vararg paths: String): List<String> =
     paths
       .filter { it.isNotBlank() }
-      .flatMap { SecureMediaRegistry.identitiesForPath(it) }
+      .flatMap { raw ->
+        val norm = PlaybackIdentity.normalizeLocalPath(raw)
+        SecureMediaRegistry.identitiesForPath(raw) + raw + norm + if (raw.startsWith("/")) "file://$raw" else ""
+      }
+      .filter { it.isNotBlank() }
       .distinct()
 
   suspend fun moveIn(
@@ -226,12 +255,12 @@ class SecureFolderRepository(
               mimeType = enc(mime),
               dateHidden = System.currentTimeMillis(),
             )
-          val entityId = dao.insert(vaultEntity)
+          val entityId = activeDao().insert(vaultEntity)
 
           val sourceDeleted = sourceFile.delete()
           if (!sourceDeleted) {
             Log.w(TAG, "Failed to delete original after encrypt, rolling back: ${video.path}")
-            dao.deleteById(entityId)
+            activeDao().deleteById(entityId)
             destFile.delete()
             throw IOException(context.getString(R.string.storage_source_delete_failed))
           }
@@ -247,6 +276,7 @@ class SecureFolderRepository(
             oldMediaTitles = oldStateKeys,
             newMediaTitle = destFile.absolutePath,
             toSecure = true,
+            displayLabel = sourceFile.name,
           )
           secureBookmarkStore.migrateMediaToVault(
             publicBookmarkDao = publicBookmarkDao,
@@ -398,6 +428,7 @@ class SecureFolderRepository(
                     .distinct(),
                 newMediaTitle = move.file.absolutePath,
                 toSecure = true,
+                displayLabel = move.entity.fileName,
               )
               secureBookmarkStore.migrateMediaToVault(
                 publicBookmarkDao = publicBookmarkDao,
@@ -409,7 +440,7 @@ class SecureFolderRepository(
                 fileSizeBytes = move.entity.fileSize,
               )
             } else {
-              dao.deleteById(move.entityId)
+              activeDao().deleteById(move.entityId)
               discardPrivateCopy(move.file)
             }
           } catch (error: Exception) {
@@ -527,29 +558,15 @@ class SecureFolderRepository(
             throw IOException("Restore verification failed for ${entity.fileName}")
           }
 
-          val restoredId = PlaybackIdentity.forLocalPath(restoreTarget.absolutePath)
-          secureBookmarkStore.migrateMediaToPublic(
-            publicBookmarkDao = publicBookmarkDao,
-            publicTagDao = publicTagDao,
-            vaultMediaIds = playbackIds(entity.secureFilePath, entity.originalPath),
-            restoredMediaId = restoredId,
-            restoredPath = restoreTarget.absolutePath,
-            displayTitle = entity.fileName,
-            fileSizeBytes = expectedPlainSize,
-          )
-          playbackStateRepository.migrateState(
-            oldMediaTitles =
-              (playbackIds(entity.secureFilePath) + listOf(entity.secureFilePath, entity.fileName)).distinct(),
-            newMediaTitle = restoreTarget.absolutePath,
-            toSecure = false,
-          )
-          secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
+          // Vault Retention Policy (Echo): restoring a file from Secret Folder ONLY restores/unlocks the
+          // video file itself. Bookmarks, JAVID groups, thumbnails, tags, and resume timestamps stay
+          // safely inside SecureVaultDatabase so they never leak to public storage and remain reusable.
           thumbnailRepository.evictSecureMemoryCache()
 
           if (!secureFile.delete()) {
             Log.w(TAG, "Restored but couldn't clean up secure copy: ${entity.secureFilePath}")
           }
-          dao.deleteById(entity.id)
+          activeDao().deleteById(entity.id)
           syncRegistry()
 
           triggerMediaScan(context, restoreTarget.absolutePath)
@@ -601,11 +618,9 @@ class SecureFolderRepository(
           val deleted = !secureFile.exists() || secureFile.delete()
 
           if (deleted) {
-            dao.deleteById(entity.id)
-            secureBookmarkStore.deleteAllForMedia(playbackIds(entity.secureFilePath, entity.originalPath))
-            playbackStateRepository.deleteByTitle(entity.secureFilePath)
-            playbackStateRepository.deleteByTitle(entity.fileName)
-            secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
+            // Retain bookmarks, JAVID groups, thumbnails, tags, and timestamps in vault unless the user
+            // explicitly removes them via the Vault-Safe Data Manager.
+            activeDao().deleteById(entity.id)
             succeeded += entity.id
           } else {
             Log.w(TAG, "Failed to delete secure file, keeping DB row: ${entity.secureFilePath}")
@@ -633,6 +648,7 @@ class SecureFolderRepository(
   suspend fun destroyAll(context: Context): Result<Int> =
     withContext(Dispatchers.IO) {
       VaultCrypto.ensureInitialized(context)
+      val decoyMode = SecureFolderSession.isDecoyUnlocked
       val entities = getAll()
       if (entities.isNotEmpty()) {
         val batch = deleteForever(entities).getOrElse { return@withContext Result.failure(it) }
@@ -642,11 +658,15 @@ class SecureFolderRepository(
       }
 
       val dirsToClean =
-        listOfNotNull(
-          DurableStorageManager.vaultMediaDir(context),
-          DurableStorageManager.legacyVaultDirectory(context),
-          DurableStorageManager.legacyV322VaultDirectory(context),
-        ).distinctBy { it.absolutePath }
+        if (decoyMode) {
+          listOf(DurableStorageManager.decoyMediaDir(context))
+        } else {
+          listOfNotNull(
+            DurableStorageManager.vaultMediaDir(context),
+            DurableStorageManager.legacyVaultDirectory(context),
+            DurableStorageManager.legacyV322VaultDirectory(context),
+          ).distinctBy { it.absolutePath }
+        }
       val leftoverFiles =
         dirsToClean
           .flatMap { dir -> dir.listFiles()?.toList().orEmpty() }
@@ -656,28 +676,89 @@ class SecureFolderRepository(
         return@withContext Result.failure(IOException("Failed to delete $failedDeletes leftover file(s)"))
       }
 
-      dao.deleteAll()
-      secureBookmarkStore.clearAll()
-      playbackStateRepository.clearSecurePlaybackStates()
-      secureVideoMetadataDao.clearAll()
-      thumbnailRepository.clearSecureThumbnailCache()
-      watchStatsRepository.clearSecure()
-      DurablePreferencesSync.deleteSecureConfig(context)
+      if (decoyMode) {
+        decoyDao?.deleteAll()
+        secureBookmarkStore.clearAll(decoyOnly = true)
+        playbackStateRepository.clearSecurePlaybackStates(decoyOnly = true)
+        decoyVideoMetadataDao?.clearAll()
+        thumbnailRepository.clearSecureThumbnailCache(decoyOnly = true)
+        watchStatsRepository.clearDecoy()
+      } else {
+        dao.deleteAll()
+        decoyDao?.deleteAll()
+        secureBookmarkStore.clearAll(decoyOnly = false)
+        secureBookmarkStore.clearAll(decoyOnly = true)
+        playbackStateRepository.clearSecurePlaybackStates(decoyOnly = false)
+        playbackStateRepository.clearSecurePlaybackStates(decoyOnly = true)
+        secureVideoMetadataDao.clearAll()
+        decoyVideoMetadataDao?.clearAll()
+        thumbnailRepository.clearSecureThumbnailCache(decoyOnly = false)
+        thumbnailRepository.clearSecureThumbnailCache(decoyOnly = true)
+        watchStatsRepository.clearSecure()
+        watchStatsRepository.clearDecoy()
+        DurablePreferencesSync.deleteSecureConfig(context)
+      }
       syncRegistry()
       SecureFolderSession.lockNow()
       Result.success(entities.size)
     }
 
-  fun observeAll(): Flow<List<SecureMediaEntity>> =
-    dao.observeAll().map { list -> list.map { it.toDomain() } }
+  /** Erases only the Decoy Vault compartment (`.vault_d/`) and its isolated metadata, leaving Primary intact. */
+  suspend fun destroyDecoyOnly(context: Context): Result<Int> =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        VaultCrypto.ensureInitialized(context)
+        val entities = decoyDao?.getAll()?.map { it.toDomain() }.orEmpty()
+        var removedCount = 0
+        entities.forEach { entity ->
+          val file = File(entity.secureFilePath)
+          if (file.exists() && !file.delete()) {
+            throw IOException("Failed to delete decoy file: ${file.name}")
+          }
+          removedCount++
+        }
+        val decoyDir = DurableStorageManager.decoyMediaDir(context)
+        decoyDir.listFiles()?.toList().orEmpty()
+          .filter { it.isFile && !it.name.equals(".nomedia", ignoreCase = true) }
+          .forEach { file ->
+            if (!file.delete()) {
+              throw IOException("Failed to delete leftover decoy file: ${file.name}")
+            }
+            removedCount++
+          }
+        decoyDao?.deleteAll()
+        secureBookmarkStore.clearAll(decoyOnly = true)
+        playbackStateRepository.clearSecurePlaybackStates(decoyOnly = true)
+        decoyVideoMetadataDao?.clearAll()
+        thumbnailRepository.clearSecureThumbnailCache(decoyOnly = true)
+        watchStatsRepository.clearDecoy()
+        syncRegistry()
+        if (SecureFolderSession.isDecoyUnlocked) {
+          SecureFolderSession.lockNow()
+        }
+        removedCount
+      }
+    }
 
-  fun observeCount(): Flow<Int> = dao.observeCount()
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  fun observeAll(): Flow<List<SecureMediaEntity>> =
+    SecureFolderSession.modeState.flatMapLatest { mode ->
+      val targetDao = if (mode == SecureFolderSession.VaultMode.DECOY && decoyDao != null) decoyDao else dao
+      targetDao.observeAll().map { list -> list.map { it.toDomain() } }
+    }
+
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  fun observeCount(): Flow<Int> =
+    SecureFolderSession.modeState.flatMapLatest { mode ->
+      val targetDao = if (mode == SecureFolderSession.VaultMode.DECOY && decoyDao != null) decoyDao else dao
+      targetDao.observeCount()
+    }
 
   suspend fun getAll(): List<SecureMediaEntity> =
-    withContext(Dispatchers.IO) { dao.getAll().map { it.toDomain() } }
+    withContext(Dispatchers.IO) { activeDao().getAll().map { it.toDomain() } }
 
   suspend fun getByIds(ids: List<Long>): List<SecureMediaEntity> =
-    withContext(Dispatchers.IO) { dao.getByIds(ids).map { it.toDomain() } }
+    withContext(Dispatchers.IO) { activeDao().getByIds(ids).map { it.toDomain() } }
 
   private data class ScopedRestoreLocation(
     val collection: Uri,
@@ -742,26 +823,8 @@ class SecureFolderRepository(
       }
       published = true
       withContext(NonCancellable) {
-        val restoredLocalPath = ScopedHiddenFolderScanner.localPathOf(restoredUri)
-        val targetPathOrUri = restoredLocalPath ?: restoredUri.toString()
-        val restoredId = PlaybackIdentity.forLocalPath(targetPathOrUri)
-        secureBookmarkStore.migrateMediaToPublic(
-          publicBookmarkDao = publicBookmarkDao,
-          publicTagDao = publicTagDao,
-          vaultMediaIds = playbackIds(entity.secureFilePath, entity.originalPath),
-          restoredMediaId = restoredId,
-          restoredPath = targetPathOrUri,
-          displayTitle = entity.fileName,
-          fileSizeBytes = expectedPlainSize,
-        )
-        playbackStateRepository.migrateState(
-          oldMediaTitles =
-            (playbackIds(entity.secureFilePath) + listOf(entity.secureFilePath, entity.fileName)).distinct(),
-          newMediaTitle = targetPathOrUri,
-          toSecure = false,
-        )
-        secureVideoMetadataDao.deleteByHashes(listOf(VaultCrypto.hmacKey(entity.secureFilePath)))
-        dao.deleteById(entity.id)
+        thumbnailRepository.evictSecureMemoryCache()
+        activeDao().deleteById(entity.id)
         syncRegistry()
         if (!secureFile.delete()) {
           Log.w(TAG, "Restored but couldn't clean up secure copy: ${entity.secureFilePath}")

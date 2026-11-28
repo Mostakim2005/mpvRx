@@ -29,11 +29,26 @@ import java.util.concurrent.TimeUnit
 object SecureFolderSession {
   const val BACKGROUND_LOCK_GRACE_MS = 30_000L
 
+  enum class VaultMode {
+    LOCKED,
+    PRIMARY,
+    DECOY,
+  }
+
+  private val _modeState = MutableStateFlow(VaultMode.LOCKED)
+  val modeState: StateFlow<VaultMode> = _modeState.asStateFlow()
+
   private val _unlockedState = MutableStateFlow(false)
   val unlockedState: StateFlow<Boolean> = _unlockedState.asStateFlow()
 
   val isUnlocked: Boolean
     get() = _unlockedState.value
+
+  val isPrimaryUnlocked: Boolean
+    get() = _modeState.value == VaultMode.PRIMARY
+
+  val isDecoyUnlocked: Boolean
+    get() = _modeState.value == VaultMode.DECOY
 
   internal var clockMs: () -> Long = System::currentTimeMillis
 
@@ -56,6 +71,17 @@ object SecureFolderSession {
       pendingTimer?.cancel(false)
       pendingTimer = null
       backgroundedAtMs = 0L
+      _modeState.value = VaultMode.PRIMARY
+      _unlockedState.value = true
+    }
+  }
+
+  fun markDecoyUnlocked() {
+    synchronized(lock) {
+      pendingTimer?.cancel(false)
+      pendingTimer = null
+      backgroundedAtMs = 0L
+      _modeState.value = VaultMode.DECOY
       _unlockedState.value = true
     }
   }
@@ -108,6 +134,7 @@ object SecureFolderSession {
       pendingTimer?.cancel(false)
       pendingTimer = null
       backgroundedAtMs = 0L
+      _modeState.value = VaultMode.LOCKED
       _unlockedState.value = false
     }
     runCatching { VaultStreamingProxy.revokeAllActiveStreams() }

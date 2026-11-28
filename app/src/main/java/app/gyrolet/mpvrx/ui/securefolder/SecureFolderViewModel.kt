@@ -77,12 +77,34 @@ class SecureFolderViewModel(
     _gateStep.value = if (preferences.isPinSet()) GateStep.ENTER_PIN else GateStep.SETUP
   }
 
+  enum class PinVerifyResult { INVALID, PRIMARY, DECOY }
+
   /** Called from ENTER_PIN. On success the caller (Gate screen) navigates to the grid. */
   fun verifyPin(pin: String): Boolean {
     val ok = preferences.verifyPin(pin)
     _gateError.value = if (ok) null else getApplication<Application>().getString(R.string.secure_folder_error_incorrect_pin)
     return ok
   }
+
+  /**
+   * Authenticates against the Primary Vault PIN first, then falls back to the Decoy Vault PIN
+   * when Decoy Mode is enabled. Neither UI nor error copy exposes whether a Decoy PIN exists.
+   */
+  fun authenticatePin(pin: String): PinVerifyResult =
+    when {
+      preferences.verifyPin(pin) -> {
+        _gateError.value = null
+        PinVerifyResult.PRIMARY
+      }
+      preferences.isDecoyActive() && preferences.verifyDecoyPin(pin) -> {
+        _gateError.value = null
+        PinVerifyResult.DECOY
+      }
+      else -> {
+        _gateError.value = getApplication<Application>().getString(R.string.secure_folder_error_incorrect_pin)
+        PinVerifyResult.INVALID
+      }
+    }
 
   /**
    * First-time setup: PIN and security question/answer are validated and persisted together in
@@ -237,6 +259,23 @@ class SecureFolderViewModel(
         _selectedIds.value = emptySet()
         _gateError.value = null
         _gateStep.value = GateStep.SETUP
+      }
+      _isBusy.value = false
+      onFinished(success)
+    }
+  }
+
+  fun destroyDecoyFolder(onFinished: (Boolean) -> Unit) {
+    if (_isBusy.value) return
+    viewModelScope.launch {
+      _isBusy.value = true
+      val success =
+        runCatching { repository.destroyDecoyOnly(getApplication()) }
+          .getOrElse { Result.failure<Int>(it) }
+          .onFailure { Log.e(TAG, "Decoy destroy failed", it) }
+          .isSuccess
+      if (success) {
+        preferences.clearDecoyPin()
       }
       _isBusy.value = false
       onFinished(success)

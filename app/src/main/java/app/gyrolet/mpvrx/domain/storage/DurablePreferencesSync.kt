@@ -35,6 +35,7 @@ object DurablePreferencesSync {
   private const val TAG = "DurablePreferencesSync"
   private const val DEBOUNCE_MS = 1_500L
   private const val SECURE_PREFIX = "secure_folder_"
+  private const val BOOKMARK_SYNC_PREFIX = "bookmark_sync_"
 
   private val EXCLUDED_EXACT = setOf(
     "onboarding_completed",
@@ -57,6 +58,7 @@ object DurablePreferencesSync {
     "navidrome_",
     "audiobookshelf_",
     "syncplay_",
+    "bookmark_sync_",
   )
 
   private enum class Kind { STRING, BOOLEAN, INT, LONG, FLOAT, STRING_SET }
@@ -84,7 +86,8 @@ object DurablePreferencesSync {
 
   @Volatile private var isApplyingRestore = false
 
-  fun isVaultKey(key: String): Boolean = key.startsWith(SECURE_PREFIX)
+  fun isVaultKey(key: String): Boolean =
+    key.startsWith(SECURE_PREFIX) || key.startsWith(BOOKMARK_SYNC_PREFIX)
 
   fun shouldMirrorPublicKey(key: String): Boolean {
     if (isVaultKey(key)) return false

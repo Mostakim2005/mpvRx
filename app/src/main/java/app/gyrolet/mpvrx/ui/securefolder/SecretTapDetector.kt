@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 
 /** Default number of taps the stealth entry points require. */
-const val SECRET_TAP_COUNT = 5
+const val SECRET_TAP_COUNT = 3
 
 /** Default sliding window in which [SECRET_TAP_COUNT] taps must land. */
 const val SECRET_TAP_WINDOW_MS = 3_000L

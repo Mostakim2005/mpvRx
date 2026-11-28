@@ -40,6 +40,7 @@ class VideoMetadataCacheRepository(
   private val context: Context,
   private val dao: VideoMetadataDao,
   private val secureDao: SecureVideoMetadataDao? = null,
+  private val decoyDao: SecureVideoMetadataDao? = null,
 ) {
   companion object {
     private const val TAG = "VideoMetadataCache"
@@ -293,12 +294,27 @@ class VideoMetadataCacheRepository(
         if (publicPaths.isEmpty()) emptyMap()
         else publicPaths.distinct().chunked(500).flatMap { chunk -> dao.getMetadataBatch(chunk) }.associateBy { it.path }
 
+      val primaryHashes =
+        files.filter { vaultFlags[it.first.absolutePath] == true && !DurableStorageManager.isDecoyVaultPath(it.first.absolutePath) }
+          .map { VaultCrypto.hmacKey(it.first.absolutePath) }
+      val decoyHashes =
+        files.filter { vaultFlags[it.first.absolutePath] == true && DurableStorageManager.isDecoyVaultPath(it.first.absolutePath) }
+          .map { VaultCrypto.hmacKey(it.first.absolutePath) }
       val vaultPathToHash =
         files.filter { vaultFlags[it.first.absolutePath] == true }
           .associate { (file, _, _) -> file.absolutePath to VaultCrypto.hmacKey(file.absolutePath) }
-      val secCachedByHash =
-        if (vaultPathToHash.isEmpty() || secureDao == null) emptyMap()
-        else vaultPathToHash.values.distinct().chunked(500).flatMap { chunk -> secureDao.getMetadataBatch(chunk) }.associateBy { it.pathHash }
+      val secCachedByHash = buildMap {
+        if (primaryHashes.isNotEmpty() && secureDao != null) {
+          primaryHashes.distinct().chunked(500).flatMap { chunk -> secureDao.getMetadataBatch(chunk) }.forEach {
+            put(it.pathHash, it)
+          }
+        }
+        if (decoyHashes.isNotEmpty() && decoyDao != null) {
+          decoyHashes.distinct().chunked(500).flatMap { chunk -> decoyDao.getMetadataBatch(chunk) }.forEach {
+            put(it.pathHash, it)
+          }
+        }
+      }
 
       // Separate cached and uncached files
       val cachedFiles = mutableListOf<Triple<String, File, MediaInfoOps.VideoMetadata>>()
@@ -349,6 +365,7 @@ class VideoMetadataCacheRepository(
       if (uncachedFiles.isNotEmpty()) {
         val extractedMetadata = mutableListOf<VideoMetadataEntity>()
         val extractedSecureMetadata = mutableListOf<SecureVideoMetadataEntity>()
+        val extractedDecoyMetadata = mutableListOf<SecureVideoMetadataEntity>()
 
         uncachedFiles.chunked(PARALLEL_PROCESSING_LIMIT).forEach { batch ->
           coroutineScope {
@@ -358,6 +375,7 @@ class VideoMetadataCacheRepository(
                   async {
                     val path = file.absolutePath
                     val isVault = vaultFlags[path] == true
+                    val isDecoy = isVault && DurableStorageManager.isDecoyVaultPath(path)
                     val size = if (isVault) VaultCrypto.plaintextLength(file) else file.length()
                     val dateModified = file.lastModified() / 1000
 
@@ -366,21 +384,24 @@ class VideoMetadataCacheRepository(
                       .onSuccess { metadata ->
                         if (metadata.durationMs > 0L) {
                           if (isVault) {
-                            synchronized(extractedSecureMetadata) {
-                              extractedSecureMetadata.add(
-                                SecureVideoMetadataEntity(
-                                  pathHash = vaultPathToHash[path] ?: VaultCrypto.hmacKey(path),
-                                  size = size,
-                                  dateModified = dateModified,
-                                  duration = metadata.durationMs,
-                                  width = metadata.width,
-                                  height = metadata.height,
-                                  fps = metadata.fps,
-                                  hasEmbeddedSubtitles = metadata.hasEmbeddedSubtitles,
-                                  subtitleCodec = encryptCodec(metadata.subtitleCodec),
-                                  lastScanned = System.currentTimeMillis(),
-                                ),
+                            val entity =
+                              SecureVideoMetadataEntity(
+                                pathHash = vaultPathToHash[path] ?: VaultCrypto.hmacKey(path),
+                                size = size,
+                                dateModified = dateModified,
+                                duration = metadata.durationMs,
+                                width = metadata.width,
+                                height = metadata.height,
+                                fps = metadata.fps,
+                                hasEmbeddedSubtitles = metadata.hasEmbeddedSubtitles,
+                                subtitleCodec = encryptCodec(metadata.subtitleCodec),
+                                displayLabel = encryptCodec(displayName.ifBlank { file.name }),
+                                lastScanned = System.currentTimeMillis(),
                               )
+                            if (isDecoy && decoyDao != null) {
+                              synchronized(extractedDecoyMetadata) { extractedDecoyMetadata.add(entity) }
+                            } else {
+                              synchronized(extractedSecureMetadata) { extractedSecureMetadata.add(entity) }
                             }
                           } else {
                             synchronized(extractedMetadata) {
@@ -421,6 +442,9 @@ class VideoMetadataCacheRepository(
         }
         if (extractedSecureMetadata.isNotEmpty()) {
           secureDao?.insertMetadataBatch(extractedSecureMetadata)
+        }
+        if (extractedDecoyMetadata.isNotEmpty()) {
+          decoyDao?.insertMetadataBatch(extractedDecoyMetadata)
         }
       }
 
@@ -497,7 +521,9 @@ class VideoMetadataCacheRepository(
     withContext(Dispatchers.IO) {
       dao.deleteByPaths(listOf(path, contentKey(path, Uri.parse(path))))
       VaultCrypto.ensureInitialized(context)
-      secureDao?.deleteByHashes(listOf(VaultCrypto.hmacKey(path)))
+      val hash = VaultCrypto.hmacKey(path)
+      secureDao?.deleteByHashes(listOf(hash))
+      decoyDao?.deleteByHashes(listOf(hash))
       Log.d(TAG, "Invalidated cache for: $path")
     }
   }
@@ -514,14 +540,34 @@ class VideoMetadataCacheRepository(
       VaultCrypto.ensureInitialized(context)
       paths.map { VaultCrypto.hmacKey(it) }.distinct().chunked(900).forEach { hashes ->
         secureDao?.deleteByHashes(hashes)
+        decoyDao?.deleteByHashes(hashes)
       }
       Log.d(TAG, "Invalidated cache for ${paths.size} videos")
     }
   }
 
-  suspend fun clearSecureMetadata() {
+  private fun targetSecureMetadataDao(path: String): SecureVideoMetadataDao? =
+    if (DurableStorageManager.isDecoyVaultPath(path) && decoyDao != null) decoyDao else secureDao
+
+  suspend fun getAllSecureMetadata(): List<Pair<SecureVideoMetadataEntity, String>> =
     withContext(Dispatchers.IO) {
-      secureDao?.clearAll()
+      VaultCrypto.ensureInitialized(context)
+      secureDao?.getAll().orEmpty().map { entity ->
+        entity to decryptCodec(entity.displayLabel)
+      }
+    }
+
+  suspend fun deleteSecureMetadataByHashes(hashes: List<String>) =
+    withContext(Dispatchers.IO) {
+      if (hashes.isEmpty()) return@withContext
+      hashes.chunked(900).forEach { chunk ->
+        secureDao?.deleteByHashes(chunk)
+      }
+    }
+
+  suspend fun clearSecureMetadata(decoyOnly: Boolean = false) {
+    withContext(Dispatchers.IO) {
+      if (decoyOnly) decoyDao?.clearAll() else secureDao?.clearAll()
     }
   }
 

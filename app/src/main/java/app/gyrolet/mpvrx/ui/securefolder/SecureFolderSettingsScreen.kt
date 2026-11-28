@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +42,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.domain.secure.SecureFolderSession
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.ConfirmDialog
+import app.gyrolet.mpvrx.repository.bookmark.PcBookmarkSyncRepository
+import app.gyrolet.mpvrx.ui.bookmarks.JavidCatalogDialog
+import app.gyrolet.mpvrx.ui.preferences.BookmarkSyncConfigDialog
 import app.gyrolet.mpvrx.ui.preferences.settingsSearchTarget
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
 import app.gyrolet.mpvrx.ui.icons.AppIcon
@@ -55,7 +60,10 @@ import app.gyrolet.mpvrx.ui.preferences.PreferenceSectionHeader
 import app.gyrolet.mpvrx.ui.preferences.components.SwitchPreference
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.popSafely
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import org.koin.compose.koinInject
 
 /**
  * Settings for the Secure Folder: biometric unlock, PIN / security-question management, hiding
@@ -73,6 +81,8 @@ data object SecureFolderSettingsScreen : Screen {
     val viewModel: SecureFolderViewModel =
       viewModel(factory = SecureFolderViewModel.factory(context.applicationContext as android.app.Application))
     val preferences = viewModel.preferences
+    val syncRepository = koinInject<PcBookmarkSyncRepository>()
+    val scope = rememberCoroutineScope()
 
     val isBiometricEnabled by preferences.isBiometricEnabled.collectAsState()
     val isEntryPointHidden by preferences.isEntryPointHidden.collectAsState()
@@ -82,6 +92,11 @@ data object SecureFolderSettingsScreen : Screen {
     var forgotPinOpen by remember { mutableStateOf(false) }
     var hideConfirmOpen by remember { mutableStateOf(false) }
     var biometricPinOpen by remember { mutableStateOf(false) }
+    var vaultHubPinOpen by remember { mutableStateOf(false) }
+    var vaultHubOpen by remember { mutableStateOf(false) }
+    var avSyncDialogOpen by remember { mutableStateOf(false) }
+    var javidCatalogOpen by remember { mutableStateOf(false) }
+    var dataManagerOpen by remember { mutableStateOf(false) }
 
     val pinChangedMessage = stringResource(R.string.secure_folder_pin_changed)
     val securityQuestionChangedMessage = stringResource(R.string.secure_folder_security_question_changed)
@@ -125,6 +140,13 @@ data object SecureFolderSettingsScreen : Screen {
           totalCount = 0,
           onBackClick = { backstack.popSafely() },
           onCancelSelection = {},
+          onTitleTripleTap = {
+            if (preferences.isPinSet()) {
+              vaultHubPinOpen = true
+            } else {
+              toast(setUpFirstMessage)
+            }
+          },
         )
       },
     ) { padding ->
@@ -278,6 +300,45 @@ data object SecureFolderSettingsScreen : Screen {
       preferences = preferences,
       onDismiss = { forgotPinOpen = false },
       onChanged = { toast(pinChangedMessage) },
+    )
+
+    VerifyPinDialog(
+      isOpen = vaultHubPinOpen,
+      title = stringResource(R.string.vault_control_hub_verify_title),
+      preferences = preferences,
+      onDismiss = { vaultHubPinOpen = false },
+      onVerified = {
+        SecureFolderSession.markUnlocked()
+        scope.launch(Dispatchers.IO) {
+          syncRepository.migrateLegacyPublicAvDataToPrimaryVault()
+        }
+        vaultHubOpen = true
+      },
+    )
+
+    VaultControlHubDialog(
+      isOpen = vaultHubOpen,
+      viewModel = viewModel,
+      onDismiss = { vaultHubOpen = false },
+      onOpenAvSync = { avSyncDialogOpen = true },
+      onOpenJavidCatalog = { javidCatalogOpen = true },
+      onOpenDataManager = { dataManagerOpen = true },
+    )
+
+    BookmarkSyncConfigDialog(
+      isOpen = avSyncDialogOpen,
+      onDismiss = { avSyncDialogOpen = false },
+    )
+
+    JavidCatalogDialog(
+      isOpen = javidCatalogOpen,
+      syncRepository = syncRepository,
+      onDismiss = { javidCatalogOpen = false },
+    )
+
+    VaultDataManagerDialog(
+      isOpen = dataManagerOpen,
+      onDismiss = { dataManagerOpen = false },
     )
   }
 }
